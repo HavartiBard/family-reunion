@@ -3,202 +3,677 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Family Reunion – Stay Connected</title>
+  <title>Family Reunion</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --brand: #b85c00;
+      --brand-dark: #9a4d00;
+      --bg: #fdf6ee;
+      --card: #fff;
+      --border: #e0d5c8;
+      --text: #2d2d2d;
+      --muted: #666;
+      --hint: #888;
+    }
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #fdf6ee;
+      background: var(--bg);
       min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
+      color: var(--text);
       padding: 2rem 1rem 4rem;
-      color: #2d2d2d;
+    }
+
+    /* ── Layout ── */
+    .container { max-width: 640px; margin: 0 auto; }
+
+    .site-header {
+      text-align: center;
+      padding: 1.5rem 0 2rem;
+    }
+    .site-header .emoji { font-size: 3rem; }
+    .site-header h1 { font-size: 1.8rem; font-weight: 700; color: var(--brand); margin-top: 0.5rem; }
+    .site-header p { color: var(--muted); margin-top: 0.4rem; }
+
+    nav {
+      display: flex;
+      gap: 0.5rem;
+      justify-content: center;
+      margin-bottom: 1.75rem;
+      flex-wrap: wrap;
+    }
+    nav button {
+      background: none;
+      border: 1.5px solid var(--border);
+      border-radius: 20px;
+      padding: 0.4rem 1rem;
+      font-size: 0.9rem;
+      cursor: pointer;
+      color: var(--muted);
+      transition: all 0.15s;
+    }
+    nav button.active, nav button:hover {
+      background: var(--brand);
+      border-color: var(--brand);
+      color: #fff;
     }
 
     .card {
-      background: #fff;
+      background: var(--card);
       border-radius: 16px;
       box-shadow: 0 4px 24px rgba(0,0,0,0.08);
-      padding: 2.5rem 2rem;
-      width: 100%;
-      max-width: 480px;
+      padding: 2rem;
+      margin-bottom: 1.5rem;
     }
-
-    .header {
-      text-align: center;
-      margin-bottom: 2rem;
-    }
-
-    .header .emoji {
-      font-size: 3rem;
-      line-height: 1;
-      margin-bottom: 0.75rem;
-    }
-
-    .header h1 {
-      font-size: 1.6rem;
+    .card-title {
+      font-size: 1.1rem;
       font-weight: 700;
-      color: #b85c00;
-      margin-bottom: 0.4rem;
-    }
-
-    .header p {
-      font-size: 0.95rem;
-      color: #666;
-      line-height: 1.5;
-    }
-
-    .form-group {
       margin-bottom: 1.25rem;
+      color: var(--brand);
     }
 
+    /* ── Forms ── */
+    .form-group { margin-bottom: 1rem; }
     label {
       display: block;
-      font-size: 0.85rem;
+      font-size: 0.82rem;
       font-weight: 600;
       color: #444;
-      margin-bottom: 0.4rem;
+      margin-bottom: 0.35rem;
       text-transform: uppercase;
       letter-spacing: 0.03em;
     }
-
-    label .required {
-      color: #b85c00;
-      margin-left: 2px;
-    }
-
-    input {
+    label .req { color: var(--brand); margin-left: 2px; }
+    input, textarea {
       width: 100%;
-      padding: 0.75rem 1rem;
-      border: 1.5px solid #e0d5c8;
+      padding: 0.7rem 0.9rem;
+      border: 1.5px solid var(--border);
       border-radius: 8px;
-      font-size: 1rem;
-      color: #2d2d2d;
+      font-size: 0.97rem;
+      color: var(--text);
       background: #fdf9f5;
       transition: border-color 0.2s, box-shadow 0.2s;
       -webkit-appearance: none;
     }
-
-    input:focus {
+    input:focus, textarea:focus {
       outline: none;
-      border-color: #b85c00;
+      border-color: var(--brand);
       box-shadow: 0 0 0 3px rgba(184,92,0,0.12);
       background: #fff;
     }
+    input::placeholder, textarea::placeholder { color: #b0a090; }
+    textarea { resize: vertical; min-height: 80px; }
 
-    input::placeholder { color: #b0a090; }
+    .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
 
-    .hint {
-      font-size: 0.8rem;
-      color: #888;
-      margin-top: 0.3rem;
-    }
-
-    button[type="submit"] {
-      width: 100%;
-      padding: 0.85rem;
-      background: #b85c00;
-      color: #fff;
-      border: none;
-      border-radius: 8px;
-      font-size: 1.05rem;
+    .tabs { display: flex; border-bottom: 2px solid var(--border); margin-bottom: 1.5rem; }
+    .tab {
+      padding: 0.6rem 1.25rem;
+      font-size: 0.95rem;
       font-weight: 600;
       cursor: pointer;
-      margin-top: 0.5rem;
-      transition: background 0.2s, transform 0.1s;
+      border: none;
+      background: none;
+      color: var(--hint);
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+      transition: color 0.15s;
+    }
+    .tab.active { color: var(--brand); border-bottom-color: var(--brand); }
+
+    .btn {
+      display: inline-block;
+      padding: 0.75rem 1.5rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.97rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
       letter-spacing: 0.02em;
     }
+    .btn:active { transform: scale(0.98); }
+    .btn-primary { background: var(--brand); color: #fff; }
+    .btn-primary:hover { background: var(--brand-dark); }
+    .btn-secondary { background: #f0e8de; color: var(--text); }
+    .btn-secondary:hover { background: #e8ddd0; }
+    .btn-danger { background: #c0392b; color: #fff; }
+    .btn-danger:hover { background: #a93226; }
+    .btn-sm { padding: 0.4rem 0.85rem; font-size: 0.85rem; }
+    .btn-full { width: 100%; }
+    .btn-row { display: flex; gap: 0.75rem; margin-top: 1rem; }
 
-    button[type="submit"]:hover { background: #9a4d00; }
-    button[type="submit"]:active { transform: scale(0.98); }
-
-    .divider {
-      border: none;
-      border-top: 1.5px solid #f0e8de;
-      margin: 1.75rem 0;
+    .alert {
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      margin-bottom: 1rem;
     }
+    .alert-error { background: #fdecea; color: #c0392b; border: 1px solid #f5c6c2; }
+    .alert-success { background: #eafaf1; color: #196f3d; border: 1px solid #a9dfbf; }
+    .alert-info { background: #eaf4fb; color: #1a5276; border: 1px solid #aed6f1; }
 
-    /* Success state */
-    .success {
+    /* ── Views ── */
+    .view { display: none; }
+    .view.active { display: block; }
+
+    /* ── Directory ── */
+    .member-list { display: flex; flex-direction: column; gap: 0.75rem; }
+    .member-card {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 1rem;
+      background: var(--bg);
+      border-radius: 10px;
+    }
+    .avatar {
+      width: 44px; height: 44px;
+      border-radius: 50%;
+      background: var(--brand);
+      color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700;
+      font-size: 1.1rem;
+      flex-shrink: 0;
+    }
+    .member-info { flex: 1; min-width: 0; }
+    .member-name { font-weight: 600; font-size: 0.97rem; }
+    .member-detail { font-size: 0.83rem; color: var(--muted); margin-top: 0.15rem; }
+
+    /* ── News ── */
+    .news-post {
+      padding: 1.25rem;
+      background: var(--bg);
+      border-radius: 10px;
+      margin-bottom: 0.75rem;
+    }
+    .news-title { font-weight: 700; font-size: 1rem; }
+    .news-meta { font-size: 0.8rem; color: var(--hint); margin: 0.3rem 0 0.6rem; }
+    .news-body { font-size: 0.93rem; line-height: 1.6; white-space: pre-wrap; }
+
+    /* ── Profile ── */
+    .profile-field { margin-bottom: 0.5rem; font-size: 0.92rem; }
+    .profile-field strong { display: inline-block; width: 90px; color: var(--muted); font-size: 0.83rem; text-transform: uppercase; }
+
+    /* ── Pending / empty states ── */
+    .empty-state { text-align: center; padding: 2.5rem 1rem; color: var(--hint); }
+    .empty-state .emoji { font-size: 2.5rem; margin-bottom: 0.75rem; }
+
+    /* ── Spinner ── */
+    .spinner {
+      border: 3px solid #f0e8de;
+      border-top-color: var(--brand);
+      border-radius: 50%;
+      width: 28px; height: 28px;
+      animation: spin 0.7s linear infinite;
+      margin: 2rem auto;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.6rem;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .badge-pending { background: #fef9e7; color: #d68910; border: 1px solid #f9e79f; }
+    .badge-ok { background: #eafaf1; color: #196f3d; border: 1px solid #a9dfbf; }
+
+    .footer { text-align: center; font-size: 0.8rem; color: #bbb; margin-top: 2rem; }
+    .link { color: var(--brand); cursor: pointer; text-decoration: underline; }
+
+    #logout-btn {
+      position: fixed; top: 1rem; right: 1rem;
+      font-size: 0.8rem; padding: 0.4rem 0.8rem;
+      background: #fff; border: 1.5px solid var(--border);
+      border-radius: 20px; cursor: pointer; color: var(--muted);
       display: none;
-      text-align: center;
-      padding: 1rem 0;
     }
+    #logout-btn:hover { background: #fdf6ee; }
 
-    .success .emoji { font-size: 3.5rem; margin-bottom: 1rem; }
-    .success h2 { color: #b85c00; font-size: 1.4rem; margin-bottom: 0.5rem; }
-    .success p { color: #666; line-height: 1.6; }
-
-    .footer {
-      margin-top: 2rem;
-      font-size: 0.8rem;
-      color: #aaa;
-      text-align: center;
+    @media (max-width: 480px) {
+      .row-2 { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
 
-  <div class="card">
-    <div class="header">
-      <div class="emoji">🏡</div>
-      <h1>Family Reunion</h1>
-      <p>Fill in your details so we can stay in touch and keep you updated about the reunion!</p>
-    </div>
+<button id="logout-btn" onclick="logout()">Sign out</button>
 
-    <form id="contact-form" action="https://formspree.io/f/james@klsll.com" method="POST">
+<div class="container">
+  <header class="site-header">
+    <div class="emoji">🏡</div>
+    <h1>Family Reunion</h1>
+    <p>Stay connected with the family</p>
+  </header>
 
-      <input type="hidden" name="_subject" value="Family Reunion – New Contact" />
-
-      <div class="form-group">
-        <label>Full Name <span class="required">*</span></label>
-        <input type="text" name="name" placeholder="First and last name" required />
+  <!-- AUTH VIEW -->
+  <div id="view-auth" class="view active">
+    <div class="card">
+      <div class="tabs">
+        <button class="tab active" onclick="switchTab('login')">Sign In</button>
+        <button class="tab" onclick="switchTab('register')">Create Account</button>
       </div>
 
-      <div class="form-group">
-        <label>Phone Number</label>
-        <input type="tel" name="phone" placeholder="(555) 555-5555" />
+      <!-- Login -->
+      <div id="tab-login">
+        <div id="login-error" class="alert alert-error" style="display:none"></div>
+        <div class="form-group">
+          <label>Email <span class="req">*</span></label>
+          <input id="login-email" type="email" placeholder="you@example.com" />
+        </div>
+        <div class="form-group">
+          <label>Password <span class="req">*</span></label>
+          <input id="login-password" type="password" placeholder="••••••••" />
+        </div>
+        <button class="btn btn-primary btn-full" onclick="doLogin()">Sign In</button>
       </div>
 
-      <div class="form-group">
-        <label>Email Address <span class="required">*</span></label>
-        <input type="email" name="email" placeholder="you@example.com" required />
+      <!-- Register -->
+      <div id="tab-register" style="display:none">
+        <div id="register-error" class="alert alert-error" style="display:none"></div>
+        <div class="row-2">
+          <div class="form-group">
+            <label>First Name <span class="req">*</span></label>
+            <input id="reg-first" type="text" placeholder="Jane" />
+          </div>
+          <div class="form-group">
+            <label>Last Name <span class="req">*</span></label>
+            <input id="reg-last" type="text" placeholder="Smith" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Email <span class="req">*</span></label>
+          <input id="reg-email" type="email" placeholder="you@example.com" />
+        </div>
+        <div class="form-group">
+          <label>Phone</label>
+          <input id="reg-phone" type="tel" placeholder="(555) 555-5555" />
+        </div>
+        <div class="form-group">
+          <label>Birthday 🎂</label>
+          <input id="reg-birthday" type="date" />
+        </div>
+        <div class="form-group">
+          <label>Password <span class="req">*</span></label>
+          <input id="reg-password" type="password" placeholder="At least 8 characters" />
+        </div>
+        <div class="form-group">
+          <label>Confirm Password <span class="req">*</span></label>
+          <input id="reg-password2" type="password" placeholder="Same as above" />
+        </div>
+        <button class="btn btn-primary btn-full" onclick="doRegister()">Request Access</button>
+        <p style="font-size:0.82rem;color:var(--hint);margin-top:0.75rem;text-align:center">
+          A family admin will approve your account before you can log in.
+        </p>
       </div>
-
-      <hr class="divider" />
-
-      <div class="form-group">
-        <label>Birthday</label>
-        <input type="date" name="birthday" />
-        <p class="hint">We'd love to celebrate with you! 🎂</p>
-      </div>
-
-      <input type="hidden" name="_next" value="" id="next-url" />
-
-      <button type="submit">Send My Info 🎉</button>
-    </form>
-
-    <div class="success" id="success-msg">
-      <div class="emoji">🎊</div>
-      <h2>You're on the list!</h2>
-      <p>Thanks for sharing your info.<br />We'll be in touch soon about the reunion!</p>
     </div>
   </div>
 
-  <p class="footer">Only family can see this page · Your info stays private</p>
+  <!-- PENDING APPROVAL VIEW -->
+  <div id="view-pending" class="view">
+    <div class="card">
+      <div class="empty-state">
+        <div class="emoji">⏳</div>
+        <p style="font-size:1rem;font-weight:600;color:var(--text);margin-bottom:0.5rem">Awaiting Approval</p>
+        <p>Your account is pending approval from a family admin.<br/>You'll be able to log in once it's approved!</p>
+        <button class="btn btn-secondary" style="margin-top:1.5rem" onclick="logout()">Sign out</button>
+      </div>
+    </div>
+  </div>
 
-  <script>
-    // Set the _next redirect to the current page so Formspree returns here
-    document.getElementById('next-url').value = window.location.href + '?submitted=1';
+  <!-- MAIN APP VIEW -->
+  <div id="view-app" class="view">
+    <nav id="app-nav">
+      <button class="active" onclick="showSection('directory')">Directory</button>
+      <button onclick="showSection('news')">News</button>
+      <button onclick="showSection('profile')">My Profile</button>
+    </nav>
 
-    // Show success message if redirected back after submit
-    if (window.location.search.includes('submitted=1')) {
-      document.getElementById('contact-form').style.display = 'none';
-      document.getElementById('success-msg').style.display = 'block';
+    <!-- Directory -->
+    <div id="section-directory" class="view active">
+      <div class="card">
+        <p class="card-title">Family Directory</p>
+        <div id="directory-list"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- News -->
+    <div id="section-news" class="view">
+      <div class="card">
+        <p class="card-title">Post an Update</p>
+        <div id="news-error" class="alert alert-error" style="display:none"></div>
+        <div class="form-group">
+          <label>Title <span class="req">*</span></label>
+          <input id="news-title" type="text" placeholder="Reunion date announced!" />
+        </div>
+        <div class="form-group">
+          <label>Message <span class="req">*</span></label>
+          <textarea id="news-body" placeholder="Share news, updates, or memories..."></textarea>
+        </div>
+        <button class="btn btn-primary" onclick="postNews()">Post Update</button>
+      </div>
+
+      <div id="news-list"><div class="spinner"></div></div>
+    </div>
+
+    <!-- Profile -->
+    <div id="section-profile" class="view">
+      <div class="card">
+        <p class="card-title">My Profile</p>
+        <div id="profile-error" class="alert alert-error" style="display:none"></div>
+        <div id="profile-success" class="alert alert-success" style="display:none">Profile saved!</div>
+        <div class="row-2">
+          <div class="form-group">
+            <label>First Name</label>
+            <input id="prof-first" type="text" />
+          </div>
+          <div class="form-group">
+            <label>Last Name</label>
+            <input id="prof-last" type="text" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Email</label>
+          <input id="prof-email" type="email" />
+        </div>
+        <div class="form-group">
+          <label>Phone</label>
+          <input id="prof-phone" type="tel" />
+        </div>
+        <div class="form-group">
+          <label>Birthday</label>
+          <input id="prof-birthday" type="date" />
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="saveProfile()">Save Changes</button>
+          <button class="btn btn-danger btn-sm" onclick="confirmDelete()">Delete Account</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="footer">Only family · Your info stays private</p>
+</div>
+
+<script>
+  const API = 'https://reunion-api.klsll.com';
+  let token = localStorage.getItem('pb_token') || '';
+  let userId = localStorage.getItem('pb_user_id') || '';
+  let currentUser = null;
+
+  // ── Routing ──────────────────────────────────────────────────────────────
+
+  async function init() {
+    if (!token) return showView('auth');
+    try {
+      const res = await apiFetch(`/api/collections/users/records/${userId}`);
+      if (!res.ok) throw new Error('session expired');
+      currentUser = await res.json();
+      if (!currentUser.approved) return showView('pending');
+      showView('app');
+      populateProfile();
+      loadDirectory();
+      loadNews();
+    } catch {
+      clearSession();
+      showView('auth');
     }
-  </script>
+  }
+
+  function showView(name) {
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.getElementById('view-' + name).classList.add('active');
+    document.getElementById('logout-btn').style.display = name === 'auth' ? 'none' : 'block';
+  }
+
+  function showSection(name) {
+    document.querySelectorAll('#view-app .view').forEach(v => v.classList.remove('active'));
+    document.getElementById('section-' + name).classList.add('active');
+    document.querySelectorAll('#app-nav button').forEach(b => b.classList.remove('active'));
+    event.target.classList.add('active');
+  }
+
+  // ── Auth ──────────────────────────────────────────────────────────────────
+
+  function switchTab(tab) {
+    document.getElementById('tab-login').style.display = tab === 'login' ? '' : 'none';
+    document.getElementById('tab-register').style.display = tab === 'register' ? '' : 'none';
+    document.querySelectorAll('.tab').forEach((t, i) =>
+      t.classList.toggle('active', (tab === 'login') === (i === 0)));
+  }
+
+  async function doLogin() {
+    hideAlert('login-error');
+    const email = val('login-email'), pw = val('login-password');
+    if (!email || !pw) return showAlert('login-error', 'Email and password are required.');
+    try {
+      const res = await fetch(`${API}/api/collections/users/auth-with-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identity: email, password: pw })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Login failed');
+      token = data.token;
+      userId = data.record.id;
+      currentUser = data.record;
+      localStorage.setItem('pb_token', token);
+      localStorage.setItem('pb_user_id', userId);
+      if (!currentUser.approved) return showView('pending');
+      showView('app');
+      populateProfile();
+      loadDirectory();
+      loadNews();
+    } catch (e) {
+      showAlert('login-error', e.message);
+    }
+  }
+
+  async function doRegister() {
+    hideAlert('register-error');
+    const first = val('reg-first'), last = val('reg-last'),
+          email = val('reg-email'), phone = val('reg-phone'),
+          birthday = val('reg-birthday'), pw = val('reg-password'), pw2 = val('reg-password2');
+    if (!first || !last || !email || !pw) return showAlert('register-error', 'Please fill in all required fields.');
+    if (pw !== pw2) return showAlert('register-error', 'Passwords do not match.');
+    if (pw.length < 8) return showAlert('register-error', 'Password must be at least 8 characters.');
+    try {
+      const body = {
+        name: `${first} ${last}`,
+        email, phone, password: pw, passwordConfirm: pw2,
+        approved: false
+      };
+      if (birthday) body.birthday = birthday;
+      const res = await fetch(`${API}/api/collections/users/records`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Registration failed');
+      token = '';
+      userId = data.id;
+      currentUser = data;
+      // Sign in to get a real token so we can show the pending screen
+      const authRes = await fetch(`${API}/api/collections/users/auth-with-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identity: email, password: pw })
+      });
+      if (authRes.ok) {
+        const authData = await authRes.json();
+        token = authData.token;
+        userId = authData.record.id;
+        localStorage.setItem('pb_token', token);
+        localStorage.setItem('pb_user_id', userId);
+      }
+      showView('pending');
+    } catch (e) {
+      showAlert('register-error', e.message);
+    }
+  }
+
+  function logout() {
+    clearSession();
+    switchTab('login');
+    showView('auth');
+  }
+
+  function clearSession() {
+    token = ''; userId = ''; currentUser = null;
+    localStorage.removeItem('pb_token');
+    localStorage.removeItem('pb_user_id');
+  }
+
+  // ── Directory ─────────────────────────────────────────────────────────────
+
+  async function loadDirectory() {
+    const el = document.getElementById('directory-list');
+    el.innerHTML = '<div class="spinner"></div>';
+    try {
+      const res = await apiFetch('/api/collections/users/records?filter=(approved=true)&sort=name&perPage=200');
+      const data = await res.json();
+      if (!data.items.length) {
+        el.innerHTML = '<div class="empty-state"><div class="emoji">👋</div><p>No approved members yet.</p></div>';
+        return;
+      }
+      el.innerHTML = '<div class="member-list">' + data.items.map(m => {
+        const initials = (m.name || '?').split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+        const bday = m.birthday ? new Date(m.birthday).toLocaleDateString('en-US', { month: 'long', day: 'numeric' }) : '';
+        return `<div class="member-card">
+          <div class="avatar">${initials}</div>
+          <div class="member-info">
+            <div class="member-name">${esc(m.name)}</div>
+            <div class="member-detail">${[m.email, m.phone, bday ? '🎂 ' + bday : ''].filter(Boolean).join(' · ')}</div>
+          </div>
+        </div>`;
+      }).join('') + '</div>';
+    } catch (e) {
+      el.innerHTML = `<div class="alert alert-error">${e.message}</div>`;
+    }
+  }
+
+  // ── News ──────────────────────────────────────────────────────────────────
+
+  async function loadNews() {
+    const el = document.getElementById('news-list');
+    el.innerHTML = '<div class="spinner"></div>';
+    try {
+      const res = await apiFetch('/api/collections/news/records?sort=-created&perPage=50&expand=author');
+      const data = await res.json();
+      if (!data.items.length) {
+        el.innerHTML = '<div class="card"><div class="empty-state"><div class="emoji">📭</div><p>No updates yet. Be the first to post!</p></div></div>';
+        return;
+      }
+      el.innerHTML = data.items.map(post => {
+        const author = post.expand?.author?.name || 'Family Member';
+        const date = new Date(post.created).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        return `<div class="card news-post">
+          <div class="news-title">${esc(post.title)}</div>
+          <div class="news-meta">${esc(author)} · ${date}</div>
+          <div class="news-body">${esc(post.body)}</div>
+        </div>`;
+      }).join('');
+    } catch (e) {
+      el.innerHTML = `<div class="alert alert-error">${e.message}</div>`;
+    }
+  }
+
+  async function postNews() {
+    hideAlert('news-error');
+    const title = val('news-title'), body = val('news-body');
+    if (!title || !body) return showAlert('news-error', 'Title and message are required.');
+    try {
+      const res = await apiFetch('/api/collections/news/records', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, body, author: userId })
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.message); }
+      document.getElementById('news-title').value = '';
+      document.getElementById('news-body').value = '';
+      loadNews();
+    } catch (e) {
+      showAlert('news-error', e.message);
+    }
+  }
+
+  // ── Profile ───────────────────────────────────────────────────────────────
+
+  function populateProfile() {
+    if (!currentUser) return;
+    const parts = (currentUser.name || '').split(' ');
+    setVal('prof-first', parts[0] || '');
+    setVal('prof-last', parts.slice(1).join(' ') || '');
+    setVal('prof-email', currentUser.email || '');
+    setVal('prof-phone', currentUser.phone || '');
+    setVal('prof-birthday', currentUser.birthday ? currentUser.birthday.split(' ')[0] : '');
+  }
+
+  async function saveProfile() {
+    hideAlert('profile-error');
+    document.getElementById('profile-success').style.display = 'none';
+    const first = val('prof-first'), last = val('prof-last');
+    if (!first) return showAlert('profile-error', 'First name is required.');
+    try {
+      const body = {
+        name: `${first} ${last}`.trim(),
+        email: val('prof-email'),
+        phone: val('prof-phone')
+      };
+      const bday = val('prof-birthday');
+      if (bday) body.birthday = bday;
+      const res = await apiFetch(`/api/collections/users/records/${userId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.message); }
+      currentUser = await res.json();
+      document.getElementById('profile-success').style.display = '';
+      setTimeout(() => { document.getElementById('profile-success').style.display = 'none'; }, 3000);
+    } catch (e) {
+      showAlert('profile-error', e.message);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!confirm('Are you sure you want to delete your account? This cannot be undone.')) return;
+    try {
+      await apiFetch(`/api/collections/users/records/${userId}`, { method: 'DELETE' });
+      clearSession();
+      showView('auth');
+    } catch (e) {
+      showAlert('profile-error', e.message);
+    }
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  function apiFetch(path, opts = {}) {
+    return fetch(API + path, {
+      ...opts,
+      headers: { 'Authorization': token, ...(opts.headers || {}) }
+    });
+  }
+
+  function val(id) { return document.getElementById(id).value.trim(); }
+  function setVal(id, v) { document.getElementById(id).value = v; }
+  function esc(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+  function showAlert(id, msg) {
+    const el = document.getElementById(id);
+    el.textContent = msg; el.style.display = '';
+  }
+  function hideAlert(id) { document.getElementById(id).style.display = 'none'; }
+
+  init();
+</script>
 </body>
 </html>
