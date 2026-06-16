@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Family Reunion – Stay Connected</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #fdf6ee;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem 4rem;
+      color: #2d2d2d;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+      padding: 2.5rem 2rem;
+      width: 100%;
+      max-width: 480px;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    .header .emoji {
+      font-size: 3rem;
+      line-height: 1;
+      margin-bottom: 0.75rem;
+    }
+
+    .header h1 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: #b85c00;
+      margin-bottom: 0.4rem;
+    }
+
+    .header p {
+      font-size: 0.95rem;
+      color: #666;
+      line-height: 1.5;
+    }
+
+    .form-group {
+      margin-bottom: 1.25rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #444;
+      margin-bottom: 0.4rem;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    label .required {
+      color: #b85c00;
+      margin-left: 2px;
+    }
+
+    input {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border: 1.5px solid #e0d5c8;
+      border-radius: 8px;
+      font-size: 1rem;
+      color: #2d2d2d;
+      background: #fdf9f5;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      -webkit-appearance: none;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: #b85c00;
+      box-shadow: 0 0 0 3px rgba(184,92,0,0.12);
+      background: #fff;
+    }
+
+    input::placeholder { color: #b0a090; }
+
+    .hint {
+      font-size: 0.8rem;
+      color: #888;
+      margin-top: 0.3rem;
+    }
+
+    button[type="submit"] {
+      width: 100%;
+      padding: 0.85rem;
+      background: #b85c00;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 1.05rem;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 0.5rem;
+      transition: background 0.2s, transform 0.1s;
+      letter-spacing: 0.02em;
+    }
+
+    button[type="submit"]:hover { background: #9a4d00; }
+    button[type="submit"]:active { transform: scale(0.98); }
+
+    .divider {
+      border: none;
+      border-top: 1.5px solid #f0e8de;
+      margin: 1.75rem 0;
+    }
+
+    /* Success state */
+    .success {
+      display: none;
+      text-align: center;
+      padding: 1rem 0;
+    }
+
+    .success .emoji { font-size: 3.5rem; margin-bottom: 1rem; }
+    .success h2 { color: #b85c00; font-size: 1.4rem; margin-bottom: 0.5rem; }
+    .success p { color: #666; line-height: 1.6; }
+
+    .footer {
+      margin-top: 2rem;
+      font-size: 0.8rem;
+      color: #aaa;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <div class="header">
+      <div class="emoji">🏡</div>
+      <h1>Family Reunion</h1>
+      <p>Fill in your details so we can stay in touch and keep you updated about the reunion!</p>
+    </div>
+
+    <form id="contact-form" action="https://formspree.io/f/james@klsll.com" method="POST">
+
+      <input type="hidden" name="_subject" value="Family Reunion – New Contact" />
+
+      <div class="form-group">
+        <label>Full Name <span class="required">*</span></label>
+        <input type="text" name="name" placeholder="First and last name" required />
+      </div>
+
+      <div class="form-group">
+        <label>Phone Number</label>
+        <input type="tel" name="phone" placeholder="(555) 555-5555" />
+      </div>
+
+      <div class="form-group">
+        <label>Email Address <span class="required">*</span></label>
+        <input type="email" name="email" placeholder="you@example.com" required />
+      </div>
+
+      <hr class="divider" />
+
+      <div class="form-group">
+        <label>Birthday</label>
+        <input type="date" name="birthday" />
+        <p class="hint">We'd love to celebrate with you! 🎂</p>
+      </div>
+
+      <input type="hidden" name="_next" value="" id="next-url" />
+
+      <button type="submit">Send My Info 🎉</button>
+    </form>
+
+    <div class="success" id="success-msg">
+      <div class="emoji">🎊</div>
+      <h2>You're on the list!</h2>
+      <p>Thanks for sharing your info.<br />We'll be in touch soon about the reunion!</p>
+    </div>
+  </div>
+
+  <p class="footer">Only family can see this page · Your info stays private</p>
+
+  <script>
+    // Set the _next redirect to the current page so Formspree returns here
+    document.getElementById('next-url').value = window.location.href + '?submitted=1';
+
+    // Show success message if redirected back after submit
+    if (window.location.search.includes('submitted=1')) {
+      document.getElementById('contact-form').style.display = 'none';
+      document.getElementById('success-msg').style.display = 'block';
+    }
+  </script>
+</body>
+</html>
