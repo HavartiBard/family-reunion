@@ -12,12 +12,13 @@ PocketBase. Portable — deploy on the homelab or any cloud host.
 ## Deploy the backend
 ```bash
 cd backend
-cp ../.env.example .env && $EDITOR .env      # fill from 1Password (home) or by hand (cloud)
 
-# Homelab (Cloudflare tunnel ingress):
+# Homelab — secrets come from 1Password (item "Reunion Cloudflare Tunnel"):
+op inject -i .env.1password -o .env
 docker compose -f compose.yml -f compose.cloudflared.yml up -d
 
-# Cloud (your own reverse proxy / public ingress):
+# Cloud — fill values by hand, no 1Password / no tunnel:
+cp ../.env.example .env && $EDITOR .env
 docker compose -f compose.yml up -d
 ```
 Migrations in `backend/pb_migrations/` auto-apply on container start. If you add a
