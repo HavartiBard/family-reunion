@@ -1,0 +1,33 @@
+---
+# Overlay: docker compose -f compose.yml -f compose.cloudflared.yml up -d
+# Materializes creds.json + config.yml from env, then runs the tunnel.
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: ${CF_CONTAINER:-cloudflared-reunion}
+    depends_on:
+      - pocketbase
+    restart: unless-stopped
+    environment:
+      - CF_ACCOUNT_TAG
+      - CF_TUNNEL_SECRET
+      - CF_TUNNEL_ID
+      - API_HOSTNAME
+    entrypoint:
+      - sh
+      - -c
+      - |
+        set -e
+        mkdir -p /etc/cloudflared
+        cat > /etc/cloudflared/creds.json <<EOF
+        {"AccountTag":"$${CF_ACCOUNT_TAG}","TunnelSecret":"$${CF_TUNNEL_SECRET}","TunnelID":"$${CF_TUNNEL_ID}"}
+        EOF
+        cat > /etc/cloudflared/config.yml <<EOF
+        tunnel: $${CF_TUNNEL_ID}
+        credentials-file: /etc/cloudflared/creds.json
+        ingress:
+          - hostname: $${API_HOSTNAME}
+            service: http://pocketbase:8090
+          - service: http_status:404
+        EOF
+        exec cloudflared tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
