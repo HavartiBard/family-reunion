@@ -606,7 +606,12 @@
       sessionStorage.setItem('pb_oauth_state', apple.state);
       sessionStorage.setItem('pb_oauth_verifier', apple.codeVerifier);
       sessionStorage.setItem('pb_oauth_provider', 'apple');
-      const appleUrl = apple.authUrl.replace('response_mode=form_post', 'response_mode=fragment');
+      // Apple web Sign In (Services ID) doesn't support PKCE — strip those params.
+      // response_mode=fragment avoids the form_post that GitHub Pages rejects (405).
+      const appleUrl = apple.authUrl
+        .replace('response_mode=form_post', 'response_mode=fragment')
+        .replace(/&code_challenge=[^&]+/, '')
+        .replace(/&code_challenge_method=[^&]+/, '');
       window.location.href = appleUrl + encodeURIComponent(window.location.origin + window.location.pathname);
     } catch (e) {
       showAlert('login-error', 'Could not start Apple sign-in: ' + e.message);
@@ -627,10 +632,12 @@
     history.replaceState({}, '', window.location.pathname);
     try {
       const provider = sessionStorage.getItem('pb_oauth_provider') || 'google';
+      // Apple web Sign In skips PKCE, so send empty verifier for that provider.
+      const codeVerifier = provider === 'apple' ? '' : verifier;
       const res = await fetch(`${API}/api/collections/users/auth-with-oauth2`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, code, codeVerifier: verifier,
+        body: JSON.stringify({ provider, code, codeVerifier,
           redirectUrl: window.location.origin + window.location.pathname })
       });
       const data = await res.json();
