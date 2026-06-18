@@ -463,7 +463,7 @@
   // ── Routing ──────────────────────────────────────────────────────────────
 
   async function init() {
-    if (window.location.search.includes('code=')) return handleOAuthCallback();
+    if (window.location.search.includes('code=') || window.location.hash.includes('code=')) return handleOAuthCallback();
     if (!token) return showView('auth');
     try {
       const res = await apiFetch(`/api/collections/users/records/${userId}`);
@@ -606,7 +606,7 @@
       sessionStorage.setItem('pb_oauth_state', apple.state);
       sessionStorage.setItem('pb_oauth_verifier', apple.codeVerifier);
       sessionStorage.setItem('pb_oauth_provider', 'apple');
-      const appleUrl = apple.authUrl.replace('response_mode=form_post', 'response_mode=query');
+      const appleUrl = apple.authUrl.replace('response_mode=form_post', 'response_mode=fragment');
       window.location.href = appleUrl + encodeURIComponent(window.location.origin + window.location.pathname);
     } catch (e) {
       showAlert('login-error', 'Could not start Apple sign-in: ' + e.message);
@@ -614,7 +614,9 @@
   }
 
   async function handleOAuthCallback() {
-    const params = new URLSearchParams(window.location.search);
+    const params = window.location.hash.includes('code=')
+      ? new URLSearchParams(window.location.hash.slice(1))
+      : new URLSearchParams(window.location.search);
     const code = params.get('code');
     const state = params.get('state');
     if (!code || !state) return;
