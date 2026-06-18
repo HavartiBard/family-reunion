@@ -606,10 +606,10 @@
       sessionStorage.setItem('pb_oauth_state', apple.state);
       sessionStorage.setItem('pb_oauth_verifier', apple.codeVerifier);
       sessionStorage.setItem('pb_oauth_provider', 'apple');
-      // Apple web Sign In (Services ID) doesn't support PKCE — strip those params.
-      // response_mode=fragment avoids the form_post that GitHub Pages rejects (405).
+      // Apple web Sign In (Services ID) doesn't support PKCE and rejects response_mode=fragment.
+      // Use query mode (code returned as ?code= in URL) and strip PKCE params so Apple accepts the request.
       const appleUrl = apple.authUrl
-        .replace('response_mode=form_post', 'response_mode=fragment')
+        .replace('response_mode=form_post', 'response_mode=query')
         .replace(/&code_challenge=[^&]+/, '')
         .replace(/&code_challenge_method=[^&]+/, '');
       window.location.href = appleUrl + encodeURIComponent(window.location.origin + window.location.pathname);
