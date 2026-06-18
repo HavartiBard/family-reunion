@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Frontend:** Single-file SPA (`index.html` + `merge.js`) served by GitHub Pages at `reunion.klsll.com`. No build step, no bundler — raw HTML/CSS/JS. All API calls go to the `API` constant (`https://reunion-api.klsll.com`).
 
 **Backend:** PocketBase, deployable two ways:
-- **Replit (primary):** Reserved VM deployment. `backend/.replit` + `backend/replit/start.sh` bootstrap the PocketBase binary at runtime and serve on port 8090. `pb_data` persists on Replit's VM disk. Cloudflare proxies `reunion-api.klsll.com` → the Replit deployment URL (no tunnel needed).
+- **Fly.io (primary):** `backend/Dockerfile` + `backend/fly.toml`. Migrations are baked into the image at build time (`COPY pb_migrations /pb_migrations`). `pb_data` persists on a Fly Volume. Cloudflare DNS (grey cloud) points `reunion-api.klsll.com` → `family-reunion-api.fly.dev`; Fly handles TLS.
 - **Homelab (fallback):** Docker Compose via `backend/compose.yml`. Optional cloudflared overlay (`compose.cloudflared.yml`) exposes PocketBase via a Cloudflare Tunnel using secrets from 1Password.
 
 Schema is defined entirely in `backend/pb_migrations/`; migrations auto-apply on first run.
@@ -41,12 +41,20 @@ python -m pytest test_gedcom_sync.py -q
 
 ## Backend operations
 
-**Replit deploy:**
-1. Create a Replit Reserved VM repl pointing at the `backend/` directory.
-2. Add secrets in Replit's Secrets tab: `PB_ADMIN_EMAIL`, `PB_ADMIN_PASSWORD`.
-3. Run — `replit/start.sh` downloads the PocketBase binary on first boot.
-4. In Cloudflare DNS, add a proxied CNAME: `reunion-api` → `<your-repl>.replit.app`.
-5. In PocketBase admin (`/_/`), confirm OAuth2 redirect URLs match `https://reunion-api.klsll.com`.
+**Fly.io deploy:**
+```bash
+cd backend
+fly auth login
+fly apps create family-reunion-api
+fly volumes create pb_data --region iad --size 1
+fly secrets set PB_ADMIN_EMAIL=you@example.com PB_ADMIN_PASSWORD=yourpassword
+fly deploy
+fly certs add reunion-api.klsll.com   # then follow DNS instructions
+```
+In Cloudflare DNS: CNAME `reunion-api` → `family-reunion-api.fly.dev` (DNS-only / grey cloud — Fly handles TLS).
+In PocketBase admin (`/_/`): confirm OAuth2 redirect URLs match `https://reunion-api.klsll.com`.
+
+Subsequent deploys after adding a migration: `cd backend && fly deploy`.
 
 **Homelab (Docker):**
 ```bash
