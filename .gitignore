@@ -9,3 +9,6 @@ __pycache__/
 backend/pb_data/
 backend/pb_public/
 backend/pb_hooks/
+
+# PocketBase binary (downloaded at runtime by replit/start.sh)
+backend/pocketbase

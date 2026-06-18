@@ -6,7 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Frontend:** Single-file SPA (`index.html` + `merge.js`) served by GitHub Pages at `reunion.klsll.com`. No build step, no bundler — raw HTML/CSS/JS. All API calls go to the `API` constant (`https://reunion-api.klsll.com`).
 
-**Backend:** PocketBase in Docker (`backend/compose.yml`). Schema defined entirely in `backend/pb_migrations/`; migrations auto-apply on container start. On the homelab, an optional cloudflared overlay (`compose.cloudflared.yml`) exposes PocketBase publicly via a Cloudflare Tunnel without publishing the port directly.
+**Backend:** PocketBase, deployable two ways:
+- **Replit (primary):** Reserved VM deployment. `backend/.replit` + `backend/replit/start.sh` bootstrap the PocketBase binary at runtime and serve on port 8090. `pb_data` persists on Replit's VM disk. Cloudflare proxies `reunion-api.klsll.com` → the Replit deployment URL (no tunnel needed).
+- **Homelab (fallback):** Docker Compose via `backend/compose.yml`. Optional cloudflared overlay (`compose.cloudflared.yml`) exposes PocketBase via a Cloudflare Tunnel using secrets from 1Password.
+
+Schema is defined entirely in `backend/pb_migrations/`; migrations auto-apply on first run.
 
 **Admin tool:** `tools/gedcom_sync/` — a Python script that reads a Webtrees MariaDB and upserts into PocketBase. Run on the Unraid host where the `webtrees` Docker network is accessible.
 
@@ -37,19 +41,27 @@ python -m pytest test_gedcom_sync.py -q
 
 ## Backend operations
 
+**Replit deploy:**
+1. Create a Replit Reserved VM repl pointing at the `backend/` directory.
+2. Add secrets in Replit's Secrets tab: `PB_ADMIN_EMAIL`, `PB_ADMIN_PASSWORD`.
+3. Run — `replit/start.sh` downloads the PocketBase binary on first boot.
+4. In Cloudflare DNS, add a proxied CNAME: `reunion-api` → `<your-repl>.replit.app`.
+5. In PocketBase admin (`/_/`), confirm OAuth2 redirect URLs match `https://reunion-api.klsll.com`.
+
+**Homelab (Docker):**
 ```bash
 cd backend
 
-# Homelab (1Password + Cloudflare Tunnel)
+# With 1Password + Cloudflare Tunnel
 op inject -i .env.1password -o .env
 docker compose -f compose.yml -f compose.cloudflared.yml up -d
 
-# Cloud / manual
+# Manual .env
 cp ../.env.example .env && $EDITOR .env
 docker compose -f compose.yml up -d
 ```
 
-After adding a migration to a running instance, restart the container: `docker compose restart pocketbase`.
+After adding a migration to a running Docker instance, restart: `docker compose restart pocketbase`.
 
 ## Key behaviors
 

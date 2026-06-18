@@ -1,0 +1,10 @@
+run = "bash replit/start.sh"
+entrypoint = "replit/start.sh"
+
+[deployment]
+run = ["bash", "replit/start.sh"]
+deploymentTarget = "reserved-vm"
+
+[[ports]]
+localPort = 8090
+externalPort = 443
