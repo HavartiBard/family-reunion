@@ -591,7 +591,7 @@
       sessionStorage.setItem('pb_oauth_state', google.state);
       sessionStorage.setItem('pb_oauth_verifier', google.codeVerifier);
       sessionStorage.setItem('pb_oauth_provider', 'google');
-      window.location.href = google.authUrl;
+      window.location.href = google.authUrl + encodeURIComponent(window.location.origin + window.location.pathname);
     } catch (e) {
       showAlert('login-error', 'Could not start Google sign-in: ' + e.message);
     }
@@ -606,7 +606,7 @@
       sessionStorage.setItem('pb_oauth_state', apple.state);
       sessionStorage.setItem('pb_oauth_verifier', apple.codeVerifier);
       sessionStorage.setItem('pb_oauth_provider', 'apple');
-      window.location.href = apple.authUrl;
+      window.location.href = apple.authUrl + encodeURIComponent(window.location.origin + window.location.pathname);
     } catch (e) {
       showAlert('login-error', 'Could not start Apple sign-in: ' + e.message);
     }
