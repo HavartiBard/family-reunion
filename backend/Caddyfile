@@ -1,0 +1,6 @@
+:8090 {
+	@admin path /_*
+	respond @admin 403
+
+	reverse_proxy localhost:8091
+}
