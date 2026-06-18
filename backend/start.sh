@@ -2,7 +2,7 @@
 set -e
 
 /usr/local/bin/pocketbase serve \
-  --http=127.0.0.1:8091 \
+  --http=0.0.0.0:8091 \
   --dir=/pb_data \
   --migrationsDir=/pb_migrations &
 
