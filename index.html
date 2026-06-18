@@ -606,7 +606,8 @@
       sessionStorage.setItem('pb_oauth_state', apple.state);
       sessionStorage.setItem('pb_oauth_verifier', apple.codeVerifier);
       sessionStorage.setItem('pb_oauth_provider', 'apple');
-      window.location.href = apple.authUrl + encodeURIComponent(window.location.origin + window.location.pathname);
+      const appleUrl = apple.authUrl.replace('response_mode=form_post', 'response_mode=query');
+      window.location.href = appleUrl + encodeURIComponent(window.location.origin + window.location.pathname);
     } catch (e) {
       showAlert('login-error', 'Could not start Apple sign-in: ' + e.message);
     }
