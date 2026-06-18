@@ -1,0 +1,30 @@
+app = "family-reunion-api"
+primary_region = "iad"
+
+[build]
+
+[http_service]
+  internal_port = 8090
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  memory = "256mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[[mounts]]
+  source = "pb_data"
+  destination = "/pb_data"
+
+[checks]
+  [checks.health]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/api/health"
+    port = 8090
+    timeout = "5s"
+    type = "http"
