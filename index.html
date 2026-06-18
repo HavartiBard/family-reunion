@@ -606,10 +606,12 @@
       sessionStorage.setItem('pb_oauth_state', apple.state);
       sessionStorage.setItem('pb_oauth_verifier', apple.codeVerifier);
       sessionStorage.setItem('pb_oauth_provider', 'apple');
-      // Apple web Sign In (Services ID) doesn't support PKCE and rejects response_mode=fragment.
-      // Use query mode (code returned as ?code= in URL) and strip PKCE params so Apple accepts the request.
+      // Apple supports response_mode=fragment only for the hybrid flow (response_type=code id_token).
+      // Pure code flow only allows form_post (405 on GitHub Pages) or query (rejected by Apple).
+      // We request code+id_token; PocketBase uses only the code for token exchange.
       const appleUrl = apple.authUrl
-        .replace('response_mode=form_post', 'response_mode=query')
+        .replace('response_mode=form_post', 'response_mode=fragment')
+        .replace('response_type=code', 'response_type=code%20id_token')
         .replace(/&code_challenge=[^&]+/, '')
         .replace(/&code_challenge_method=[^&]+/, '');
       window.location.href = appleUrl + encodeURIComponent(window.location.origin + window.location.pathname);
