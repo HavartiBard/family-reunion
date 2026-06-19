@@ -223,7 +223,11 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
 .tree-node[data-depth="2"] .tn-name{font-size:.74rem;font-weight:600}
 .tn-years{font-size:11px;color:var(--text-muted)}
 .tree-actions{display:flex;gap:.5rem;justify-content:center;margin-top:1.4rem;flex-wrap:wrap}
-@media (max-width:767px){.tree-header{padding:14px 16px}.tree-canvas{padding:20px 10px}}
+@media (max-width:767px){
+  .tree-header{padding:14px 16px}
+  .tree-canvas{padding:20px 10px;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .tree-row{min-width:max-content}
+}
 
 /* ── Reunion ───────────────────────────────────────────────────────────── */
 .venue-hero{height:240px;border-radius:16px;
@@ -306,6 +310,8 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
     gap:2px;border:none;background:none;cursor:pointer;color:var(--text-muted);font-size:.66rem}
   .bn-item .ico{font-size:1.1rem}
   .bn-item.active{color:var(--accent-gold)}
+.bn-dot{position:absolute;top:6px;left:50%;margin-left:6px;width:7px;height:7px;
+  border-radius:50%;background:var(--accent-gold);border:1.5px solid #fff}
 }
 
 /* ── Toast + modal ─────────────────────────────────────────────────────── */

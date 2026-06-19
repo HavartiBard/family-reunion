@@ -152,9 +152,12 @@ function renderSidebar(){
     </div>`;
 
   const bn = el('bottom-nav');
-  if (bn) bn.innerHTML = MOBILE_NAV.map(n =>
-    `<button class="bn-item${n.tab === active ? ' active' : ''}" onclick="navigate('${n.tab}')">
-       <span class="ico">${n.ico}</span><span>${esc(n.label)}</span></button>`).join('');
+  if (bn) bn.innerHTML = MOBILE_NAV.map(n => {
+    const dot = n.tab === 'home' && unreadCount > 0
+      ? `<span class="bn-dot"></span>` : '';
+    return `<button class="bn-item${n.tab === active ? ' active' : ''}" onclick="navigate('${n.tab}')" style="position:relative">
+      ${dot}<span class="ico">${n.ico}</span><span>${esc(n.label)}</span></button>`;
+  }).join('');
 }
 
 // ── Auth screens ─────────────────────────────────────────────────────────────
