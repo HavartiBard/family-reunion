@@ -245,6 +245,16 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
 .sched-detail{font-size:.82rem;color:var(--text-muted)}
 @media (max-width:767px){.rsvp-row{grid-template-columns:1fr}.venue-bar{margin-top:16px;gap:16px}}
 
+/* ── Directory ─────────────────────────────────────────────────────────── */
+.dir-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:16px}
+.dir-card{text-align:center;display:flex;flex-direction:column;align-items:center;gap:4px}
+.dir-card .avatar{margin-bottom:6px}
+.dir-name{font-size:15.5px;font-weight:700}
+.dir-sub{font-size:.8rem;color:var(--text-muted)}
+.dir-actions{display:flex;gap:8px;width:100%;margin-top:10px}
+.dir-actions .btn{text-decoration:none}
+.dir-tree{font-size:.8rem;margin-top:8px}
+
 /* ── Mobile bottom nav ─────────────────────────────────────────────────── */
 #bottom-nav{display:none}
 @media (max-width:767px){

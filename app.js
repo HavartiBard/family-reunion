@@ -894,6 +894,36 @@ async function setRsvp(value){
   } catch (e) { toast(e.message, 'error'); }
 }
 
+// ── Directory ────────────────────────────────────────────────────────────────
+SCREENS.directory = async function(){
+  mountMain('<div class="screen-pad"><h1 class="card-title">Directory</h1><div class="spinner"></div></div>');
+  let members = [];
+  try {
+    const res = await apiFetch('/api/collections/users/records?filter=(approved=true)&sort=name&perPage=200');
+    if (res.ok) members = (await res.json()).items || [];
+  } catch { /* ignore */ }
+
+  const cards = members.map((m, i) => {
+    const bday = m.birthday ? new Date(m.birthday).toLocaleDateString('en-US', { month:'long', day:'numeric' }) : '';
+    const msg = m.email ? `<a class="btn btn-outline btn-sm btn-full" href="mailto:${esc(m.email)}">Message</a>` :
+      '<button class="btn btn-outline btn-sm btn-full" disabled>Message</button>';
+    const call = m.phone ? `<a class="btn btn-outline btn-sm btn-full" href="tel:${esc(m.phone)}">Call</a>` :
+      '<button class="btn btn-outline btn-sm btn-full" disabled>Call</button>';
+    return `<div class="dir-card card">
+      <div class="avatar" style="width:46px;height:46px;background:${avatarTint(i)};color:var(--text-primary)">${userInitials(m)}</div>
+      <div class="dir-name">${esc(m.name || 'Family member')}</div>
+      <div class="dir-sub">${esc(m.email || '')}</div>
+      ${bday ? `<div class="dir-sub">🎂 ${bday}</div>` : ''}
+      <div class="dir-actions">${msg}${call}</div>
+      <div class="link dir-tree" onclick="viewUserInTree('${m.id}')">View in tree →</div>
+    </div>`;
+  }).join('');
+
+  mountMain(`<div class="screen-pad"><h1 class="card-title">Directory</h1>
+    ${members.length ? `<div class="dir-grid">${cards}</div>`
+      : '<div class="empty-state"><div class="emoji">👋</div><p>No approved members yet.</p></div>'}</div>`);
+};
+
 // ── Placeholder screens (replaced by screen modules appended below) ──────────
 for (const n of NAV) if (!SCREENS[n.tab]) SCREENS[n.tab] = () =>
   mountMain(`<div class="screen-pad"><h1 class="card-title">${esc(n.label)}</h1>
