@@ -924,6 +924,94 @@ SCREENS.directory = async function(){
       : '<div class="empty-state"><div class="emoji">👋</div><p>No approved members yet.</p></div>'}</div>`);
 };
 
+// ── Member profile ───────────────────────────────────────────────────────────
+function fileUrl(collection, rec, field){
+  return rec && rec[field] ? `${API}/api/files/${collection}/${rec.id}/${rec[field]}` : '';
+}
+
+SCREENS.profile = async function(params){
+  mountMain('<div class="screen-pad" style="max-width:1100px"><div class="spinner"></div></div>');
+  let id = (params && params.id) || null;
+  if (!id) id = await myPersonId();
+  if (!id) { mountMain('<div class="screen-pad"><div class="empty-state"><div class="emoji">👤</div><p>No profile linked yet. Open the tree and use "This is me".</p></div></div>'); return; }
+
+  let p, couples = [], partners = [], children = [], photos = [];
+  try {
+    const res = await apiFetch(`/api/collections/persons/records/${id}?expand=father,mother,linked_user`);
+    if (!res.ok) throw new Error('not found');
+    p = await res.json();
+    couples = await getCouplesFor(id);
+    const partnerIds = couples.map(c => c.partner_a === id ? c.partner_b : c.partner_a);
+    partners = (await Promise.all(partnerIds.map(getPerson))).filter(Boolean);
+    children = await getChildren(id);
+    const phRes = await apiFetch(`/api/collections/photos/records?perPage=12&filter=` + encodeURIComponent(`(tagged_persons~"${id}")`));
+    if (phRes.ok) photos = (await phRes.json()).items || [];
+  } catch { mountMain('<div class="screen-pad"><div class="empty-state"><p>Could not load this profile.</p></div></div>'); return; }
+
+  const ex = p.expand || {};
+  const linked = ex.linked_user;
+  const avatar = fileUrl('persons', p, 'photo');
+  const branch = p.family_name ? `${p.family_name} branch` : '';
+  const parentNames = [ex.father, ex.mother].filter(Boolean).map(x => x.display_name).join(' & ');
+  const sub = [parentNames && `Child of ${parentNames}`, personYears(p)].filter(Boolean).join(' · ');
+
+  const conn = (label, person) => person ? `<div class="conn-row" onclick="navigate('profile',{id:'${person.id}'})">
+      <div class="avatar" style="width:34px;height:34px;font-size:.78rem">${personInitials(person)}</div>
+      <div class="conn-meta"><div class="conn-name">${esc(person.display_name)}</div><div class="conn-rel">${esc(label)}</div></div>
+      <span class="conn-chev">›</span></div>` : '';
+
+  const events = [];
+  if (p.birth_date) events.push({ year: p.birth_date.slice(0, 4), title: 'Born' });
+  if (p.death_date) events.push({ year: p.death_date.slice(0, 4), title: 'Passed away' });
+
+  mountMain(`<div class="screen-pad" style="max-width:1100px">
+    <div class="breadcrumb"><span class="link" onclick="navigate('directory')">Directory</span> › ${esc(p.display_name)}</div>
+    <div class="profile-hero card">
+      <div class="ph-avatar">${avatar ? `<img src="${avatar}" alt="">` : personInitials(p)}</div>
+      <div class="ph-main">
+        <h1 class="ph-name">${esc(p.display_name)}</h1>
+        <div class="ph-sub">${esc(sub)}</div>
+        <div class="ph-pills">${branch ? `<span class="pill">${esc(branch)}</span>` : ''}
+          ${p.birth_date ? `<span class="pill">Born ${esc(p.birth_date.slice(0, 4))}</span>` : ''}
+          ${linked ? '<span class="pill">Has account</span>' : ''}</div>
+      </div>
+      <div class="ph-actions">
+        ${linked && linked.email ? `<a class="btn btn-primary btn-sm" href="mailto:${esc(linked.email)}">Message</a>` : ''}
+        ${linked && linked.phone ? `<a class="btn btn-outline btn-sm" href="tel:${esc(linked.phone)}">Call</a>` : ''}
+        <button class="btn btn-outline btn-sm" onclick="navigate('tree',{person:'${p.id}'})">View in tree →</button>
+        ${linked && linked.id === userId ? `<button class="btn btn-outline btn-sm" onclick="navigate('settings')">Edit profile</button>` : ''}
+      </div>
+    </div>
+
+    <div class="profile-grid">
+      <div class="profile-col">
+        <div class="card"><div class="section-label" style="margin-bottom:.7rem">About</div>
+          <p class="about-text">${p.bio ? esc(p.bio) : '<span style="color:var(--text-muted)">No bio yet.</span>'}</p></div>
+        ${linked ? `<div class="card"><div class="section-label" style="margin-bottom:.7rem">Contact</div>
+          ${linked.email ? `<div class="contact-row"><span>✉</span><span>${esc(linked.email)}</span></div>` : ''}
+          ${linked.phone ? `<div class="contact-row"><span>☎</span><span>${esc(linked.phone)}</span></div>` : ''}
+          ${!linked.email && !linked.phone ? '<p style="color:var(--text-muted);font-size:.86rem">No contact details shared.</p>' : ''}</div>` : ''}
+        <div class="card"><div class="section-label" style="margin-bottom:.7rem">Family connections</div>
+          ${conn('Father', ex.father)}${conn('Mother', ex.mother)}
+          ${partners.map(pt => conn('Partner', pt)).join('')}
+          ${children.map(ch => conn('Child', ch)).join('')}
+          ${!ex.father && !ex.mother && !partners.length && !children.length ? '<p style="color:var(--text-muted);font-size:.86rem">No connections linked yet.</p>' : ''}</div>
+      </div>
+      <aside class="profile-col">
+        <div class="card"><div class="section-label" style="margin-bottom:.9rem">Life events</div>
+          ${events.length ? `<div class="timeline">${events.map(e => `<div class="tl-item"><div class="tl-dot"></div>
+            <div><div class="tl-title">${esc(e.title)}</div><div class="tl-year">${esc(e.year)}</div></div></div>`).join('')}</div>`
+            : '<p style="color:var(--text-muted);font-size:.86rem">No dated events.</p>'}</div>
+        <div class="card"><div class="section-label" style="margin-bottom:.9rem">Photos</div>
+          ${photos.length ? `<div class="photo-mini">${photos.slice(0, 6).map(ph =>
+            `<img src="${fileUrl('photos', ph, 'image')}" alt="">`).join('')}</div>
+            <div class="link" style="margin-top:.6rem;font-size:.82rem" onclick="navigate('gallery')">See all →</div>`
+            : '<p style="color:var(--text-muted);font-size:.86rem">No tagged photos.</p>'}</div>
+      </aside>
+    </div>
+  </div>`);
+};
+
 // ── Placeholder screens (replaced by screen modules appended below) ──────────
 for (const n of NAV) if (!SCREENS[n.tab]) SCREENS[n.tab] = () =>
   mountMain(`<div class="screen-pad"><h1 class="card-title">${esc(n.label)}</h1>
