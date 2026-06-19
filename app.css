@@ -225,6 +225,26 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
 .tree-actions{display:flex;gap:.5rem;justify-content:center;margin-top:1.4rem;flex-wrap:wrap}
 @media (max-width:767px){.tree-header{padding:14px 16px}.tree-canvas{padding:20px 10px}}
 
+/* ── Reunion ───────────────────────────────────────────────────────────── */
+.venue-hero{height:240px;border-radius:16px;
+  background:repeating-linear-gradient(45deg,#e7ddcb 0 14px,#ddd1ba 14px 28px)}
+.venue-bar{display:flex;gap:28px;flex-wrap:wrap;margin-top:-30px;position:relative;z-index:1;
+  margin-left:18px;margin-right:18px}
+.vb-label{font-size:.72rem;text-transform:uppercase;letter-spacing:.1em;color:var(--text-muted)}
+.vb-val{font-size:.95rem;font-weight:600;margin-top:2px}
+.rsvp-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.rsvp-opt{height:54px;border-radius:12px;border:2px solid var(--border-input);
+  background:var(--bg-subtle);color:var(--text-primary);font-weight:600;cursor:pointer;
+  font-family:inherit;font-size:.95rem;transition:all .12s}
+.rsvp-opt:hover{border-color:var(--accent-gold)}
+.rsvp-opt.active{background:var(--bg-sidebar);color:var(--text-sidebar-active);border-color:var(--bg-sidebar)}
+.sched-row{display:flex;gap:18px;padding:.85rem 0;border-bottom:1px solid var(--border-default)}
+.sched-row:last-child{border-bottom:none}
+.sched-day{flex:0 0 84px;color:var(--accent-gold);font-weight:700;font-size:.9rem}
+.sched-title{font-weight:600;font-size:.95rem}
+.sched-detail{font-size:.82rem;color:var(--text-muted)}
+@media (max-width:767px){.rsvp-row{grid-template-columns:1fr}.venue-bar{margin-top:16px;gap:16px}}
+
 /* ── Mobile bottom nav ─────────────────────────────────────────────────── */
 #bottom-nav{display:none}
 @media (max-width:767px){

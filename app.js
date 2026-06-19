@@ -841,6 +841,59 @@ async function runMerge(ids){
   } catch (e) { formErr('merge-error', e.message); }
 }
 
+// ── Reunion RSVP ─────────────────────────────────────────────────────────────
+const REUNION_SCHEDULE = [
+  { day:'Friday',   title:'Welcome & campfire',   detail:'6:00 PM · Lakeside lawn' },
+  { day:'Saturday', title:'Family photo & picnic', detail:'11:00 AM · Main pavilion' },
+  { day:'Saturday', title:'Games & talent show',   detail:'2:00 PM · Field' },
+  { day:'Sunday',   title:'Farewell brunch',       detail:'10:00 AM · Dining hall' },
+];
+
+SCREENS.reunion = async function(){
+  mountMain('<div class="screen-pad" style="max-width:920px"><div class="spinner"></div></div>');
+  const when = new Date(REUNION_DATE + 'T00:00:00').toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+  let going = 0;
+  try {
+    const res = await apiFetch(`/api/collections/users/records?filter=${encodeURIComponent('(rsvp="going")')}&perPage=1`);
+    if (res.ok) going = (await res.json()).totalItems || 0;
+  } catch { /* ignore */ }
+  const cur = (currentUser && currentUser.rsvp) || '';
+  const opt = (key, label) => `<button class="rsvp-opt${cur === key ? ' active' : ''}" onclick="setRsvp('${key}')">${label}</button>`;
+
+  mountMain(`<div class="screen-pad" style="max-width:920px">
+    <div class="venue-hero"></div>
+    <div class="venue-bar card">
+      <div><div class="vb-label">When</div><div class="vb-val">${when}</div></div>
+      <div><div class="vb-label">Where</div><div class="vb-val">Kelsall Family Camp</div></div>
+      <div><div class="vb-label">Headcount</div><div class="vb-val">${going} going</div></div>
+    </div>
+
+    <div class="card" style="margin-top:24px">
+      <div class="section-label" style="margin-bottom:1rem">Will you be there?</div>
+      <div class="rsvp-row">${opt('going', "I'm going")}${opt('maybe', 'Maybe')}${opt('no', "Can't make it")}</div>
+    </div>
+
+    <div class="card" style="margin-top:24px">
+      <div class="section-label" style="margin-bottom:1rem">Schedule</div>
+      ${REUNION_SCHEDULE.map(s => `<div class="sched-row">
+        <div class="sched-day">${s.day}</div>
+        <div><div class="sched-title">${esc(s.title)}</div><div class="sched-detail">${esc(s.detail)}</div></div>
+      </div>`).join('')}
+    </div>
+  </div>`);
+};
+
+async function setRsvp(value){
+  try {
+    const res = await apiFetch(`/api/collections/users/records/${userId}`, {
+      method:'PATCH', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ rsvp: value }) });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not save RSVP'); }
+    currentUser = await res.json();
+    toast('RSVP saved.', 'success');
+    SCREENS.reunion();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
 // ── Placeholder screens (replaced by screen modules appended below) ──────────
 for (const n of NAV) if (!SCREENS[n.tab]) SCREENS[n.tab] = () =>
   mountMain(`<div class="screen-pad"><h1 class="card-title">${esc(n.label)}</h1>
