@@ -61,7 +61,7 @@ def main():
     private_key = op_read(APPLE_ITEM, "Private Key")
     team_id     = op_read(APPLE_ITEM, "Team ID")
     key_id      = op_read(APPLE_ITEM, "Key ID")
-    services_id = op_read(APPLE_ITEM, "Services ID")
+    services_id = os.environ.get("APPLE_SERVICES_ID") or op_read(APPLE_ITEM, "Services ID")
 
     print("Fetching PocketBase admin credentials from 1Password...")
     pb_email    = op_read(PB_ITEM, "username")
