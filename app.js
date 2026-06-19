@@ -1238,6 +1238,121 @@ async function markAllRead(){
   } catch { /* ignore */ }
 }
 
+// ── Search ───────────────────────────────────────────────────────────────────
+let _searchPeople = [], _searchNews = [];
+let _searchLoaded = false;
+
+SCREENS.search = async function(params){
+  const q = (params && params.q) || '';
+  mountMain(`<div class="screen-pad" style="max-width:720px">
+    <h1 class="card-title" style="margin-bottom:.75rem">Search</h1>
+    <div class="search-bar-wrap">
+      <input id="search-input" placeholder="Search members, news…" value="${esc(q)}"
+        oninput="runSearch()" />
+    </div>
+    <div class="search-tabs">
+      <button class="search-tab active" id="stab-all" onclick="switchSearchTab('all')">All</button>
+      <button class="search-tab" id="stab-people" onclick="switchSearchTab('people')">Members</button>
+      <button class="search-tab" id="stab-news" onclick="switchSearchTab('news')">News</button>
+    </div>
+    <div id="search-recent"></div>
+    <div id="search-results"></div>
+  </div>`);
+
+  if (!_searchLoaded) await loadSearchData();
+  renderRecentSearches();
+  if (q) { el('search-input').value = q; runSearch(); }
+};
+
+async function loadSearchData(){
+  try {
+    const [pRes, nRes] = await Promise.all([
+      apiFetch('/api/collections/persons/records?perPage=500&sort=family_name'),
+      apiFetch('/api/collections/news/records?perPage=200&sort=-created')
+    ]);
+    if (pRes.ok) _searchPeople = (await pRes.json()).items || [];
+    if (nRes.ok) _searchNews = (await nRes.json()).items || [];
+    _searchLoaded = true;
+  } catch { /* ignore */ }
+}
+
+let _searchTab = 'all';
+function switchSearchTab(tab){
+  _searchTab = tab;
+  ['all','people','news'].forEach(t => {
+    const btn = el(`stab-${t}`);
+    if (btn) btn.className = `search-tab${t === tab ? ' active' : ''}`;
+  });
+  runSearch();
+}
+
+let _searchTimer = null;
+function runSearch(){
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(() => {
+    const q = val('search-input');
+    renderSearchResults(q);
+    if (q.trim().length > 1) saveRecentSearch(q.trim());
+  }, 180);
+}
+
+function renderSearchResults(q){
+  const container = el('search-results');
+  const recent = el('search-recent');
+  if (!container) return;
+  if (!q.trim()) { container.innerHTML = ''; if (recent) recent.style.display = ''; return; }
+  if (recent) recent.style.display = 'none';
+
+  const people = (_searchTab === 'news') ? [] : filterPeople(_searchPeople, q);
+  const news   = (_searchTab === 'people') ? [] : filterNews(_searchNews, q);
+
+  const peopleHtml = people.map(p =>
+    `<div class="search-result" onclick="navigate('tree',{person:'${p.id}'})">
+      <div class="avatar" style="width:36px;height:36px;font-size:.8rem">${personInitials(p)}</div>
+      <div><div class="sr-name">${esc(p.display_name)}</div>
+           <div class="sr-sub">${esc(personYears(p) || p.family_name || '')}</div></div>
+    </div>`).join('');
+
+  const newsHtml = news.map(n =>
+    `<div class="search-result" onclick="navigate('home')">
+      <div class="avatar" style="width:36px;height:36px;font-size:.8rem;background:var(--accent-green)">📰</div>
+      <div><div class="sr-name">${esc(n.title)}</div>
+           <div class="sr-sub">${esc((n.body || '').slice(0, 80))}${(n.body || '').length > 80 ? '…' : ''}</div></div>
+    </div>`).join('');
+
+  const empty = !peopleHtml && !newsHtml
+    ? '<div class="empty-state" style="padding:2rem 0"><p>No results for "' + esc(q) + '"</p></div>' : '';
+
+  container.innerHTML = [
+    people.length && _searchTab !== 'news' ? `<div class="notif-group-label">Members (${people.length})</div>${peopleHtml}` : '',
+    news.length && _searchTab !== 'people' ? `<div class="notif-group-label">News (${news.length})</div>${newsHtml}` : '',
+    empty
+  ].join('');
+}
+
+function renderRecentSearches(){
+  const recent = el('search-recent');
+  if (!recent) return;
+  const recents = getRecentSearches();
+  if (!recents.length) { recent.innerHTML = ''; return; }
+  recent.innerHTML = `<div class="search-recent-label">Recent</div>
+    ${recents.map(r => `<span class="search-recent-pill" onclick="applyRecentSearch('${esc(r)}')">${esc(r)}</span>`).join('')}`;
+}
+
+function getRecentSearches(){
+  try { return JSON.parse(localStorage.getItem('kf_searches') || '[]'); } catch { return []; }
+}
+function saveRecentSearch(q){
+  try {
+    const list = [q, ...getRecentSearches().filter(r => r !== q)].slice(0, 8);
+    localStorage.setItem('kf_searches', JSON.stringify(list));
+  } catch { /* ignore */ }
+}
+function applyRecentSearch(q){
+  const inp = el('search-input');
+  if (inp) { inp.value = q; runSearch(); }
+}
+
 // ── Placeholder screens (replaced by screen modules appended below) ──────────
 for (const n of NAV) if (!SCREENS[n.tab]) SCREENS[n.tab] = () =>
   mountMain(`<div class="screen-pad"><h1 class="card-title">${esc(n.label)}</h1>
