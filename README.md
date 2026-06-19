@@ -29,5 +29,15 @@ GitHub Pages serves the repo root. The SPA targets the API at the `API`
 constant in `index.html` (`https://reunion-api.klsll.com`). Change it if the
 backend moves.
 
+Apple sign-in is started and completed on the backend now:
+- `/auth/apple/start` begins the flow from the API origin.
+- `/auth/apple/callback` receives Apple's `form_post` callback.
+- `/auth/apple/finalize` hands the PocketBase session back to the SPA with a
+  short-lived one-time code.
+
+If the public frontend or API URLs move, update `FRONTEND_URL` and
+`PUBLIC_API_URL` in the backend environment so the Apple bridge uses the right
+origins and callback URL.
+
 ## gedcom_sync
 See `tools/gedcom_sync/README.md`.

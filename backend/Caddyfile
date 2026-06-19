@@ -2,5 +2,9 @@
 	@admin path /_*
 	respond @admin 403
 
+	handle /auth/apple/* {
+		reverse_proxy localhost:8092
+	}
+
 	reverse_proxy localhost:8091
 }

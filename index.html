@@ -463,6 +463,9 @@
   // ── Routing ──────────────────────────────────────────────────────────────
 
   async function init() {
+    if (window.location.search.includes('apple_oauth_done=') || window.location.search.includes('apple_oauth_error=')) {
+      return handleAppleAuthCallback();
+    }
     if (window.location.search.includes('code=') || window.location.hash.includes('code=')) return handleOAuthCallback();
     if (!token) return showView('auth');
     try {
@@ -599,24 +602,46 @@
 
   async function doAppleAuth() {
     try {
-      const res = await fetch(`${API}/api/collections/users/auth-methods`);
-      const data = await res.json();
-      const apple = (data.authProviders || []).find(p => p.name === 'apple');
-      if (!apple) return showAlert('login-error', 'Apple sign-in is not yet available — check back soon!');
-      sessionStorage.setItem('pb_oauth_state', apple.state);
-      sessionStorage.setItem('pb_oauth_verifier', apple.codeVerifier);
-      sessionStorage.setItem('pb_oauth_provider', 'apple');
-      // Apple supports response_mode=fragment only for the hybrid flow (response_type=code id_token).
-      // Pure code flow only allows form_post (405 on GitHub Pages) or query (rejected by Apple).
-      // We request code+id_token; PocketBase uses only the code for token exchange.
-      const appleUrl = apple.authUrl
-        .replace('response_mode=form_post', 'response_mode=fragment')
-        .replace('response_type=code', 'response_type=code%20id_token')
-        .replace(/&code_challenge=[^&]+/, '')
-        .replace(/&code_challenge_method=[^&]+/, '');
-      window.location.href = appleUrl + encodeURIComponent(window.location.origin + window.location.pathname);
+      const redirect = encodeURIComponent(window.location.origin + window.location.pathname);
+      window.location.href = `${API}/auth/apple/start?redirect=${redirect}`;
     } catch (e) {
       showAlert('login-error', 'Could not start Apple sign-in: ' + e.message);
+    }
+  }
+
+  async function handleAppleAuthCallback() {
+    const params = new URLSearchParams(window.location.search);
+    const handoff = params.get('handoff');
+    const error = params.get('apple_oauth_error');
+    history.replaceState({}, '', window.location.pathname);
+    if (error) {
+      showAlert('login-error', error);
+      showView('auth');
+      return;
+    }
+    if (!handoff) {
+      showAlert('login-error', 'Apple sign-in could not be completed.');
+      showView('auth');
+      return;
+    }
+    try {
+      const res = await fetch(`${API}/auth/apple/finalize?handoff=${encodeURIComponent(handoff)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Apple sign-in failed');
+      token = data.token;
+      userId = data.record.id;
+      currentUser = data.record;
+      localStorage.setItem('pb_token', token);
+      localStorage.setItem('pb_user_id', userId);
+      if (!currentUser.approved) return showView('pending');
+      showView('app');
+      populateProfile();
+      loadDirectory();
+      loadNews();
+      maybeDeepLinkTree();
+    } catch (e) {
+      showAlert('login-error', e.message);
+      showView('auth');
     }
   }
 
@@ -634,12 +659,10 @@
     history.replaceState({}, '', window.location.pathname);
     try {
       const provider = sessionStorage.getItem('pb_oauth_provider') || 'google';
-      // Apple web Sign In skips PKCE, so send empty verifier for that provider.
-      const codeVerifier = provider === 'apple' ? '' : verifier;
       const res = await fetch(`${API}/api/collections/users/auth-with-oauth2`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, code, codeVerifier,
+        body: JSON.stringify({ provider, code, codeVerifier: verifier,
           redirectUrl: window.location.origin + window.location.pathname })
       });
       const data = await res.json();
