@@ -39,5 +39,18 @@ If the public frontend or API URLs move, update `FRONTEND_URL` and
 `PUBLIC_API_URL` in the backend environment so the Apple bridge uses the right
 origins and callback URL.
 
+## Family admins
+The `users` auth collection has `approved` and `family_admin` flags. Approved
+family admins see an Admin tab in the SPA where they can approve pending
+accounts and grant or remove family-admin access.
+
+The migration seeds `james@klsll.com` as approved and as a family admin when
+that user exists. Additional admins can be managed from the Admin tab.
+
+Welcome emails are not configured in code yet. Configure PocketBase SMTP first,
+then add either a PocketBase hook or transactional email provider integration to
+send a message when an admin changes a user from `approved=false` to
+`approved=true`.
+
 ## gedcom_sync
 See `tools/gedcom_sync/README.md`.

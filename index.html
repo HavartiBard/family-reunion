@@ -182,6 +182,7 @@
     .member-info { flex: 1; min-width: 0; }
     .member-name { font-weight: 600; font-size: 0.97rem; }
     .member-detail { font-size: 0.83rem; color: var(--muted); margin-top: 0.15rem; }
+    .member-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: flex-end; }
 
     /* ── News ── */
     .news-post {
@@ -370,6 +371,7 @@
       <button onclick="showSection('news')">News</button>
       <button onclick="showSection('tree')">Family Tree</button>
       <button onclick="showSection('profile')">My Profile</button>
+      <button id="nav-admin" style="display:none" onclick="showSection('admin')">Admin</button>
     </nav>
 
     <!-- Directory -->
@@ -443,6 +445,19 @@
         </div>
       </div>
     </div>
+
+    <!-- Admin -->
+    <div id="section-admin" class="view">
+      <div class="card">
+        <p class="card-title">Family Admin</p>
+        <div id="admin-error" class="alert alert-error" style="display:none"></div>
+        <div id="admin-success" class="alert alert-success" style="display:none"></div>
+        <p class="card-title" style="font-size:0.95rem;margin-top:0.5rem">Pending Accounts</p>
+        <div id="pending-users"><div class="spinner"></div></div>
+        <p class="card-title" style="font-size:0.95rem;margin-top:1.5rem">Current Admins</p>
+        <div id="admin-users"><div class="spinner"></div></div>
+      </div>
+    </div>
   </div>
 
   <p class="footer">Only family · Your info stays private</p>
@@ -473,11 +488,7 @@
       if (!res.ok) throw new Error('session expired');
       currentUser = await res.json();
       if (!currentUser.approved) return showView('pending');
-      showView('app');
-      populateProfile();
-      loadDirectory();
-      loadNews();
-      maybeDeepLinkTree();
+      enterApp();
     } catch {
       clearSession();
       showView('auth');
@@ -494,8 +505,24 @@
     document.querySelectorAll('#view-app .view').forEach(v => v.classList.remove('active'));
     document.getElementById('section-' + name).classList.add('active');
     document.querySelectorAll('#app-nav button').forEach(b => b.classList.remove('active'));
-    if (event && event.target) event.target.classList.add('active');
+    const source = (window.event && window.event.target) ||
+      document.querySelector(`#app-nav button[onclick="showSection('${name}')"]`);
+    if (source) source.classList.add('active');
     if (name === 'tree') openTree();
+    if (name === 'admin') loadAdmin();
+  }
+
+  function enterApp() {
+    showView('app');
+    setupAdminNav();
+    populateProfile();
+    loadDirectory();
+    loadNews();
+    maybeDeepLinkTree();
+  }
+
+  function setupAdminNav() {
+    document.getElementById('nav-admin').style.display = currentUser?.family_admin ? '' : 'none';
   }
 
   // If the URL has ?person=<id>, jump straight to that person in the tree.
@@ -531,11 +558,7 @@
       localStorage.setItem('pb_token', token);
       localStorage.setItem('pb_user_id', userId);
       if (!currentUser.approved) return showView('pending');
-      showView('app');
-      populateProfile();
-      loadDirectory();
-      loadNews();
-      maybeDeepLinkTree();
+      enterApp();
     } catch (e) {
       showAlert('login-error', e.message);
     }
@@ -634,11 +657,7 @@
       localStorage.setItem('pb_token', token);
       localStorage.setItem('pb_user_id', userId);
       if (!currentUser.approved) return showView('pending');
-      showView('app');
-      populateProfile();
-      loadDirectory();
-      loadNews();
-      maybeDeepLinkTree();
+      enterApp();
     } catch (e) {
       showAlert('login-error', e.message);
       showView('auth');
@@ -673,11 +692,7 @@
       localStorage.setItem('pb_token', token);
       localStorage.setItem('pb_user_id', userId);
       if (!currentUser.approved) return showView('pending');
-      showView('app');
-      populateProfile();
-      loadDirectory();
-      loadNews();
-      maybeDeepLinkTree();
+      enterApp();
     } catch (e) {
       showAlert('login-error', e.message);
       showView('auth');
@@ -722,6 +737,96 @@
       }).join('') + '</div>';
     } catch (e) {
       el.innerHTML = `<div class="alert alert-error">${e.message}</div>`;
+    }
+  }
+
+  // ── Family Admin ──────────────────────────────────────────────────────────
+
+  async function loadAdmin() {
+    if (!currentUser?.family_admin) return showSection('directory');
+    hideAlert('admin-error');
+    document.getElementById('admin-success').style.display = 'none';
+    await Promise.all([loadPendingUsers(), loadAdminUsers()]);
+  }
+
+  async function loadPendingUsers() {
+    const el = document.getElementById('pending-users');
+    el.innerHTML = '<div class="spinner"></div>';
+    try {
+      const filter = encodeURIComponent('(approved=false)');
+      const res = await apiFetch(`/api/collections/users/records?filter=${filter}&sort=created&perPage=100`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Could not load pending users');
+      if (!data.items.length) {
+        el.innerHTML = '<div class="empty-state" style="padding:1.5rem 1rem"><p>No pending accounts.</p></div>';
+        return;
+      }
+      el.innerHTML = '<div class="member-list">' + data.items.map(adminUserCard).join('') + '</div>';
+    } catch (e) {
+      el.innerHTML = `<div class="alert alert-error">${esc(e.message)}</div>`;
+    }
+  }
+
+  async function loadAdminUsers() {
+    const el = document.getElementById('admin-users');
+    el.innerHTML = '<div class="spinner"></div>';
+    try {
+      const filter = encodeURIComponent('(family_admin=true)');
+      const res = await apiFetch(`/api/collections/users/records?filter=${filter}&sort=name&perPage=100`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Could not load family admins');
+      if (!data.items.length) {
+        el.innerHTML = '<div class="empty-state" style="padding:1.5rem 1rem"><p>No family admins yet.</p></div>';
+        return;
+      }
+      el.innerHTML = '<div class="member-list">' + data.items.map(adminUserCard).join('') + '</div>';
+    } catch (e) {
+      el.innerHTML = `<div class="alert alert-error">${esc(e.message)}</div>`;
+    }
+  }
+
+  function adminUserCard(u) {
+    const created = u.created ? new Date(u.created).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+    const actions = !u.approved
+      ? `<button class="btn btn-primary btn-sm" onclick="approveUser('${u.id}', false)">Approve</button>
+         <button class="btn btn-secondary btn-sm" onclick="approveUser('${u.id}', true)">Approve as Admin</button>`
+      : u.id === userId
+        ? '<span class="badge badge-ok">You</span>'
+        : `<button class="btn btn-secondary btn-sm" onclick="setFamilyAdmin('${u.id}', false)">Remove Admin</button>`;
+    return `<div class="member-card">
+      <div class="avatar">${userInitials(u)}</div>
+      <div class="member-info">
+        <div class="member-name">${esc(u.name || u.email || 'Family Member')}</div>
+        <div class="member-detail">${[u.email, u.phone, created ? 'Joined ' + created : ''].filter(Boolean).map(esc).join(' · ')}</div>
+      </div>
+      <div class="member-actions">${actions}</div>
+    </div>`;
+  }
+
+  async function approveUser(id, makeAdmin) {
+    await updateUserAccess(id, { approved: true, family_admin: makeAdmin });
+  }
+
+  async function setFamilyAdmin(id, familyAdmin) {
+    await updateUserAccess(id, { family_admin: familyAdmin });
+  }
+
+  async function updateUserAccess(id, body) {
+    hideAlert('admin-error');
+    document.getElementById('admin-success').style.display = 'none';
+    try {
+      const res = await apiFetch(`/api/collections/users/records/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Could not update user');
+      document.getElementById('admin-success').textContent = 'User updated.';
+      document.getElementById('admin-success').style.display = '';
+      await loadAdmin();
+    } catch (e) {
+      showAlert('admin-error', e.message);
     }
   }
 
@@ -1265,11 +1370,14 @@
     });
   }
 
-  function val(id) { return document.getElementById(id).value.trim(); }
-  function setVal(id, v) { document.getElementById(id).value = v; }
-  function esc(s) {
-    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  }
+    function val(id) { return document.getElementById(id).value.trim(); }
+    function setVal(id, v) { document.getElementById(id).value = v; }
+    function userInitials(u) {
+      return (u.name || u.email || '?').split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+    }
+    function esc(s) {
+      return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
   function showAlert(id, msg) {
     const el = document.getElementById(id);
     el.textContent = msg; el.style.display = '';

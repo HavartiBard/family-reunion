@@ -18,7 +18,7 @@ Schema is defined entirely in `backend/pb_migrations/`; migrations auto-apply on
 
 Three PocketBase collections, all gated behind `approved=true` user auth:
 
-- **`users`** — built-in PocketBase auth collection; has `approved` (bool), `phone`, `birthday` fields; new registrants start `approved=false`.
+- **`users`** — built-in PocketBase auth collection; has `approved` (bool), `family_admin` (bool), `phone`, `birthday` fields; new registrants start `approved=false`.
 - **`persons`** — tree nodes: `display_name`, `given_name`, `family_name`, `gender`, `birth_date`, `death_date`, `living`, `bio`, `photo`, `linked_user` (→users), `father`/`mother` (self-referential → persons), `gedcom_id` (Webtrees xref).
 - **`couples`** — `partner_a`/`partner_b` (→persons), `status` (married/divorced/partners/unknown), `married_date`.
 - **`news`** — `title`, `body`, `author` (→users).
@@ -73,7 +73,7 @@ After adding a migration to a running Docker instance, restart: `docker compose 
 
 ## Key behaviors
 
-- **Access control:** All PocketBase collection rules require `@request.auth.id != "" && @request.auth.approved = true`. Users register with `approved=false`; a family admin must flip it in the PocketBase admin UI.
+- **Access control:** App collections require `@request.auth.id != "" && @request.auth.approved = true`. Users register with `approved=false`; users with `family_admin=true` can approve pending accounts from the SPA Admin tab.
 - **OAuth:** Google and Apple sign-in use PocketBase's OAuth2 flow with PKCE; state/verifier round-trip through `sessionStorage`. The redirect URL must match what's configured in PocketBase's auth providers.
 - **Tree navigation:** The tree view is neighborhood-based (focus person ± 2 generations). `treeFocusId` persists in the URL as `?person=<id>` for deep linking. `personCache` (session-scoped `Map`) avoids redundant fetches.
 - **gedcom_sync:** Idempotent (keyed on `gedcom_id`), fill-blanks-only (never overwrites SPA edits), redacts living people. Must run on Unraid where the `webtrees` Docker network exists; see `tools/gedcom_sync/README.md` for exact commands.
