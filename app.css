@@ -191,6 +191,40 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
   .home-grid{grid-template-columns:1fr}
 }
 
+/* ── shared row card (search results / merge picker) ───────────────────── */
+.row-card{display:flex;align-items:center;gap:11px;width:100%;text-align:left;
+  padding:10px 12px;border:1px solid var(--border-default);border-radius:12px;
+  background:var(--bg-card);cursor:pointer;transition:border-color .12s,box-shadow .12s}
+.row-card:hover{border-color:var(--accent-gold);box-shadow:var(--shadow-card)}
+.rc-name{font-size:.92rem;font-weight:600}
+.rc-sub{font-size:.78rem;color:var(--text-muted)}
+
+/* ── Family tree ───────────────────────────────────────────────────────── */
+.tree-screen{display:flex;flex-direction:column;height:100vh}
+.tree-header{display:flex;justify-content:space-between;align-items:center;gap:12px;
+  padding:18px 28px;border-bottom:1px solid var(--border-default);
+  background:rgba(244,241,234,.85);backdrop-filter:blur(6px);position:sticky;top:0;z-index:2}
+.tree-title{font-family:var(--font-display);font-size:26px}
+.tree-breadcrumb{font-size:.82rem;margin-top:2px}
+.tree-canvas{flex:1;overflow:auto;padding:36px 24px;
+  background:#efe9dd;
+  background-image:radial-gradient(#ddd5c4 1.4px,transparent 1.4px);background-size:26px 26px}
+.tree-row{display:flex;gap:.7rem;justify-content:center;flex-wrap:wrap;margin:.3rem 0}
+.tree-conn{width:2px;height:22px;background:#c4bba8;margin:0 auto}
+.tree-node{width:156px;padding:11px 13px;border-radius:14px;border:2px solid var(--border-default);
+  background:#fff;box-shadow:0 4px 14px rgba(31,45,39,.10);cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;gap:6px;transition:border-color .12s,background .12s}
+.tree-node:hover{border-color:var(--accent-gold)}
+.tree-node.focus{background:#fffaf0;border-color:var(--accent-gold)}
+.tree-node[data-depth="2"]{width:108px;opacity:.7;padding:8px}
+.tn-av{width:36px;height:36px;font-size:.85rem}
+.tree-node[data-depth="2"] .tn-av{width:28px;height:28px;font-size:.72rem}
+.tn-name{font-size:13.5px;font-weight:700;text-align:center;line-height:1.15;color:var(--text-primary)}
+.tree-node[data-depth="2"] .tn-name{font-size:.74rem;font-weight:600}
+.tn-years{font-size:11px;color:var(--text-muted)}
+.tree-actions{display:flex;gap:.5rem;justify-content:center;margin-top:1.4rem;flex-wrap:wrap}
+@media (max-width:767px){.tree-header{padding:14px 16px}.tree-canvas{padding:20px 10px}}
+
 /* ── Mobile bottom nav ─────────────────────────────────────────────────── */
 #bottom-nav{display:none}
 @media (max-width:767px){

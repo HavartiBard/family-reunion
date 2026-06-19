@@ -502,6 +502,345 @@ async function postNews(){
   } catch (e) { if (err) { err.textContent = e.message; err.style.display = ''; } }
 }
 
+// ── Family tree ──────────────────────────────────────────────────────────────
+let treeFocusId = null;
+let treeTrail = [];
+const personCache = new Map();
+
+SCREENS.tree = function(params){
+  mountMain(`<div class="tree-screen">
+    <div class="tree-header">
+      <div><h1 class="tree-title">Family Tree</h1>
+        <div id="tree-breadcrumb" class="tree-breadcrumb" style="display:none"></div></div>
+      <button class="btn btn-outline btn-sm" onclick="openPersonForm()">Add person</button>
+    </div>
+    <div id="tree-canvas" class="tree-canvas"><div class="spinner"></div></div>
+  </div>`);
+  openTree((params && params.person) || null);
+};
+
+async function getPerson(id){
+  if (!id) return null;
+  if (personCache.has(id)) return personCache.get(id);
+  const res = await apiFetch(`/api/collections/persons/records/${id}`);
+  if (!res.ok) return null;
+  const p = await res.json();
+  personCache.set(id, p);
+  return p;
+}
+async function getChildren(parentId){
+  const res = await apiFetch(`/api/collections/persons/records?perPage=200&filter=` +
+    encodeURIComponent(`(father="${parentId}" || mother="${parentId}")`));
+  if (!res.ok) return [];
+  const data = await res.json();
+  data.items.forEach(p => personCache.set(p.id, p));
+  return data.items;
+}
+async function getCouplesFor(personId){
+  const res = await apiFetch(`/api/collections/couples/records?perPage=50&filter=` +
+    encodeURIComponent(`(partner_a="${personId}" || partner_b="${personId}")`));
+  if (!res.ok) return [];
+  return (await res.json()).items;
+}
+function dedupeById(arr){
+  const seen = new Set(); const out = [];
+  for (const x of arr) if (x && !seen.has(x.id)) { seen.add(x.id); out.push(x); }
+  return out;
+}
+async function fetchNeighborhood(focusId){
+  const focus = await getPerson(focusId);
+  if (!focus) return null;
+  const parents = [await getPerson(focus.father), await getPerson(focus.mother)].filter(Boolean);
+  const couples = await getCouplesFor(focusId);
+  const partnerIds = couples.map(c => c.partner_a === focusId ? c.partner_b : c.partner_a);
+  const partners = (await Promise.all(partnerIds.map(getPerson))).filter(Boolean);
+  const children = await getChildren(focusId);
+  let siblings = [];
+  for (const par of parents) (await getChildren(par.id)).forEach(k => { if (k.id !== focusId) siblings.push(k); });
+  siblings = dedupeById(siblings);
+  let grandparents = [];
+  for (const par of parents) grandparents.push(await getPerson(par.father), await getPerson(par.mother));
+  grandparents = grandparents.filter(Boolean);
+  let grandchildren = [];
+  for (const ch of children) grandchildren.push(...await getChildren(ch.id));
+  grandchildren = dedupeById(grandchildren);
+  return { focus, parents, partners, siblings, children, grandparents, grandchildren, couples };
+}
+
+function nodeHtml(p, depth, isFocus, idx){
+  const years = depth === 2 ? '' : `<div class="tn-years">${personYears(p)}</div>`;
+  return `<button class="tree-node${isFocus ? ' focus' : ''}" data-depth="${depth}" onclick="focusPerson('${p.id}')">
+    <div class="avatar tn-av" style="background:${avatarTint(idx || 0)};color:var(--text-primary)">${personInitials(p)}</div>
+    <div class="tn-name">${esc(p.display_name)}</div>${years}</button>`;
+}
+function renderTree(n){
+  const row = (nodes, depth) => nodes.length
+    ? `<div class="tree-row">${nodes.map((p, i) => nodeHtml(p, depth, false, i)).join('')}</div>` : '';
+  const conn = (nodes) => nodes.length ? '<div class="tree-conn"></div>' : '';
+  const focusRow = `<div class="tree-row">` +
+    n.siblings.map((p, i) => nodeHtml(p, 1, false, i)).join('') +
+    nodeHtml(n.focus, 0, true, 0) +
+    n.partners.map((p, i) => nodeHtml(p, 1, false, i + 3)).join('') + `</div>`;
+  const html =
+    row(n.grandparents, 2) + conn(n.grandparents) +
+    row(n.parents, 1) + conn(n.parents) +
+    focusRow +
+    conn(n.children) + row(n.children, 1) +
+    conn(n.grandchildren) + row(n.grandchildren, 2) +
+    treeActionsHtml(n.focus);
+  el('tree-canvas').innerHTML = html ||
+    '<div class="empty-state"><div class="emoji">🌱</div><p>No relatives linked yet.</p></div>';
+}
+function treeActionsHtml(focus){
+  const claim = focus.linked_user
+    ? (focus.linked_user === userId ? '<span class="pill">This is you</span>' : '')
+    : `<button class="btn btn-outline btn-sm" onclick="claimPerson('${focus.id}')">This is me</button>`;
+  return `<div class="tree-actions">
+    <button class="btn btn-primary btn-sm" onclick="openPersonForm('${focus.id}')">Edit</button>
+    <button class="btn btn-outline btn-sm" onclick="openAddRelative('${focus.id}')">Add relative</button>
+    <button class="btn btn-outline btn-sm" onclick="navigate('profile',{id:'${focus.id}'})">View profile</button>
+    ${claim}</div>`;
+}
+async function focusPerson(id, fromTrail){
+  if (!id) return;
+  if (!fromTrail) {
+    if (treeFocusId && treeFocusId !== id) treeTrail.push(treeFocusId);
+    if (treeTrail.length > 12) treeTrail.shift();
+  }
+  treeFocusId = id;
+  history.replaceState({}, '', `${location.pathname}?tab=tree&person=${id}`);
+  el('tree-canvas').innerHTML = '<div class="spinner"></div>';
+  const n = await fetchNeighborhood(id);
+  if (!n) { el('tree-canvas').innerHTML = '<div class="alert alert-error">Person not found.</div>'; return; }
+  renderBreadcrumb();
+  renderTree(n);
+}
+function renderBreadcrumb(){
+  const e = el('tree-breadcrumb');
+  if (!e) return;
+  if (!treeTrail.length) { e.style.display = 'none'; return; }
+  e.style.display = ''; e.innerHTML = '<span class="link" onclick="treeBack()">‹ Back</span>';
+}
+async function treeBack(){ const prev = treeTrail.pop(); if (prev) await focusPerson(prev, true); }
+
+async function openTree(personId){
+  const target = personId || treeFocusId || (currentUser && await myPersonId()) || null;
+  if (!target) {
+    el('tree-canvas').innerHTML =
+      `<div class="empty-state"><div class="emoji">🌳</div>
+        <p>No one in the tree yet. Add people, or use "Add relative".</p>
+        <button class="btn btn-primary" style="margin-top:1rem" onclick="openPersonForm()">Add a person</button></div>`;
+    return;
+  }
+  await focusPerson(target);
+}
+async function myPersonId(){
+  const res = await apiFetch(`/api/collections/persons/records?perPage=1&filter=` +
+    encodeURIComponent(`(linked_user="${userId}")`));
+  if (!res.ok) return null;
+  return ((await res.json()).items[0] || {}).id || null;
+}
+async function viewUserInTree(uid){
+  const res = await apiFetch(`/api/collections/persons/records?perPage=1&filter=` +
+    encodeURIComponent(`(linked_user="${uid}")`));
+  const pid = res.ok ? ((await res.json()).items[0] || {}).id : null;
+  navigate('tree', pid ? { person: pid } : {});
+}
+
+function formErr(id, msg){ const e = el(id); if (e) { e.textContent = msg; e.style.display = ''; } }
+
+async function openPersonForm(id){
+  const p = id ? await getPerson(id) : {};
+  openModal(`<h2 class="card-title">${id ? 'Edit person' : 'Add person'}</h2>
+    <div id="pf-error" class="alert alert-error" style="display:none"></div>
+    <div class="form-group"><label>Name</label><input id="pf-name" value="${esc(p.display_name || '')}" /></div>
+    <div class="form-group"><label>Gender</label>
+      <select id="pf-gender">${['unknown','male','female','other'].map(g =>
+        `<option value="${g}" ${p.gender === g ? 'selected' : ''}>${g}</option>`).join('')}</select></div>
+    <div class="row-2">
+      <div class="form-group"><label>Birth</label><input id="pf-birth" value="${esc(p.birth_date || '')}" placeholder="1947 or 1947-03-12" /></div>
+      <div class="form-group"><label>Death</label><input id="pf-death" value="${esc(p.death_date || '')}" placeholder="blank if living" /></div>
+    </div>
+    <div class="form-group"><label>Bio</label><textarea id="pf-bio">${esc(p.bio || '')}</textarea></div>
+    <div class="form-group"><label>Photo</label><input id="pf-photo" type="file" accept="image/*" /></div>
+    <div style="display:flex;gap:.6rem;margin-top:.5rem">
+      <button class="btn btn-primary" onclick="savePerson('${id || ''}')">Save</button>
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    </div>`);
+}
+async function savePerson(id){
+  const name = val('pf-name');
+  if (!name) return formErr('pf-error', 'Name is required.');
+  const fd = new FormData();
+  fd.append('display_name', name);
+  const parts = name.split(' ');
+  fd.append('given_name', parts[0] || '');
+  fd.append('family_name', parts.slice(1).join(' ') || '');
+  fd.append('gender', el('pf-gender').value);
+  fd.append('birth_date', val('pf-birth'));
+  fd.append('death_date', val('pf-death'));
+  fd.append('living', val('pf-death') ? 'false' : 'true');
+  fd.append('bio', val('pf-bio'));
+  fd.append('updated_by', userId);
+  const photo = el('pf-photo').files[0];
+  if (photo) fd.append('photo', photo);
+  try {
+    let res;
+    if (id) res = await apiFetch(`/api/collections/persons/records/${id}`, { method:'PATCH', body: fd });
+    else { fd.append('created_by', userId); res = await apiFetch('/api/collections/persons/records', { method:'POST', body: fd }); }
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Save failed'); }
+    const saved = await res.json();
+    personCache.set(saved.id, saved);
+    closeModal();
+    await focusPerson(saved.id, true);
+  } catch (e) { formErr('pf-error', e.message); }
+}
+
+function openAddRelative(focusId){
+  openModal(`<h2 class="card-title">Add relative</h2>
+    <p style="font-size:.88rem;color:var(--text-secondary);margin-bottom:1rem">How is this person related to the focused person?</p>
+    <div class="tree-actions" style="margin-top:0">
+      ${['parent','partner','child','sibling'].map(r =>
+        `<button class="btn btn-outline btn-sm" onclick="pickRelative('${focusId}','${r}')">${r[0].toUpperCase() + r.slice(1)}</button>`).join('')}
+    </div>
+    <div style="margin-top:1rem"><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>`);
+}
+function pickRelative(focusId, rel){
+  openModal(`<h2 class="card-title">Add ${esc(rel)}</h2>
+    <div id="rel-error" class="alert alert-error" style="display:none"></div>
+    <div class="form-group"><label>Search existing</label>
+      <input id="rel-search" placeholder="Type a name…" oninput="searchPersons('${focusId}','${rel}')" /></div>
+    <div id="rel-results" style="display:flex;flex-direction:column;gap:.4rem;margin-bottom:1rem"></div>
+    <button class="btn btn-primary btn-full" onclick="createAndLink('${focusId}','${rel}')">Create new person &amp; link</button>
+    <div style="margin-top:.6rem"><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>`);
+}
+let relSearchTimer = null;
+function searchPersons(focusId, rel){
+  clearTimeout(relSearchTimer);
+  relSearchTimer = setTimeout(async () => {
+    const q = val('rel-search'); const e = el('rel-results');
+    if (!q) { e.innerHTML = ''; return; }
+    const res = await apiFetch(`/api/collections/persons/records?perPage=8&filter=` + encodeURIComponent(`(display_name~"${q}")`));
+    const items = res.ok ? (await res.json()).items : [];
+    e.innerHTML = items.length
+      ? items.map(p => `<button class="row-card" onclick="linkExisting('${focusId}','${rel}','${p.id}')">
+          <div class="avatar" style="width:36px;height:36px;font-size:.8rem">${personInitials(p)}</div>
+          <div><div class="rc-name">${esc(p.display_name)}</div><div class="rc-sub">${personYears(p)}</div></div></button>`).join('')
+      : '<p style="font-size:.82rem;color:var(--text-muted)">No matches — create new below.</p>';
+  }, 250);
+}
+async function applyRelationship(focusId, rel, otherId){
+  const focus = await getPerson(focusId);
+  if (rel === 'parent') {
+    const slot = (await getPerson(otherId)).gender === 'female' ? 'mother' : 'father';
+    return patchPerson(focusId, { [slot]: otherId });
+  }
+  if (rel === 'child') {
+    const slot = focus.gender === 'female' ? 'mother' : 'father';
+    return patchPerson(otherId, { [slot]: focusId });
+  }
+  if (rel === 'sibling') return patchPerson(otherId, { father: focus.father || '', mother: focus.mother || '' });
+  if (rel === 'partner') {
+    const res = await apiFetch('/api/collections/couples/records', {
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ partner_a: focusId, partner_b: otherId, status:'married', created_by: userId, updated_by: userId }) });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Link failed'); }
+  }
+}
+async function patchPerson(id, fields){
+  const res = await apiFetch(`/api/collections/persons/records/${id}`, {
+    method:'PATCH', headers:{ 'Content-Type':'application/json' },
+    body: JSON.stringify({ ...fields, updated_by: userId }) });
+  if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Update failed'); }
+  const p = await res.json(); personCache.set(p.id, p); return p;
+}
+async function linkExisting(focusId, rel, otherId){
+  try { await applyRelationship(focusId, rel, otherId); closeModal(); personCache.delete(focusId); await focusPerson(focusId, true); }
+  catch (e) { formErr('rel-error', e.message); }
+}
+async function createAndLink(focusId, rel){
+  const q = val('rel-search');
+  if (!q) return formErr('rel-error', 'Enter a name to create a new person.');
+  try {
+    const res = await apiFetch('/api/collections/persons/records', {
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ display_name: q, given_name: q.split(' ')[0], family_name: q.split(' ').slice(1).join(' '),
+        living: true, created_by: userId, updated_by: userId }) });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Create failed'); }
+    const created = await res.json(); personCache.set(created.id, created);
+    await applyRelationship(focusId, rel, created.id);
+    closeModal(); personCache.delete(focusId); await focusPerson(focusId, true);
+  } catch (e) { formErr('rel-error', e.message); }
+}
+async function claimPerson(personId){
+  const p = await getPerson(personId);
+  if (p.linked_user && p.linked_user !== userId) { toast('Already linked to another account.', 'error'); return; }
+  const prior = await myPersonId();
+  try {
+    if (prior && prior !== personId) await patchPerson(prior, { linked_user: '' });
+    await patchPerson(personId, { linked_user: userId });
+    personCache.delete(personId); await focusPerson(personId, true);
+  } catch (e) { toast('Could not claim: ' + e.message, 'error'); }
+}
+
+// duplicates + merge (uses merge.js computeMergeWrites)
+function normName(s){ return (s || '').toLowerCase().replace(/[^a-z]/g, ''); }
+async function openDuplicates(){
+  openModal('<h2 class="card-title">Possible duplicates</h2><div class="spinner"></div>');
+  const res = await apiFetch('/api/collections/persons/records?perPage=500&sort=family_name');
+  const items = res.ok ? (await res.json()).items : [];
+  const groups = {};
+  for (const p of items) {
+    const key = normName(p.display_name) + '|' + (p.birth_date || '').slice(0, 4);
+    (groups[key] = groups[key] || []).push(p);
+  }
+  const dupes = Object.values(groups).filter(g => g.length > 1);
+  const body = dupes.length ? dupes.map(g => `
+    <div class="card" style="margin-bottom:.6rem;padding:1rem"><div class="rc-name">${esc(g[0].display_name)}
+      ${g[0].birth_date ? '· ' + g[0].birth_date.slice(0, 4) : ''}</div>
+      <div class="rc-sub">${g.length} records</div>
+      <button class="btn btn-outline btn-sm" style="margin-top:.5rem" onclick='openMerge(${JSON.stringify(g.map(p => p.id))})'>Merge these</button>
+    </div>`).join('') : '<p style="color:var(--text-muted)">No duplicates found 🎉</p>';
+  openModal(`<h2 class="card-title">Possible duplicates</h2>${body}
+    <div style="margin-top:.6rem"><button class="btn btn-outline" onclick="closeModal()">Close</button></div>`);
+}
+async function openMerge(ids){
+  const people = await Promise.all(ids.map(getPerson));
+  openModal(`<h2 class="card-title">Merge duplicates</h2>
+    <div id="merge-error" class="alert alert-error" style="display:none"></div>
+    <p style="font-size:.86rem;color:var(--text-secondary);margin-bottom:.75rem">Pick the record to KEEP. The others' children, partners, and account link move onto it, then they're deleted.</p>
+    ${people.map(p => `<label class="row-card" style="cursor:pointer">
+      <input type="radio" name="survivor" value="${p.id}" style="width:auto;height:auto;margin-right:.5rem">
+      <div class="avatar" style="width:36px;height:36px;font-size:.8rem">${personInitials(p)}</div>
+      <div><div class="rc-name">${esc(p.display_name)}</div><div class="rc-sub">${personYears(p)} · id ${p.id.slice(0, 6)}</div></div></label>`).join('')}
+    <div style="display:flex;gap:.6rem;margin-top:1rem">
+      <button class="btn btn-danger" onclick='runMerge(${JSON.stringify(ids)})'>Merge</button>
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>`);
+}
+async function runMerge(ids){
+  const sel = document.querySelector('input[name=survivor]:checked');
+  if (!sel) return formErr('merge-error', 'Choose which record to keep.');
+  const survivorId = sel.value;
+  const survivor = await getPerson(survivorId);
+  try {
+    for (const dupId of ids.filter(id => id !== survivorId)) {
+      const duplicate = await getPerson(dupId);
+      const children = await getChildren(dupId);
+      const couples = await getCouplesFor(dupId);
+      const w = computeMergeWrites(survivor, duplicate, children, couples);
+      for (const it of w.persons) await patchPerson(it.id, it.fields);
+      for (const it of w.couples) await apiFetch(`/api/collections/couples/records/${it.id}`, {
+        method:'PATCH', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ ...it.fields, updated_by: userId }) });
+      if (Object.keys(w.survivorFields).length) await patchPerson(survivorId, w.survivorFields);
+      await apiFetch(`/api/collections/persons/records/${w.deletePersonId}`, { method:'DELETE' });
+      personCache.delete(dupId);
+    }
+    personCache.delete(survivorId);
+    closeModal();
+    await focusPerson(survivorId, true);
+  } catch (e) { formErr('merge-error', e.message); }
+}
+
 // ── Placeholder screens (replaced by screen modules appended below) ──────────
 for (const n of NAV) if (!SCREENS[n.tab]) SCREENS[n.tab] = () =>
   mountMain(`<div class="screen-pad"><h1 class="card-title">${esc(n.label)}</h1>
