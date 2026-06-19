@@ -37,8 +37,8 @@ migrate((db) => {
     updateRule: `${APPROVED} && (uploader = @request.auth.id || ${IS_ADMIN})`,
     deleteRule: `${APPROVED} && (uploader = @request.auth.id || ${IS_ADMIN})`,
     schema: [
-      { name: "album", type: "relation",
-        options: { collectionId: albums.id, maxSelect: 1, cascadeDelete: true, required: true } },
+      { name: "album", type: "relation", required: true,
+        options: { collectionId: albums.id, maxSelect: 1, cascadeDelete: true } },
       { name: "image", type: "file", required: true,
         options: { maxSelect: 1, maxSize: 10485760,
           mimeTypes: ["image/jpeg", "image/png", "image/webp", "image/gif"] } },
