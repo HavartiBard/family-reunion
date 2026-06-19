@@ -198,4 +198,16 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
 .auth-divider{display:flex;align-items:center;gap:12px;margin:1.1rem 0;color:var(--text-muted);font-size:.8rem}
 .auth-divider::before,.auth-divider::after{content:"";flex:1;height:1px;background:var(--border-default)}
 .auth-foot{margin-top:1.4rem;font-size:.9rem;color:var(--text-secondary);text-align:center}
+
+/* surname roller */
+.roller-stack{font-family:var(--font-display);font-weight:500;line-height:1.1;
+  font-size:clamp(40px,6vw,72px)}
+.roller-fixed{color:#f4f1ea}
+.roller-window{height:1.1em;overflow:hidden}
+.roller-track{will-change:transform}
+.roller-word{height:1.1em;color:var(--accent-gold)}
+.roller-tag{font-family:var(--font-display);font-style:italic;font-size:21px;
+  color:var(--accent-gold);margin-top:1.4rem}
+.roller-branches{margin-top:auto;position:absolute;bottom:40px;left:48px;right:48px;
+  font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;color:rgba(244,241,234,.4)}
 @media (max-width:767px){.auth-brand{display:none}}

@@ -91,6 +91,7 @@ async function init(){
 }
 
 async function enterApp(){
+  clearInterval(rollerTimer);
   el('app').innerHTML = `
     <div id="app-shell">
       <aside id="sidebar"><div class="sidebar-texture"></div><div id="sidebar-inner"></div></aside>
@@ -156,15 +157,58 @@ function renderSidebar(){
        <span class="ico">${n.ico}</span><span>${esc(n.label)}</span></button>`).join('');
 }
 
-// ── Auth screens (minimal; visually enhanced in the auth task) ───────────────
+// ── Auth screens ─────────────────────────────────────────────────────────────
+const FALLBACK_SURNAMES = ['Kelsall', 'Warfel', 'Flannigan', 'Hubber'];
+let rollerTimer = null;
+
 function showAuth(mode = 'signin'){
-  const roller = `<div class="inner">
-      <div style="font-family:var(--font-display);font-size:2.4rem;color:var(--accent-gold)">The Kelsall Family</div>
-      <p style="font-family:var(--font-display);font-style:italic;font-size:1.3rem;color:var(--accent-gold);margin-top:.6rem">Every branch, one root.</p>
-    </div><div class="texture"></div>`;
+  clearInterval(rollerTimer);
+  const brand = `
+    <div class="texture"></div>
+    <div class="inner">
+      <div class="roller-stack">
+        <div class="roller-fixed">The</div>
+        <div class="roller-window"><div id="roller-track" class="roller-track"><div class="roller-word">Kelsall</div></div></div>
+        <div class="roller-fixed">Family</div>
+      </div>
+      <p class="roller-tag">Every branch, one root.</p>
+      <div class="roller-branches" id="roller-branches"></div>
+    </div>`;
   const form = mode === 'signup' ? signUpForm() : signInForm();
-  el('app').innerHTML = `<div class="auth-wrap"><div class="auth-brand">${roller}</div>
+  el('app').innerHTML = `<div class="auth-wrap"><div class="auth-brand">${brand}</div>
     <div class="auth-form"><div class="box">${form}</div></div></div>`;
+  startSurnameRoller();
+}
+
+async function startSurnameRoller(){
+  let names = FALLBACK_SURNAMES;
+  try {
+    const res = await fetch(`${API}/api/collections/persons/records?perPage=500&fields=family_name`);
+    if (res.ok) {
+      const items = (await res.json()).items || [];
+      const distinct = [...new Set(items.map(p => (p.family_name || '').trim()).filter(Boolean))];
+      if (distinct.length >= 2) names = distinct;
+    }
+  } catch { /* keep fallback */ }
+
+  const track = el('roller-track');
+  const branches = el('roller-branches');
+  if (!track) return;
+  // Render each surname plus a repeat of the first for a seamless wrap.
+  track.innerHTML = [...names, names[0]].map(n => `<div class="roller-word">${esc(n)}</div>`).join('');
+  if (branches) branches.textContent = names.join(' · ');
+
+  let i = 0;
+  clearInterval(rollerTimer);
+  rollerTimer = setInterval(() => {
+    i++;
+    track.style.transition = 'transform .85s cubic-bezier(.7,0,.2,1)';
+    track.style.transform = `translateY(-${i * 1.1}em)`;
+    if (i === names.length) {
+      // After the duplicated first word shows, snap back to the real first without animating.
+      setTimeout(() => { track.style.transition = 'none'; track.style.transform = 'translateY(0)'; i = 0; }, 870);
+    }
+  }, 2000);
 }
 
 function signInForm(){
@@ -205,6 +249,7 @@ function signUpForm(){
 }
 
 function showPending(){
+  clearInterval(rollerTimer);
   el('app').innerHTML = `<div class="auth-wrap"><div class="auth-form"><div class="box" style="text-align:center">
     <div style="font-size:2.5rem">⏳</div>
     <h1 style="font-family:var(--font-display);font-size:1.8rem;margin:.5rem 0">Awaiting approval</h1>
