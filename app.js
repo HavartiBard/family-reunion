@@ -378,6 +378,130 @@ function clearSession(){
 }
 function logout(){ clearSession(); showAuth(); }
 
+// ═══════════════════════════════════════════════════════════════════════════
+//  SCREENS
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── Home / news feed ─────────────────────────────────────────────────────────
+SCREENS.home = async function(){
+  mountMain('<div class="screen-pad"><div class="spinner"></div></div>');
+  const days = daysUntil(REUNION_DATE, new Date());
+  const reunionDate = new Date(REUNION_DATE + 'T00:00:00')
+    .toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+
+  let news = [], members = [], memberTotal = 0, branches = 0;
+  try {
+    const [nRes, uRes, pRes] = await Promise.all([
+      apiFetch('/api/collections/news/records?sort=-created&perPage=50&expand=author'),
+      apiFetch('/api/collections/users/records?filter=(approved=true)&perPage=200'),
+      apiFetch('/api/collections/persons/records?perPage=500&fields=family_name'),
+    ]);
+    if (nRes.ok) news = (await nRes.json()).items || [];
+    if (uRes.ok) { const u = await uRes.json(); members = u.items || []; memberTotal = u.totalItems || members.length; }
+    if (pRes.ok) {
+      const persons = (await pRes.json()).items || [];
+      branches = new Set(persons.map(p => (p.family_name || '').trim()).filter(Boolean)).size;
+    }
+  } catch { /* render with whatever loaded */ }
+
+  mountMain(`<div class="screen-pad">
+    <div class="reunion-hero">
+      <div class="texture"></div>
+      <div class="rh-left">
+        <div class="rh-label">Next gathering</div>
+        <div class="rh-name">Kelsall Family Reunion</div>
+        <div class="rh-detail">${reunionDate}</div>
+        <button class="btn btn-gold" style="margin-top:18px" onclick="navigate('reunion')">RSVP now</button>
+      </div>
+      <div class="rh-count">
+        <div class="rh-num">${days}</div><div class="rh-days">days to go</div>
+      </div>
+    </div>
+
+    <div class="home-grid">
+      <div>
+        <div class="home-head">
+          <span class="section-label">Announcements</span>
+          <button class="btn btn-outline btn-sm" onclick="openNewsComposer()">Post update</button>
+        </div>
+        <div id="news-list">${renderNewsCards(news)}</div>
+      </div>
+      <aside class="home-rail">
+        <div class="card">
+          <div class="section-label" style="margin-bottom:.9rem">Upcoming birthdays</div>
+          ${renderBirthdays(members)}
+        </div>
+        <div class="card">
+          <div class="section-label" style="margin-bottom:.9rem">Family at a glance</div>
+          <div class="glance"><span class="g-num">${memberTotal}</span><span class="g-lbl">members</span></div>
+          <div class="glance"><span class="g-num">${branches || '—'}</span><span class="g-lbl">branches</span></div>
+          <button class="btn btn-outline btn-full" style="margin-top:1rem" onclick="navigate('tree')">Open the family tree →</button>
+        </div>
+      </aside>
+    </div>
+  </div>`);
+};
+
+function renderNewsCards(news){
+  if (!news.length) return '<div class="card"><div class="empty-state"><div class="emoji">📭</div><p>No updates yet.</p></div></div>';
+  return news.map(post => {
+    const author = (post.expand && post.expand.author && post.expand.author.name) || 'Family member';
+    const date = new Date(post.created).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+    return `<article class="news-card card">
+      <div class="news-tag"><span class="pill"><span class="dot"></span>Update</span>
+        <span class="news-time">${date}</span></div>
+      <h2 class="news-title">${esc(post.title)}</h2>
+      <div class="news-meta">${esc(author)}</div>
+      <p class="news-body">${esc(post.body)}</p>
+    </article>`;
+  }).join('');
+}
+
+function renderBirthdays(members){
+  const now = new Date();
+  const withBday = members.filter(m => m.birthday).map(m => {
+    const bd = new Date(m.birthday);
+    const next = new Date(now.getFullYear(), bd.getMonth(), bd.getDate());
+    if (next < new Date(now.getFullYear(), now.getMonth(), now.getDate())) next.setFullYear(now.getFullYear() + 1);
+    const turns = bd.getFullYear() ? (next.getFullYear() - bd.getFullYear()) : null;
+    return { m, next, turns, label: next.toLocaleDateString('en-US', { month:'short', day:'numeric' }) };
+  }).sort((a, b) => a.next - b.next).slice(0, 4);
+  if (!withBday.length) return '<p style="color:var(--text-muted);font-size:.86rem">No birthdays on file.</p>';
+  return withBday.map(({ m, label, turns }, i) =>
+    `<div class="bday-row">
+      <div class="avatar" style="width:38px;height:38px;font-size:.8rem;background:${avatarTint(i)};color:var(--text-primary)">${userInitials(m)}</div>
+      <div class="bday-info"><div class="bday-name">${esc(m.name)}</div><div class="bday-date">${label}</div></div>
+      ${turns ? `<div class="bday-turns">turns ${turns}</div>` : ''}
+    </div>`).join('');
+}
+
+function openNewsComposer(){
+  openModal(`<h2 class="card-title">Post an update</h2>
+    <div id="nc-error" class="alert alert-error" style="display:none"></div>
+    <div class="form-group"><label>Title</label><input id="nc-title" /></div>
+    <div class="form-group"><label>Message</label><textarea id="nc-body"></textarea></div>
+    <div style="display:flex;gap:.6rem;margin-top:.5rem">
+      <button class="btn btn-primary" onclick="postNews()">Post</button>
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    </div>`);
+}
+
+async function postNews(){
+  const title = val('nc-title'), body = val('nc-body');
+  const err = el('nc-error');
+  if (!title || !body) { if (err) { err.textContent = 'Title and message are required.'; err.style.display = ''; } return; }
+  try {
+    const res = await apiFetch('/api/collections/news/records', {
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ title, body, author: userId })
+    });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not post'); }
+    closeModal();
+    toast('Update posted.', 'success');
+    SCREENS.home();
+  } catch (e) { if (err) { err.textContent = e.message; err.style.display = ''; } }
+}
+
 // ── Placeholder screens (replaced by screen modules appended below) ──────────
 for (const n of NAV) if (!SCREENS[n.tab]) SCREENS[n.tab] = () =>
   mountMain(`<div class="screen-pad"><h1 class="card-title">${esc(n.label)}</h1>
