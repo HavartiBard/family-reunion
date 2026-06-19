@@ -1507,6 +1507,110 @@ async function changePassword(){
   } catch (e) { formErr('pw-error', e.message); }
 }
 
+// ── Admin panel ──────────────────────────────────────────────────────────────
+SCREENS.admin = async function(){
+  if (!(currentUser && currentUser.family_admin)) { navigate('home'); return; }
+  mountMain('<div class="screen-pad" style="max-width:1100px"><div class="spinner"></div></div>');
+
+  let pending = [], members = [], albumCount = 0, newsCount = 0;
+  try {
+    const [pRes, mRes, aRes, nRes] = await Promise.all([
+      apiFetch('/api/collections/users/records?filter=(approved=false)&perPage=100&sort=created'),
+      apiFetch('/api/collections/users/records?filter=(approved=true)&perPage=200&sort=name'),
+      apiFetch('/api/collections/albums/records?perPage=1'),
+      apiFetch('/api/collections/news/records?perPage=1')
+    ]);
+    if (pRes.ok) pending = (await pRes.json()).items || [];
+    if (mRes.ok) { const d = await mRes.json(); members = d.items || []; }
+    if (aRes.ok) albumCount = (await aRes.json()).totalItems || 0;
+    if (nRes.ok) newsCount  = (await nRes.json()).totalItems || 0;
+  } catch { /* ignore */ }
+
+  const stat = (v, l) => `<div class="stat-card"><div class="stat-val">${v}</div><div class="stat-label">${l}</div></div>`;
+
+  const pendingRows = pending.length
+    ? pending.map(u => `<tr>
+        <td>${esc(u.name || '—')}</td>
+        <td>${esc(u.email || '—')}</td>
+        <td>${u.created ? new Date(u.created).toLocaleDateString() : '—'}</td>
+        <td>
+          <button class="btn btn-primary btn-sm" onclick="adminApprove('${u.id}')">Approve</button>
+          <button class="btn btn-danger btn-sm" style="margin-left:.3rem" onclick="adminDeny('${u.id}')">Deny</button>
+        </td>
+      </tr>`).join('')
+    : '<tr><td colspan="4" style="color:var(--text-muted);text-align:center;padding:1rem">No pending requests.</td></tr>';
+
+  const memberRows = members.map(u => `<tr>
+    <td>${esc(u.name || '—')}</td>
+    <td>${esc(u.email || '—')}</td>
+    <td>${u.created ? new Date(u.created).toLocaleDateString() : '—'}</td>
+    <td>${u.family_admin ? '<span class="pill">Admin</span>' : ''}</td>
+    <td>${u.id !== userId
+      ? `<button class="btn btn-outline btn-sm" onclick="adminToggleAdmin('${u.id}',${!u.family_admin})">${u.family_admin ? 'Remove admin' : 'Make admin'}</button>`
+      : '<span style="color:var(--text-muted);font-size:.82rem">You</span>'}</td>
+  </tr>`).join('');
+
+  mountMain(`<div class="screen-pad" style="max-width:1100px">
+    <h1 class="card-title" style="margin-bottom:1.25rem">Admin Panel</h1>
+    <div class="admin-stats">
+      ${stat(members.length, 'Approved members')}
+      ${stat(pending.length, 'Pending approvals')}
+      ${stat(albumCount, 'Albums')}
+      ${stat(newsCount, 'News posts')}
+    </div>
+
+    ${pending.length ? `<div class="admin-section">Pending approvals</div>
+    <div class="admin-table-wrap">
+      <table class="admin-table">
+        <thead><tr><th>Name</th><th>Email</th><th>Signed up</th><th>Actions</th></tr></thead>
+        <tbody>${pendingRows}</tbody>
+      </table>
+    </div>` : ''}
+
+    <div class="admin-section">All members</div>
+    <div class="admin-table-wrap">
+      <table class="admin-table">
+        <thead><tr><th>Name</th><th>Email</th><th>Joined</th><th>Role</th><th></th></tr></thead>
+        <tbody>${memberRows}</tbody>
+      </table>
+    </div>
+  </div>`);
+};
+
+async function adminApprove(id){
+  try {
+    const res = await apiFetch(`/api/collections/users/records/${id}`, {
+      method:'PATCH', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ approved: true }) });
+    if (!res.ok) throw new Error('Could not approve');
+    toast('Member approved.', 'success');
+    await fetchPendingCount();
+    renderSidebar();
+    SCREENS.admin();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function adminDeny(id){
+  if (!confirm('Delete this pending account? This cannot be undone.')) return;
+  try {
+    const res = await apiFetch(`/api/collections/users/records/${id}`, { method:'DELETE' });
+    if (!res.ok) throw new Error('Could not delete');
+    toast('Account removed.', 'success');
+    await fetchPendingCount();
+    renderSidebar();
+    SCREENS.admin();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function adminToggleAdmin(id, makeAdmin){
+  try {
+    const res = await apiFetch(`/api/collections/users/records/${id}`, {
+      method:'PATCH', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ family_admin: makeAdmin }) });
+    if (!res.ok) throw new Error('Could not update');
+    toast(makeAdmin ? 'Made admin.' : 'Admin removed.', 'success');
+    SCREENS.admin();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
 // ── Placeholder screens (replaced by screen modules appended below) ──────────
 for (const n of NAV) if (!SCREENS[n.tab]) SCREENS[n.tab] = () =>
   mountMain(`<div class="screen-pad"><h1 class="card-title">${esc(n.label)}</h1>
