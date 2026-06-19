@@ -378,3 +378,17 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
 .lb-img-wrap{text-align:center}
 .lb-img-wrap img{max-width:100%;max-height:60vh;object-fit:contain;border-radius:8px}
 .lb-nav{display:flex;align-items:center;justify-content:space-between;gap:.5rem}
+
+/* ── Notifications ───────────────────────────────────────────────────────── */
+.notif-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem}
+.notif-group-label{font-family:var(--font-ui);font-size:.72rem;font-weight:700;
+  text-transform:uppercase;letter-spacing:.1em;color:var(--text-muted);margin:1.25rem 0 .5rem}
+.notif-row{display:flex;align-items:flex-start;gap:.75rem;padding:.75rem;border-radius:10px;
+  border:1px solid var(--border-default);background:var(--bg-card);margin-bottom:.4rem;cursor:default}
+.notif-row.unread{background:#faf7f2;border-color:#e8dfc8}
+.notif-dot{width:8px;height:8px;border-radius:50%;background:var(--accent-gold);flex-shrink:0;margin-top:.35rem}
+.notif-dot.read{background:transparent}
+.notif-body{flex:1}
+.notif-title{font-size:.9rem;font-weight:600;color:var(--text-primary)}
+.notif-text{font-size:.82rem;color:var(--text-secondary);margin-top:.1rem}
+.notif-time{font-size:.76rem;color:var(--text-muted);margin-top:.2rem}

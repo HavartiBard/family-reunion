@@ -1166,6 +1166,78 @@ function showLightboxAt(i){
   </div>`);
 }
 
+// ── Notifications ────────────────────────────────────────────────────────────
+SCREENS.notifications = async function(){
+  mountMain('<div class="screen-pad" style="max-width:720px"><div class="spinner"></div></div>');
+  let notes = [];
+  try {
+    const res = await apiFetch(`/api/collections/notifications/records?sort=-created&perPage=100&filter=${encodeURIComponent(`(user="${userId}"`)}`);
+    if (res.ok) notes = (await res.json()).items || [];
+  } catch { /* ignore */ }
+
+  const groups = groupNotifications(notes, new Date());
+
+  function relTime(iso){
+    const ms = Date.now() - new Date(String(iso).replace(' ', 'T')).getTime();
+    const m = Math.floor(ms / 60000);
+    if (m < 1) return 'just now';
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    return `${Math.floor(h / 24)}d ago`;
+  }
+
+  function noteRow(n){
+    const read = n.read ? ' read' : '';
+    return `<div class="notif-row${n.read ? '' : ' unread'}">
+      <div class="notif-dot${read}"></div>
+      <div class="notif-body">
+        <div class="notif-title">${esc(n.title)}</div>
+        ${n.body ? `<div class="notif-text">${esc(n.body)}</div>` : ''}
+        <div class="notif-time">${relTime(n.created)}</div>
+      </div>
+    </div>`;
+  }
+
+  function section(label, items){
+    if (!items.length) return '';
+    return `<div class="notif-group-label">${label}</div>${items.map(noteRow).join('')}`;
+  }
+
+  const unread = notes.filter(n => !n.read);
+  const markAllBtn = unread.length
+    ? `<button class="btn btn-outline btn-sm" onclick="markAllRead()">Mark all read</button>` : '';
+
+  const body = [
+    section('Today', groups.today),
+    section('This week', groups.week),
+    section('Earlier', groups.earlier)
+  ].join('') || '<div class="empty-state"><div class="emoji">🔔</div><p>No notifications yet.</p></div>';
+
+  mountMain(`<div class="screen-pad" style="max-width:720px">
+    <div class="notif-header">
+      <h1 class="card-title" style="margin:0">Notifications${unread.length ? ` <span class="sb-badge" style="margin-left:.5rem">${unread.length}</span>` : ''}</h1>
+      ${markAllBtn}
+    </div>
+    ${body}
+  </div>`);
+};
+
+async function markAllRead(){
+  try {
+    const res = await apiFetch(`/api/collections/notifications/records?filter=${encodeURIComponent(`(user="${userId}" && read=false)`)}&perPage=200`);
+    if (!res.ok) return;
+    const items = (await res.json()).items || [];
+    await Promise.all(items.map(n =>
+      apiFetch(`/api/collections/notifications/records/${n.id}`, {
+        method:'PATCH', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ read: true }) })
+    ));
+    unreadCount = 0;
+    renderSidebar();
+    SCREENS.notifications();
+  } catch { /* ignore */ }
+}
+
 // ── Placeholder screens (replaced by screen modules appended below) ──────────
 for (const n of NAV) if (!SCREENS[n.tab]) SCREENS[n.tab] = () =>
   mountMain(`<div class="screen-pad"><h1 class="card-title">${esc(n.label)}</h1>
