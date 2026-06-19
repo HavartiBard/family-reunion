@@ -1012,6 +1012,160 @@ SCREENS.profile = async function(params){
   </div>`);
 };
 
+// ── Gallery ──────────────────────────────────────────────────────────────────
+SCREENS.gallery = async function(params){
+  if (params && params.album) { await renderAlbum(params.album); return; }
+  await renderAlbums();
+};
+
+async function renderAlbums(){
+  mountMain('<div class="screen-pad"><div class="spinner"></div></div>');
+  let albums = [];
+  try {
+    const res = await apiFetch('/api/collections/albums/records?sort=-created&perPage=100');
+    if (res.ok) albums = (await res.json()).items || [];
+  } catch { /* ignore */ }
+
+  const isAdmin = currentUser && currentUser.family_admin;
+  const nowMs = Date.now();
+  const cards = albums.map(a => {
+    const thumb = fileUrl('albums', a, 'cover_photo');
+    const isNew = a.created && (nowMs - new Date(a.created).getTime()) < 30 * 86400000;
+    return `<div class="album-card" onclick="navigate('gallery',{album:'${a.id}'})">
+      <div class="album-thumb">${thumb ? `<img src="${esc(thumb)}" alt="">` : '<div class="album-thumb-placeholder"></div>'}</div>
+      <div class="album-meta">
+        <div class="album-name">${esc(a.name)}${isNew ? '<span class="pill" style="margin-left:.4rem;font-size:.66rem">New</span>' : ''}</div>
+        ${a.year ? `<div class="album-year">${esc(String(a.year))}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+
+  mountMain(`<div class="screen-pad">
+    <div class="gallery-header">
+      <h1 class="card-title" style="margin:0">Albums <span style="font-family:var(--font-ui);font-size:1rem;font-weight:400;color:var(--text-muted)">(${albums.length})</span></h1>
+      ${isAdmin ? '<button class="btn btn-primary btn-sm" onclick="openNewAlbum()">+ New album</button>' : ''}
+    </div>
+    ${albums.length
+      ? `<div class="album-grid">${cards}</div>`
+      : '<div class="empty-state"><div class="emoji">📷</div><p>No albums yet. Ask a family admin to create the first one.</p></div>'}
+  </div>`);
+}
+
+async function renderAlbum(albumId){
+  mountMain('<div class="screen-pad"><div class="spinner"></div></div>');
+  let album = null, photos = [];
+  try {
+    const [aRes, pRes] = await Promise.all([
+      apiFetch(`/api/collections/albums/records/${albumId}`),
+      apiFetch(`/api/collections/photos/records?filter=${encodeURIComponent(`(album="${albumId}"`)}&sort=-created&perPage=200`)
+    ]);
+    if (aRes.ok) album = await aRes.json();
+    if (pRes.ok) photos = (await pRes.json()).items || [];
+  } catch { /* ignore */ }
+  if (!album) { mountMain('<div class="screen-pad"><div class="empty-state"><p>Album not found.</p></div></div>'); return; }
+
+  const photoItems = photos.map((ph, i) => {
+    const url = fileUrl('photos', ph, 'image');
+    const span = (i + 1) % 5 === 0 ? ' pg-span' : '';
+    return `<div class="pg-item${span}" onclick="openLightbox(${i})" data-src="${esc(url)}">
+      ${url ? `<img src="${esc(url)}" alt="${esc(ph.caption || '')}">` : '<div class="pg-placeholder"></div>'}
+    </div>`;
+  }).join('');
+
+  mountMain(`<div class="screen-pad">
+    <div class="breadcrumb"><span class="link" onclick="navigate('gallery')">Albums</span> › ${esc(album.name)}</div>
+    <div class="gallery-header" style="margin-top:.75rem">
+      <h1 class="card-title" style="margin:0">${esc(album.name)}${album.year ? ` <span style="font-family:var(--font-ui);font-size:1rem;font-weight:400;color:var(--text-muted)">${album.year}</span>` : ''}</h1>
+      <button class="btn btn-primary btn-sm" onclick="openUploadPhoto('${albumId}')">Upload photo</button>
+    </div>
+    ${photos.length
+      ? `<div class="photo-grid">${photoItems}</div>`
+      : '<div class="empty-state"><div class="emoji">📷</div><p>No photos yet — be the first to upload.</p></div>'}
+  </div>`);
+}
+
+function openNewAlbum(){
+  openModal(`<h2 class="card-title">New album</h2>
+    <div id="alb-error" class="alert alert-error" style="display:none"></div>
+    <div class="form-group"><label>Name</label><input id="alb-name" placeholder="Summer 2026" /></div>
+    <div class="row-2">
+      <div class="form-group"><label>Year</label><input id="alb-year" type="number" placeholder="2026" /></div>
+    </div>
+    <div class="form-group"><label>Description</label><textarea id="alb-desc"></textarea></div>
+    <div class="form-group"><label>Cover photo</label><input id="alb-cover" type="file" accept="image/*" /></div>
+    <div style="display:flex;gap:.6rem;margin-top:.5rem">
+      <button class="btn btn-primary" onclick="saveAlbum()">Create</button>
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    </div>`);
+}
+
+async function saveAlbum(){
+  const name = val('alb-name');
+  if (!name) { formErr('alb-error', 'Name is required.'); return; }
+  const fd = new FormData();
+  fd.append('name', name);
+  const yr = val('alb-year'); if (yr) fd.append('year', yr);
+  const desc = val('alb-desc'); if (desc) fd.append('description', desc);
+  const cover = el('alb-cover').files[0]; if (cover) fd.append('cover_photo', cover);
+  try {
+    const res = await apiFetch('/api/collections/albums/records', { method:'POST', body: fd });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Create failed'); }
+    const a = await res.json();
+    closeModal();
+    navigate('gallery', { album: a.id });
+  } catch (e) { formErr('alb-error', e.message); }
+}
+
+function openUploadPhoto(albumId){
+  openModal(`<h2 class="card-title">Upload photo</h2>
+    <div id="upl-error" class="alert alert-error" style="display:none"></div>
+    <div class="form-group"><label>Photo</label><input id="upl-file" type="file" accept="image/*" /></div>
+    <div class="form-group"><label>Caption</label><input id="upl-caption" placeholder="Optional" /></div>
+    <div class="form-group"><label>Date taken</label><input id="upl-date" placeholder="2026-08-15" /></div>
+    <div style="display:flex;gap:.6rem;margin-top:.5rem">
+      <button class="btn btn-primary" onclick="doUploadPhoto('${albumId}')">Upload</button>
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    </div>`);
+}
+
+async function doUploadPhoto(albumId){
+  const file = el('upl-file').files[0];
+  if (!file) { formErr('upl-error', 'Please select a photo.'); return; }
+  const fd = new FormData();
+  fd.append('album', albumId);
+  fd.append('image', file);
+  fd.append('uploader', userId);
+  const cap = val('upl-caption'); if (cap) fd.append('caption', cap);
+  const dt = val('upl-date'); if (dt) fd.append('taken_date', dt);
+  try {
+    const res = await apiFetch('/api/collections/photos/records', { method:'POST', body: fd });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Upload failed'); }
+    closeModal();
+    await renderAlbum(albumId);
+  } catch (e) { formErr('upl-error', e.message); }
+}
+
+let _lbPhotos = [];
+function openLightbox(index){
+  const items = document.querySelectorAll('.pg-item[data-src]');
+  _lbPhotos = Array.from(items).map(n => n.dataset.src).filter(Boolean);
+  showLightboxAt(index);
+}
+function showLightboxAt(i){
+  i = Math.max(0, Math.min(i, _lbPhotos.length - 1));
+  const src = _lbPhotos[i];
+  const hasP = i > 0, hasN = i < _lbPhotos.length - 1;
+  openModal(`<div class="lightbox">
+    <button class="lb-close btn btn-outline btn-sm" onclick="closeModal()">✕ Close</button>
+    <div class="lb-img-wrap"><img src="${esc(src)}" alt="" /></div>
+    <div class="lb-nav">
+      ${hasP ? `<button class="btn btn-outline btn-sm" onclick="showLightboxAt(${i-1})">‹ Prev</button>` : '<span></span>'}
+      <span style="font-size:.82rem;color:var(--text-muted)">${i+1} / ${_lbPhotos.length}</span>
+      ${hasN ? `<button class="btn btn-outline btn-sm" onclick="showLightboxAt(${i+1})">Next ›</button>` : '<span></span>'}
+    </div>
+  </div>`);
+}
+
 // ── Placeholder screens (replaced by screen modules appended below) ──────────
 for (const n of NAV) if (!SCREENS[n.tab]) SCREENS[n.tab] = () =>
   mountMain(`<div class="screen-pad"><h1 class="card-title">${esc(n.label)}</h1>
