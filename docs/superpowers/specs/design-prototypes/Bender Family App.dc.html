@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *{ box-sizing:border-box; }
+  body{ margin:0; }
+  ::placeholder{ color:#a9a39a; }
+  ::-webkit-scrollbar{ width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb{ background:#d8d1c4; border-radius:8px; border:2px solid transparent; background-clip:content-box; }
+</style>
+</helmet>
+
+<div style="height:100vh; overflow:hidden; font-family:'Schibsted Grotesk',sans-serif; color:#20231f; background:#f4f1ea;">
+
+<!-- ============================ WELCOME ============================ -->
+<sc-if value="{{ showWelcome }}" hint-placeholder-val="{{ true }}">
+  <div style="height:100vh; display:flex;">
+    <!-- brand wall -->
+    <div style="width:42%; background:#1f2d27; padding:56px 56px; display:flex; flex-direction:column; position:relative; overflow:hidden;">
+      <div style="position:absolute; inset:0; opacity:.5; background:repeating-linear-gradient(135deg, rgba(200,149,42,.10) 0 1px, transparent 1px 24px);"></div>
+      <div style="position:relative; margin:auto 0;">
+        <div style="font-family:'Newsreader',serif; font-size:72px; line-height:1; color:#f4f1ea; font-weight:500; letter-spacing:-.01em;">The</div>
+        <div style="height:72px; overflow:hidden; position:relative;">
+          <div style="transform:translateY({{ rollerY }}); transition:{{ rollerTransition }}; will-change:transform;">
+            <sc-for list="{{ surnamesLoop }}" as="name" hint-placeholder-count="6">
+              <div style="height:72px; display:flex; align-items:center; font-family:'Newsreader',serif; font-size:72px; line-height:1; color:#c8952a; font-weight:500; letter-spacing:-.01em;">{{ name }}</div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="font-family:'Newsreader',serif; font-size:72px; line-height:1; color:#f4f1ea; font-weight:500; letter-spacing:-.01em;">Family</div>
+        <p style="font-family:'Newsreader',serif; font-style:italic; font-size:21px; color:#c8952a; margin:26px 0 0; line-height:1.4;">Every branch, one root.</p>
+      </div>
+      <div style="position:relative; font-size:11px; color:rgba(244,241,234,.4); letter-spacing:.04em;">Bender · Kelsall · Warfel · Flannigan · Hubber</div>
+    </div>
+    <!-- form -->
+    <div style="flex:1; display:flex; align-items:center; justify-content:center; padding:40px;">
+      <div style="width:100%; max-width:380px;">
+        <h2 style="margin:0 0 8px; font-size:32px; font-weight:700; letter-spacing:-.02em;">Welcome back</h2>
+        <p style="margin:0 0 32px; font-size:15px; color:#8c857a;">Sign in to the family portal.</p>
+        <div style="display:flex; gap:12px; margin-bottom:18px;">
+          <button onClick="{{ goDetails }}" style="flex:1; display:flex; align-items:center; justify-content:center; gap:9px; height:52px; border-radius:11px; border:1px solid #e2ddd3; background:#fff; color:#20231f; font-size:14px; font-weight:600; font-family:inherit; cursor:pointer;"><span style="width:18px;height:18px;border-radius:5px;background:#eee9df;font-size:10px;color:#8c857a;font-weight:700;display:flex;align-items:center;justify-content:center;">G</span>Google</button>
+          <button onClick="{{ goDetails }}" style="flex:1; display:flex; align-items:center; justify-content:center; gap:9px; height:52px; border-radius:11px; border:1px solid #20231f; background:#20231f; color:#fff; font-size:14px; font-weight:600; font-family:inherit; cursor:pointer;">Apple</button>
+        </div>
+        <div style="display:flex; align-items:center; gap:14px; margin:8px 0 18px; color:#b7b0a4; font-size:13px;"><div style="flex:1; height:1px; background:#e2ddd3;"></div>or with email<div style="flex:1; height:1px; background:#e2ddd3;"></div></div>
+        <label style="display:block; font-size:13px; font-weight:600; color:#6b6760; margin-bottom:7px;">Email</label>
+        <input value="sarah@email.com" style="width:100%; height:52px; border-radius:11px; border:1px solid #e2ddd3; background:#faf8f3; padding:0 15px; font-size:15px; font-family:inherit; color:#20231f; outline:none; margin-bottom:14px;" />
+        <label style="display:block; font-size:13px; font-weight:600; color:#6b6760; margin-bottom:7px;">Password</label>
+        <input type="password" value="password" style="width:100%; height:52px; border-radius:11px; border:1px solid #e2ddd3; background:#faf8f3; padding:0 15px; font-size:15px; font-family:inherit; color:#20231f; outline:none; margin-bottom:22px;" />
+        <button onClick="{{ goApp }}" style="width:100%; height:54px; border-radius:11px; border:none; background:#1f2d27; color:#f4f1ea; font-size:15px; font-weight:700; font-family:inherit; cursor:pointer;">Sign in</button>
+        <div style="margin-top:22px; font-size:14px; color:#8c857a;">New to the family page? <span onClick="{{ goDetails }}" style="color:#1f2d27; font-weight:700; border-bottom:1.5px solid #c8952a; padding-bottom:1px; cursor:pointer;">Create your account</span></div>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+<!-- ============================ DETAILS ============================ -->
+<sc-if value="{{ showDetails }}">
+  <div style="height:100vh; display:flex;">
+    <div style="width:42%; background:#1f2d27; padding:56px; display:flex; flex-direction:column; justify-content:space-between; position:relative; overflow:hidden;">
+      <div style="position:absolute; inset:0; opacity:.5; background:repeating-linear-gradient(135deg, rgba(200,149,42,.10) 0 1px, transparent 1px 24px);"></div>
+      <div style="position:relative; font-family:'Newsreader',serif; font-size:40px; color:#f4f1ea; line-height:1.2; font-weight:500;">Join the<br>Bender circle.</div>
+      <div style="position:relative; font-size:14px; color:rgba(244,241,234,.65); line-height:2;">✓&nbsp;&nbsp;See family news &amp; milestones<br>✓&nbsp;&nbsp;Browse the living family tree<br>✓&nbsp;&nbsp;RSVP to the next reunion</div>
+      <div style="position:relative; font-size:11px; color:rgba(244,241,234,.4); letter-spacing:.04em;">392 members · 5 branches</div>
+    </div>
+    <div style="flex:1; display:flex; align-items:center; justify-content:center; padding:40px; overflow:auto;">
+      <div style="width:100%; max-width:480px;">
+        <div onClick="{{ goWelcome }}" style="display:inline-flex; align-items:center; gap:6px; font-size:13px; color:#8c857a; cursor:pointer; margin-bottom:22px;">‹ Back</div>
+        <h2 style="margin:0 0 6px; font-size:30px; font-weight:700; letter-spacing:-.02em;">Your details</h2>
+        <p style="margin:0 0 28px; font-size:15px; color:#8c857a;">So family can reach you, and we can place you on the tree.</p>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px 18px;">
+          <div><label style="display:block; font-size:13px; font-weight:600; color:#6b6760; margin-bottom:7px;">First name</label><input value="Sarah" style="width:100%; height:50px; border-radius:11px; border:1px solid #e2ddd3; background:#faf8f3; padding:0 14px; font-size:15px; font-family:inherit; color:#20231f; outline:none;" /></div>
+          <div><label style="display:block; font-size:13px; font-weight:600; color:#6b6760; margin-bottom:7px;">Last name</label><input value="Bender" style="width:100%; height:50px; border-radius:11px; border:1px solid #e2ddd3; background:#faf8f3; padding:0 14px; font-size:15px; font-family:inherit; color:#20231f; outline:none;" /></div>
+          <div style="grid-column:1 / -1;"><label style="display:block; font-size:13px; font-weight:600; color:#6b6760; margin-bottom:7px;">Email</label><input value="sarah@email.com" style="width:100%; height:50px; border-radius:11px; border:1px solid #e2ddd3; background:#faf8f3; padding:0 14px; font-size:15px; font-family:inherit; color:#20231f; outline:none;" /></div>
+          <div><label style="display:block; font-size:13px; font-weight:600; color:#6b6760; margin-bottom:7px;">Phone</label><input placeholder="(555) 000-0000" style="width:100%; height:50px; border-radius:11px; border:1px solid #e2ddd3; background:#faf8f3; padding:0 14px; font-size:15px; font-family:inherit; color:#20231f; outline:none;" /></div>
+          <div><label style="display:block; font-size:13px; font-weight:600; color:#6b6760; margin-bottom:7px;">Branch</label><input value="Bender" style="width:100%; height:50px; border-radius:11px; border:1px solid #e2ddd3; background:#faf8f3; padding:0 14px; font-size:15px; font-family:inherit; color:#20231f; outline:none;" /></div>
+          <div style="grid-column:1 / -1;"><label style="display:block; font-size:13px; font-weight:600; color:#6b6760; margin-bottom:7px;">Home address</label><input placeholder="Street, city, state, ZIP" style="width:100%; height:50px; border-radius:11px; border:1px solid #e2ddd3; background:#faf8f3; padding:0 14px; font-size:15px; font-family:inherit; color:#20231f; outline:none;" /></div>
+        </div>
+        <button onClick="{{ goApp }}" style="width:100%; margin-top:26px; height:54px; border-radius:11px; border:none; background:#1f2d27; color:#f4f1ea; font-size:15px; font-weight:700; font-family:inherit; cursor:pointer;">Create account</button>
+        <p style="margin:14px 0 0; text-align:center; font-size:12px; color:#a9a39a;">Your details are visible only to verified family members.</p>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+<!-- ============================ APP SHELL ============================ -->
+<sc-if value="{{ showApp }}">
+  <div style="height:100vh; display:flex;">
+
+    <!-- sidebar -->
+    <aside style="width:248px; flex:none; background:#1f2d27; display:flex; flex-direction:column; padding:26px 18px; position:relative; overflow:hidden;">
+      <div style="display:flex; align-items:center; gap:11px; padding:0 8px; margin-bottom:34px;">
+        <div style="width:38px; height:38px; border-radius:11px; background:#c8952a; color:#1f2d27; display:flex; align-items:center; justify-content:center; font-family:'Newsreader',serif; font-weight:600; font-size:22px;">B</div>
+        <div><div style="font-family:'Newsreader',serif; font-size:19px; color:#f4f1ea; line-height:1;">Bender</div><div style="font-size:11px; color:rgba(244,241,234,.5); letter-spacing:.06em; margin-top:3px;">FAMILY PORTAL</div></div>
+      </div>
+      <nav style="display:flex; flex-direction:column; gap:4px;">
+        <sc-for list="{{ navItems }}" as="item" hint-placeholder-count="4">
+          <div onClick="{{ item.onClick }}" style="display:flex; align-items:center; gap:12px; padding:12px 14px; border-radius:10px; cursor:pointer; background:{{ item.bg }}; color:{{ item.color }}; font-size:14.5px; font-weight:{{ item.weight }};">
+            <span style="width:18px; text-align:center; font-size:15px;">{{ item.icon }}</span>{{ item.label }}
+          </div>
+        </sc-for>
+      </nav>
+      <div style="margin-top:auto; border-top:1px solid rgba(244,241,234,.12); padding-top:16px; display:flex; align-items:center; gap:11px;">
+        <div style="width:36px; height:36px; border-radius:50%; background:#3a4a40; color:#f4f1ea; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:600;">SB</div>
+        <div style="flex:1; min-width:0;"><div style="font-size:13.5px; color:#f4f1ea; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Sarah Bender</div><div style="font-size:11px; color:rgba(244,241,234,.5);">Bender branch</div></div>
+        <div onClick="{{ signOut }}" title="Sign out" style="color:rgba(244,241,234,.5); cursor:pointer; font-size:16px;">⏻</div>
+      </div>
+    </aside>
+
+    <!-- main -->
+    <main style="flex:1; min-width:0; overflow:{{ mainOverflow }}; position:relative;">
+
+      <!-- ===== NEWS ===== -->
+      <sc-if value="{{ isNews }}" hint-placeholder-val="{{ true }}">
+        <div style="padding:36px 44px 60px; max-width:1180px; margin:0 auto;">
+          <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:24px;">
+            <div>
+              <div style="font-size:12px; letter-spacing:.16em; text-transform:uppercase; color:#a99f8c; margin-bottom:6px;">Good morning, Sarah</div>
+              <h1 style="margin:0; font-family:'Newsreader',serif; font-size:38px; font-weight:500; letter-spacing:-.01em;">Family News</h1>
+            </div>
+          </div>
+
+          <!-- countdown hero -->
+          <div style="background:#1f2d27; border-radius:18px; padding:34px 38px; color:#f4f1ea; display:flex; align-items:center; gap:40px; position:relative; overflow:hidden; margin-bottom:30px;">
+            <div style="position:absolute; inset:0; opacity:.5; background:repeating-linear-gradient(135deg, rgba(200,149,42,.09) 0 1px, transparent 1px 22px);"></div>
+            <div style="position:relative; flex:1;">
+              <div style="font-size:12px; letter-spacing:.18em; text-transform:uppercase; color:#c8952a; margin-bottom:10px;">Next gathering</div>
+              <div style="font-family:'Newsreader',serif; font-size:30px; font-weight:500; line-height:1.1; margin-bottom:10px;">Bender Family Reunion 2026</div>
+              <div style="font-size:14.5px; color:rgba(244,241,234,.7);">The Abbey Resort · Lake Geneva, Wisconsin · July 18–20, 2026</div>
+            </div>
+            <div style="position:relative; text-align:center; padding:0 8px;">
+              <div style="font-family:'Newsreader',serif; font-size:60px; line-height:1; color:#c8952a;">{{ countdownDays }}</div>
+              <div style="font-size:11px; letter-spacing:.18em; text-transform:uppercase; color:rgba(244,241,234,.6); margin-top:6px;">days to go</div>
+            </div>
+            <button onClick="{{ goReunion }}" style="position:relative; height:48px; padding:0 26px; border-radius:11px; border:none; background:#c8952a; color:#1f2d27; font-size:14.5px; font-weight:700; font-family:inherit; cursor:pointer;">View &amp; RSVP</button>
+          </div>
+
+          <div style="display:grid; grid-template-columns:1fr 320px; gap:30px; align-items:start;">
+            <!-- feed -->
+            <div>
+              <div style="font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:#a99f8c; margin-bottom:16px;">Announcements</div>
+              <div style="display:flex; flex-direction:column; gap:18px;">
+                <sc-for list="{{ announcements }}" as="a" hint-placeholder-count="3">
+                  <div style="background:#fff; border:1px solid #ece6da; border-radius:16px; overflow:hidden;">
+                    <sc-if value="{{ a.hasImage }}">
+                      <div style="height:188px; background-image:repeating-linear-gradient(135deg,#ece6da 0 12px,#f4efe4 12px 24px); display:flex; align-items:center; justify-content:center;">
+                        <span style="font-family:monospace; font-size:11px; letter-spacing:.1em; color:#b7ad99; background:rgba(255,255,255,.7); padding:5px 10px; border-radius:6px;">{{ a.imageLabel }}</span>
+                      </div>
+                    </sc-if>
+                    <div style="padding:22px 24px;">
+                      <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">
+                        <span style="display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:700; letter-spacing:.1em; color:#1f2d27; background:#f1ebdd; padding:5px 11px; border-radius:999px;"><span style="width:6px;height:6px;border-radius:50%;background:#c8952a;"></span>{{ a.tag }}</span>
+                        <span style="font-size:12.5px; color:#a99f8c;">{{ a.when }}</span>
+                      </div>
+                      <div style="font-family:'Newsreader',serif; font-size:23px; font-weight:500; line-height:1.25; margin-bottom:7px;">{{ a.title }}</div>
+                      <div style="font-size:14px; color:#8c857a; margin-bottom:12px;">{{ a.meta }}</div>
+                      <p style="margin:0; font-size:14.5px; line-height:1.6; color:#4f4b44;">{{ a.body }}</p>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+
+              <!-- photos -->
+              <div style="font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:#a99f8c; margin:30px 0 16px;">Recent albums</div>
+              <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px;">
+                <sc-for list="{{ albums }}" as="al" hint-placeholder-count="3">
+                  <div style="border-radius:14px; overflow:hidden; border:1px solid #ece6da; cursor:pointer;">
+                    <div style="height:118px; background-image:repeating-linear-gradient(135deg,#e6dfd0 0 11px,#efe9db 11px 22px); display:flex; align-items:center; justify-content:center;"><span style="font-family:monospace; font-size:10px; color:#b7ad99;">PHOTOS</span></div>
+                    <div style="padding:11px 13px; background:#fff;"><div style="font-size:13.5px; font-weight:600;">{{ al.label }}</div><div style="font-size:11.5px; color:#a99f8c; margin-top:2px;">{{ al.count }} photos</div></div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+
+            <!-- right rail -->
+            <div style="display:flex; flex-direction:column; gap:22px;">
+              <div style="background:#fff; border:1px solid #ece6da; border-radius:16px; padding:22px;">
+                <div style="font-size:13px; letter-spacing:.1em; text-transform:uppercase; color:#a99f8c; margin-bottom:16px;">Upcoming birthdays</div>
+                <div style="display:flex; flex-direction:column; gap:15px;">
+                  <sc-for list="{{ birthdays }}" as="b" hint-placeholder-count="4">
+                    <div style="display:flex; align-items:center; gap:12px;">
+                      <div style="width:38px; height:38px; flex:none; border-radius:50%; background:{{ b.tint }}; color:#1f2d27; display:flex; align-items:center; justify-content:center; font-size:12.5px; font-weight:600;">{{ b.initials }}</div>
+                      <div style="flex:1; min-width:0;"><div style="font-size:14px; font-weight:600;">{{ b.name }}</div><div style="font-size:12px; color:#a99f8c;">{{ b.date }}</div></div>
+                      <div style="font-size:12px; color:#8c857a; text-align:right;">{{ b.turns }}</div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+              <div style="background:#fff; border:1px solid #ece6da; border-radius:16px; padding:22px;">
+                <div style="font-size:13px; letter-spacing:.1em; text-transform:uppercase; color:#a99f8c; margin-bottom:8px;">Family at a glance</div>
+                <div style="display:flex; gap:18px; margin-top:12px;">
+                  <div><div style="font-family:'Newsreader',serif; font-size:30px;">392</div><div style="font-size:12px; color:#a99f8c;">members</div></div>
+                  <div><div style="font-family:'Newsreader',serif; font-size:30px;">5</div><div style="font-size:12px; color:#a99f8c;">branches</div></div>
+                  <div><div style="font-family:'Newsreader',serif; font-size:30px;">4</div><div style="font-size:12px; color:#a99f8c;">generations</div></div>
+                </div>
+                <button onClick="{{ goTree }}" style="width:100%; margin-top:18px; height:44px; border-radius:10px; border:1px solid #1f2d27; background:#fff; color:#1f2d27; font-size:13.5px; font-weight:700; font-family:inherit; cursor:pointer;">Open the family tree →</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ===== TREE ===== -->
+      <sc-if value="{{ isTree }}">
+        <div style="height:100vh; display:flex; flex-direction:column;">
+          <div style="flex:none; padding:20px 30px; border-bottom:1px solid #e7e2d8; background:rgba(244,241,234,.85); display:flex; align-items:center; justify-content:space-between; z-index:5; backdrop-filter:blur(6px);">
+            <div>
+              <h1 style="margin:0; font-family:'Newsreader',serif; font-size:26px; font-weight:500;">Family Tree</h1>
+              <div style="font-size:13px; color:#a99f8c; margin-top:2px;">Bender branch · drag to explore, click anyone for details</div>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <div style="display:flex; align-items:center; gap:2px; background:#fff; border:1px solid #e2ddd3; border-radius:10px; padding:4px;">
+                <button onClick="{{ zoomOut }}" style="width:34px; height:34px; border:none; background:transparent; font-size:20px; color:#20231f; cursor:pointer; border-radius:7px;">−</button>
+                <div style="min-width:48px; text-align:center; font-size:13px; color:#8c857a; font-variant-numeric:tabular-nums;">{{ zoomPct }}%</div>
+                <button onClick="{{ zoomIn }}" style="width:34px; height:34px; border:none; background:transparent; font-size:19px; color:#20231f; cursor:pointer; border-radius:7px;">+</button>
+              </div>
+              <button onClick="{{ resetView }}" style="height:42px; padding:0 18px; border-radius:10px; border:1px solid #e2ddd3; background:#fff; font-size:13.5px; font-weight:600; color:#20231f; font-family:inherit; cursor:pointer;">Fit to screen</button>
+            </div>
+          </div>
+
+          <div ref="{{ setViewport }}" onMouseDown="{{ startPan }}" onWheel="{{ onWheel }}" style="flex:1; position:relative; overflow:hidden; cursor:{{ canvasCursor }}; background:#efe9dd; background-image:radial-gradient(#ddd5c4 1.4px, transparent 1.4px); background-size:26px 26px;">
+            <div style="position:absolute; top:0; left:0; transform-origin:0 0; transform:{{ canvasTransform }};">
+              <svg width="2100" height="1160" style="position:absolute; top:0; left:0; overflow:visible; pointer-events:none;">
+                <sc-for list="{{ marriages }}" as="m" hint-placeholder-count="8">
+                  <line x1="{{ m.x1 }}" y1="{{ m.y1 }}" x2="{{ m.x2 }}" y2="{{ m.y2 }}" stroke="#c8952a" stroke-width="2.5"></line>
+                </sc-for>
+                <sc-for list="{{ edges }}" as="e" hint-placeholder-count="12">
+                  <path d="{{ e.d }}" fill="none" stroke="#c4bba8" stroke-width="2"></path>
+                </sc-for>
+              </svg>
+              <sc-for list="{{ treeNodes }}" as="n" hint-placeholder-count="18">
+                <div onMouseDown="{{ n.onDown }}" style="position:absolute; left:{{ n.left }}px; top:{{ n.top }}px; width:156px; padding:11px 13px; display:flex; align-items:center; gap:11px; background:{{ n.cardBg }}; border:2px solid {{ n.border }}; border-radius:14px; box-shadow:0 4px 14px rgba(31,45,39,.10); cursor:grab; user-select:none;">
+                  <div style="width:36px; height:36px; flex:none; border-radius:50%; background:{{ n.tint }}; color:#1f2d27; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700;">{{ n.initials }}</div>
+                  <div style="min-width:0;"><div style="font-size:13.5px; font-weight:700; line-height:1.15; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ n.first }}</div><div style="font-size:11px; color:#8c857a; white-space:nowrap;">{{ n.sub }}</div></div>
+                </div>
+              </sc-for>
+            </div>
+            <div style="position:absolute; left:18px; bottom:16px; display:flex; gap:16px; font-size:12px; color:#8c857a; background:rgba(255,255,255,.8); padding:8px 14px; border-radius:9px; backdrop-filter:blur(4px);">
+              <span style="display:flex; align-items:center; gap:7px;"><span style="width:18px; height:2.5px; background:#c8952a; border-radius:2px;"></span>Marriage</span>
+              <span style="display:flex; align-items:center; gap:7px;"><span style="width:18px; height:2px; background:#c4bba8; border-radius:2px;"></span>Parent–child</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- detail drawer -->
+        <sc-if value="{{ hasSelection }}">
+          <div onClick="{{ clearSelection }}" style="position:absolute; inset:0; background:rgba(31,45,39,.28); z-index:20;"></div>
+          <div style="position:absolute; top:0; right:0; height:100vh; width:360px; background:#fff; z-index:21; box-shadow:-10px 0 40px rgba(31,45,39,.18); display:flex; flex-direction:column; padding:30px;">
+            <div onClick="{{ clearSelection }}" style="align-self:flex-end; font-size:20px; color:#a99f8c; cursor:pointer;">×</div>
+            <div style="width:84px; height:84px; border-radius:50%; background:{{ selPerson.tint }}; color:#1f2d27; display:flex; align-items:center; justify-content:center; font-family:'Newsreader',serif; font-size:32px; font-weight:500; margin:6px 0 18px;">{{ selPerson.initials }}</div>
+            <div style="font-family:'Newsreader',serif; font-size:28px; font-weight:500; line-height:1.1;">{{ selPerson.fullName }}</div>
+            <div style="font-size:14px; color:#8c857a; margin-top:6px;">{{ selPerson.role }}</div>
+            <div style="margin-top:24px; display:flex; flex-direction:column; gap:0;">
+              <sc-for list="{{ selPerson.facts }}" as="f" hint-placeholder-count="4">
+                <div style="display:flex; justify-content:space-between; gap:16px; padding:14px 0; border-bottom:1px solid #f0ebe1;">
+                  <span style="font-size:13px; color:#a99f8c; letter-spacing:.04em;">{{ f.k }}</span>
+                  <span style="font-size:14px; font-weight:600; text-align:right;">{{ f.v }}</span>
+                </div>
+              </sc-for>
+            </div>
+            <button style="margin-top:auto; height:48px; border-radius:11px; border:1px solid #1f2d27; background:#fff; color:#1f2d27; font-size:14px; font-weight:700; font-family:inherit; cursor:pointer;">View full profile</button>
+          </div>
+        </sc-if>
+      </sc-if>
+
+      <!-- ===== REUNION ===== -->
+      <sc-if value="{{ isReunion }}">
+        <div style="padding:36px 44px 60px; max-width:920px; margin:0 auto;">
+          <h1 style="margin:0 0 24px; font-family:'Newsreader',serif; font-size:38px; font-weight:500;">Reunion 2026</h1>
+          <div style="border-radius:18px; overflow:hidden; border:1px solid #ece6da; margin-bottom:28px;">
+            <div style="height:240px; background-image:repeating-linear-gradient(135deg,#e6dfd0 0 13px,#efe9db 13px 26px); display:flex; align-items:center; justify-content:center;"><span style="font-family:monospace; font-size:12px; color:#b0a690; background:rgba(255,255,255,.7); padding:6px 12px; border-radius:7px;">LAKE GENEVA · VENUE PHOTO</span></div>
+            <div style="background:#fff; padding:28px 30px; display:flex; gap:34px; flex-wrap:wrap;">
+              <div><div style="font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:#a99f8c; margin-bottom:5px;">When</div><div style="font-size:16px; font-weight:600;">July 18–20, 2026</div></div>
+              <div><div style="font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:#a99f8c; margin-bottom:5px;">Where</div><div style="font-size:16px; font-weight:600;">The Abbey Resort, Lake Geneva WI</div></div>
+              <div><div style="font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:#a99f8c; margin-bottom:5px;">Headcount</div><div style="font-size:16px; font-weight:600;">{{ goingCount }} going</div></div>
+            </div>
+          </div>
+
+          <div style="background:#fff; border:1px solid #ece6da; border-radius:16px; padding:26px 28px; margin-bottom:28px;">
+            <div style="font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:#a99f8c; margin-bottom:16px;">Will you be there?</div>
+            <div style="display:flex; gap:12px;">
+              <sc-for list="{{ rsvpOptions }}" as="o" hint-placeholder-count="3">
+                <button onClick="{{ o.onClick }}" style="flex:1; height:54px; border-radius:12px; border:2px solid {{ o.border }}; background:{{ o.bg }}; color:{{ o.color }}; font-size:15px; font-weight:700; font-family:inherit; cursor:pointer;">{{ o.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:#a99f8c; margin-bottom:16px;">Weekend schedule</div>
+          <div style="background:#fff; border:1px solid #ece6da; border-radius:16px; overflow:hidden;">
+            <sc-for list="{{ schedule }}" as="s" hint-placeholder-count="4">
+              <div style="display:flex; gap:20px; padding:18px 24px; border-bottom:1px solid #f0ebe1; align-items:baseline;">
+                <div style="width:120px; flex:none; font-size:13px; font-weight:700; color:#c8952a; letter-spacing:.04em;">{{ s.day }}</div>
+                <div style="flex:1;"><div style="font-size:15px; font-weight:600;">{{ s.title }}</div><div style="font-size:13.5px; color:#8c857a; margin-top:2px;">{{ s.detail }}</div></div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ===== DIRECTORY ===== -->
+      <sc-if value="{{ isDirectory }}">
+        <div style="padding:36px 44px 60px; max-width:1180px; margin:0 auto;">
+          <h1 style="margin:0 0 6px; font-family:'Newsreader',serif; font-size:38px; font-weight:500;">Directory</h1>
+          <p style="margin:0 0 28px; font-size:15px; color:#8c857a;">Everyone in the Bender branch.</p>
+          <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:16px;">
+            <sc-for list="{{ directory }}" as="d" hint-placeholder-count="9">
+              <div style="background:#fff; border:1px solid #ece6da; border-radius:16px; padding:20px;">
+                <div style="display:flex; align-items:center; gap:13px; margin-bottom:14px;">
+                  <div style="width:46px; height:46px; flex:none; border-radius:50%; background:{{ d.tint }}; color:#1f2d27; display:flex; align-items:center; justify-content:center; font-size:15px; font-weight:700;">{{ d.initials }}</div>
+                  <div style="min-width:0;"><div style="font-size:15.5px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ d.fullName }}</div><div style="font-size:12.5px; color:#a99f8c;">{{ d.role }}</div></div>
+                </div>
+                <div style="font-size:13px; color:#8c857a; line-height:1.7;">{{ d.location }}</div>
+                <div style="display:flex; gap:8px; margin-top:14px;">
+                  <button style="flex:1; height:38px; border-radius:9px; border:1px solid #e2ddd3; background:#faf8f3; font-size:12.5px; font-weight:600; color:#20231f; font-family:inherit; cursor:pointer;">Message</button>
+                  <button style="flex:1; height:38px; border-radius:9px; border:1px solid #e2ddd3; background:#faf8f3; font-size:12.5px; font-weight:600; color:#20231f; font-family:inherit; cursor:pointer;">Call</button>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+    </main>
+  </div>
+</sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;100%&quot;,&quot;height&quot;:&quot;100%&quot;}}">
+class Component extends DCLogic {
+  surnames = ["Bender", "Kelsall", "Warfel", "Flannigan", "Hubber"];
+  RH = 72; // roller line height
+  CW = 156; CH = 76; // node card size
+  CANVAS_W = 2100; CANVAS_H = 1160;
+
+  // ---- family data ----
+  people = [
+    { id:"walter",   first:"Walter",   last:"Bender",  role:"Family patriarch", born:1942, gen:1, x:880,  y:60,  loc:"Madison, WI" },
+    { id:"margaret", first:"Margaret", last:"Bender",  role:"Family matriarch", born:1945, gen:1, x:1066, y:60,  loc:"Madison, WI" },
+
+    { id:"robert",   first:"Robert",   last:"Bender",  role:"Son of Walter & Margaret", born:1968, gen:2, x:280,  y:360, loc:"Chicago, IL" },
+    { id:"linda",    first:"Linda",    last:"Bender",  role:"Married into Bender", born:1970, gen:2, x:466,  y:360, loc:"Chicago, IL" },
+    { id:"susan",    first:"Susan",    last:"Kelsall", role:"Daughter of Walter & Margaret", born:1971, gen:2, x:880,  y:360, loc:"Milwaukee, WI" },
+    { id:"david",    first:"David",    last:"Kelsall", role:"Married into Bender", born:1969, gen:2, x:1066, y:360, loc:"Milwaukee, WI" },
+    { id:"james",    first:"James",    last:"Bender",  role:"Son of Walter & Margaret", born:1974, gen:2, x:1500, y:360, loc:"Denver, CO" },
+    { id:"patricia", first:"Patricia", last:"Bender",  role:"Married into Bender", born:1976, gen:2, x:1686, y:360, loc:"Denver, CO" },
+
+    { id:"sarah",    first:"Sarah",    last:"Bender",  role:"Daughter of Robert & Linda", born:1994, gen:3, x:200,  y:660, loc:"Chicago, IL" },
+    { id:"tom",      first:"Tom",      last:"Bender",  role:"Son of Robert & Linda", born:1996, gen:3, x:386,  y:660, loc:"Austin, TX" },
+    { id:"emily",    first:"Emily",    last:"Kelsall", role:"Daughter of Susan & David", born:1999, gen:3, x:880,  y:660, loc:"Madison, WI" },
+    { id:"jack",     first:"Jack",     last:"Kelsall", role:"Son of Susan & David", born:2001, gen:3, x:1066, y:660, loc:"Milwaukee, WI" },
+    { id:"grace",    first:"Grace",    last:"Bender",  role:"Daughter of James & Patricia", born:2003, gen:3, x:1500, y:660, loc:"Denver, CO" },
+    { id:"owen",     first:"Owen",     last:"Bender",  role:"Son of James & Patricia", born:2006, gen:3, x:1686, y:660, loc:"Denver, CO" },
+
+    { id:"mia",      first:"Mia",      last:"Bender",  role:"Daughter of Sarah", born:2026, gen:4, x:200,  y:960, loc:"Chicago, IL" },
+    { id:"noah",     first:"Noah",     last:"Kelsall", role:"Son of Emily", born:2024, gen:4, x:880,  y:960, loc:"Madison, WI" },
+  ];
+  couples = [["walter","margaret"],["robert","linda"],["susan","david"],["james","patricia"]];
+  childParents = {
+    robert:["walter","margaret"], susan:["walter","margaret"], james:["walter","margaret"],
+    sarah:["robert","linda"], tom:["robert","linda"],
+    emily:["susan","david"], jack:["susan","david"],
+    grace:["james","patricia"], owen:["james","patricia"],
+    mia:["sarah"], noah:["emily"],
+  };
+  tints = ["#e7d9bd","#d8e0d2","#e8dcd2","#dfe2e6","#ece0cf","#dde4dd"];
+
+  state = {
+    screen: "welcome",
+    tab: "news",
+    rollerIdx: 0, rollerAnim: true,
+    scale: 0.62, panX: 60, panY: 30,
+    pos: Object.fromEntries(this.people.map(p => [p.id, { x: p.x, y: p.y }])),
+    selectedId: null,
+    drag: null,
+    rsvp: "going",
+  };
+
+  // ---- lifecycle ----
+  componentDidMount() {
+    this.rollerTimer = setInterval(() => this.advanceRoller(), 2400);
+    this.onMove = (e) => this.handleMove(e);
+    this.onUp = () => this.setState({ drag: null });
+    window.addEventListener("mousemove", this.onMove);
+    window.addEventListener("mouseup", this.onUp);
+  }
+  componentWillUnmount() {
+    clearInterval(this.rollerTimer);
+    clearTimeout(this.rollerReset);
+    window.removeEventListener("mousemove", this.onMove);
+    window.removeEventListener("mouseup", this.onUp);
+  }
+
+  // ---- roller ----
+  advanceRoller() {
+    if (this.state.screen !== "welcome") return;
+    const next = this.state.rollerIdx + 1;
+    this.setState({ rollerIdx: next, rollerAnim: true });
+    if (next === this.surnames.length) {
+      this.rollerReset = setTimeout(() => {
+        this.setState({ rollerIdx: 0, rollerAnim: false });
+        requestAnimationFrame(() => this.setState({ rollerAnim: true }));
+      }, 850);
+    }
+  }
+
+  // ---- tree interactions ----
+  setViewport = (el) => { if (el) { this.vp = el; if (!this._fitted) { this._fitted = true; setTimeout(() => this.fitView(), 60); } } };
+
+  fitView() {
+    if (!this.vp) return;
+    const r = this.vp.getBoundingClientRect();
+    const s = Math.min((r.width - 90) / this.CANVAS_W, (r.height - 90) / this.CANVAS_H);
+    const scale = Math.max(0.35, Math.min(1, s));
+    this.setState({ scale, panX: (r.width - this.CANVAS_W * scale) / 2, panY: (r.height - this.CANVAS_H * scale) / 2 });
+  }
+  zoomBy(f) {
+    this.setState(s => ({ scale: Math.max(0.35, Math.min(1.8, +(s.scale * f).toFixed(3))) }));
+  }
+  onWheel(e) {
+    e.preventDefault();
+    this.zoomBy(e.deltaY < 0 ? 1.08 : 0.93);
+  }
+  startNodeDrag(id, e) {
+    e.stopPropagation();
+    const p = this.state.pos[id];
+    this.setState({ selectedId: id, drag: { type: "node", id, sx: e.clientX, sy: e.clientY, ox: p.x, oy: p.y, moved: false } });
+  }
+  startPan(e) {
+    this.setState({ drag: { type: "pan", sx: e.clientX, sy: e.clientY, ox: this.state.panX, oy: this.state.panY } });
+  }
+  handleMove(e) {
+    const d = this.state.drag;
+    if (!d) return;
+    if (d.type === "node") {
+      const nx = d.ox + (e.clientX - d.sx) / this.state.scale;
+      const ny = d.oy + (e.clientY - d.sy) / this.state.scale;
+      this.setState(s => ({ pos: { ...s.pos, [d.id]: { x: nx, y: ny } } }));
+    } else {
+      this.setState({ panX: d.ox + (e.clientX - d.sx), panY: d.oy + (e.clientY - d.sy) });
+    }
+  }
+
+  initials(p) { return (p.first[0] + p.last[0]).toUpperCase(); }
+  tintFor(i) { return this.tints[i % this.tints.length]; }
+
+  renderVals() {
+    const s = this.state;
+    const P = s.pos, CW = this.CW, CH = this.CH;
+    const cx = id => P[id].x + CW / 2;
+    const bot = id => P[id].y + CH;
+    const mid = id => P[id].y + CH / 2;
+
+    // tree geometry
+    const marriages = this.couples.map(([a, b]) => ({ x1: P[a].x + CW, y1: mid(a), x2: P[b].x, y2: mid(b) }));
+    const edges = Object.entries(this.childParents).map(([child, par]) => {
+      let px, py;
+      if (par.length === 2) { px = (cx(par[0]) + cx(par[1])) / 2; py = Math.max(bot(par[0]), bot(par[1])); }
+      else { px = cx(par[0]); py = bot(par[0]); }
+      const chX = cx(child), chY = P[child].y, mY = (py + chY) / 2;
+      return { d: `M ${px} ${py} L ${px} ${mY} L ${chX} ${mY} L ${chX} ${chY}` };
+    });
+    const treeNodes = this.people.map((p, i) => ({
+      first: p.first, sub: "b. " + p.born, initials: this.initials(p),
+      left: P[p.id].x, top: P[p.id].y, tint: this.tintFor(i),
+      cardBg: s.selectedId === p.id ? "#fffaf0" : "#ffffff",
+      border: s.selectedId === p.id ? "#c8952a" : "#ece6da",
+      onDown: (e) => this.startNodeDrag(p.id, e),
+    }));
+
+    // selected person
+    const selIdx = this.people.findIndex(p => p.id === s.selectedId);
+    const sel = selIdx >= 0 ? this.people[selIdx] : null;
+    const selPerson = sel ? {
+      fullName: sel.first + " " + sel.last, role: sel.role, initials: this.initials(sel), tint: this.tintFor(selIdx),
+      facts: [
+        { k: "Born", v: sel.born },
+        { k: "Branch", v: sel.last + " line" },
+        { k: "Generation", v: ["", "Founders", "Second", "Third", "Fourth"][sel.gen] },
+        { k: "Lives in", v: sel.loc },
+      ],
+    } : { facts: [] };
+
+    // nav
+    const tabs = [
+      { key: "news", label: "Home", icon: "⌂" },
+      { key: "tree", label: "Family Tree", icon: "⧉" },
+      { key: "reunion", label: "Reunion", icon: "◆" },
+      { key: "directory", label: "Directory", icon: "☰" },
+    ];
+    const navItems = tabs.map(t => ({
+      label: t.label, icon: t.icon, onClick: () => this.setState({ tab: t.key, selectedId: null }),
+      bg: s.tab === t.key ? "rgba(200,149,42,.18)" : "transparent",
+      color: s.tab === t.key ? "#f4f1ea" : "rgba(244,241,234,.62)",
+      weight: s.tab === t.key ? 700 : 500,
+    }));
+
+    // rsvp
+    const rsvpDefs = [["going", "I'm going"], ["maybe", "Maybe"], ["no", "Can't make it"]];
+    const rsvpOptions = rsvpDefs.map(([k, label]) => ({
+      label, onClick: () => this.setState({ rsvp: k }),
+      bg: s.rsvp === k ? "#1f2d27" : "#faf8f3",
+      color: s.rsvp === k ? "#f4f1ea" : "#20231f",
+      border: s.rsvp === k ? "#1f2d27" : "#e2ddd3",
+    }));
+
+    // countdown
+    const target = new Date(2026, 6, 18);
+    const days = Math.max(0, Math.ceil((target - new Date()) / 86400000));
+
+    return {
+      // screens
+      showWelcome: s.screen === "welcome",
+      showDetails: s.screen === "details",
+      showApp: s.screen === "app",
+      goWelcome: () => this.setState({ screen: "welcome" }),
+      goDetails: () => this.setState({ screen: "details" }),
+      goApp: () => this.setState({ screen: "app", tab: "news" }),
+      signOut: () => this.setState({ screen: "welcome" }),
+      goReunion: () => this.setState({ tab: "reunion" }),
+      goTree: () => this.setState({ tab: "tree" }),
+
+      // roller
+      surnamesLoop: [...this.surnames, this.surnames[0]],
+      rollerY: `-${s.rollerIdx * this.RH}px`,
+      rollerTransition: s.rollerAnim ? "transform 0.85s cubic-bezier(0.7,0,0.2,1)" : "none",
+
+      // tabs
+      navItems,
+      isNews: s.tab === "news", isTree: s.tab === "tree", isReunion: s.tab === "reunion", isDirectory: s.tab === "directory",
+      mainOverflow: s.tab === "tree" ? "hidden" : "auto",
+
+      // tree
+      canvasTransform: `translate(${s.panX}px, ${s.panY}px) scale(${s.scale})`,
+      canvasCursor: s.drag && s.drag.type === "pan" ? "grabbing" : "grab",
+      zoomPct: Math.round(s.scale * 100),
+      marriages, edges, treeNodes,
+      setViewport: this.setViewport,
+      startPan: (e) => this.startPan(e),
+      onWheel: (e) => this.onWheel(e),
+      zoomIn: () => this.zoomBy(1.15),
+      zoomOut: () => this.zoomBy(0.87),
+      resetView: () => this.fitView(),
+      hasSelection: !!sel,
+      clearSelection: () => this.setState({ selectedId: null }),
+      selPerson,
+
+      // news
+      countdownDays: days,
+      announcements: [
+        { tag: "NEW ARRIVAL", when: "2 weeks ago", title: "Welcome baby Mia Bender", meta: "Daughter of Sarah Bender · born May 2, 2026", body: "7 lbs 4 oz of pure joy. Mother and baby are doing wonderfully — visitors welcome once they're settled in.", hasImage: true, imageLabel: "BABY PHOTO" },
+        { tag: "ENGAGEMENT", when: "1 month ago", title: "Tom & Rachel are engaged", meta: "Tom Bender · proposed in Austin, April 2026", body: "He asked on the rooftop at sunset and she said yes. A spring 2027 wedding is in the works — save your dates.", hasImage: false, imageLabel: "" },
+        { tag: "MILESTONE", when: "1 month ago", title: "Emily Kelsall graduates from UW–Madison", meta: "Bachelor of Nursing, with honors", body: "First in this line to graduate from Madison. The whole Milwaukee crew drove up for the ceremony.", hasImage: true, imageLabel: "GRADUATION" },
+      ],
+      albums: [
+        { label: "Reunion 2024", count: 142 },
+        { label: "Summer at the lake", count: 68 },
+        { label: "Walter's 80th", count: 96 },
+      ],
+      birthdays: [
+        { name: "James Bender", date: "June 24", turns: "turns 52", initials: "JB", tint: this.tints[4] },
+        { name: "Grace Bender", date: "July 2", turns: "turns 23", initials: "GB", tint: this.tints[1] },
+        { name: "Walter Bender", date: "July 11", turns: "turns 84", initials: "WB", tint: this.tints[0] },
+        { name: "Jack Kelsall", date: "July 29", turns: "turns 25", initials: "JK", tint: this.tints[3] },
+      ],
+
+      // reunion
+      rsvpOptions,
+      goingCount: 84,
+      schedule: [
+        { day: "FRI · Jul 18", title: "Welcome bonfire & s'mores", detail: "7:00 PM · Lakeside fire pit — casual, bring a chair" },
+        { day: "SAT · Jul 19", title: "Family photo & group brunch", detail: "10:00 AM · Abbey lawn — wear the family colors" },
+        { day: "SAT · Jul 19", title: "Lawn games & lake afternoon", detail: "1:00 PM · Boats, volleyball, and the cousin cook-off" },
+        { day: "SUN · Jul 20", title: "Farewell pancake breakfast", detail: "9:00 AM · Main hall — say your goodbyes" },
+      ],
+
+      // directory
+      directory: this.people.map((p, i) => ({
+        fullName: p.first + " " + p.last, role: p.role, initials: this.initials(p), tint: this.tintFor(i), location: p.loc,
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>

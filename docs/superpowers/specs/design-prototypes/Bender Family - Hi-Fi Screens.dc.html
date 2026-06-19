@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;}
+body{margin:0;}
+::placeholder{color:#a99f8c;}
+::-webkit-scrollbar{width:8px;height:8px;}
+::-webkit-scrollbar-thumb{background:#d8d1c4;border-radius:6px;border:2px solid transparent;background-clip:content-box;}
+input:focus{outline:none;border-color:#c8952a !important;box-shadow:0 0 0 3px rgba(200,149,42,.12);}
+</style>
+</helmet>
+
+<div style="height:100vh;overflow:hidden;font-family:'Schibsted Grotesk',sans-serif;color:#20231f;background:#f4f1ea;display:flex;">
+
+  <!-- SIDEBAR -->
+  <aside style="width:248px;flex:none;background:#1f2d27;display:flex;flex-direction:column;padding:26px 18px;position:relative;overflow:hidden;">
+    <div style="position:absolute;inset:0;opacity:.4;background:repeating-linear-gradient(135deg,rgba(200,149,42,.09) 0 1px,transparent 1px 22px);pointer-events:none;"></div>
+    <div style="position:relative;display:flex;align-items:center;gap:11px;padding:0 8px;margin-bottom:30px;">
+      <div style="width:38px;height:38px;border-radius:11px;background:#c8952a;color:#1f2d27;display:flex;align-items:center;justify-content:center;font-family:'Newsreader',serif;font-weight:600;font-size:22px;flex:none;">B</div>
+      <div><div style="font-family:'Newsreader',serif;font-size:19px;color:#f4f1ea;line-height:1;">Bender</div><div style="font-size:11px;color:rgba(244,241,234,.45);letter-spacing:.06em;margin-top:2px;">FAMILY PORTAL</div></div>
+    </div>
+    <div style="position:relative;font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:rgba(244,241,234,.35);padding:0 8px;margin-bottom:10px;">New screens</div>
+    <nav style="position:relative;display:flex;flex-direction:column;gap:3px;">
+      <sc-for list="{{ navItems }}" as="item" hint-placeholder-count="6">
+        <div onClick="{{ item.onClick }}" style="display:flex;align-items:center;gap:11px;padding:11px 14px;border-radius:10px;cursor:pointer;background:{{ item.bg }};color:{{ item.color }};font-size:14px;font-weight:{{ item.weight }};transition:background .15s;">
+          <span style="font-size:14px;width:16px;text-align:center;flex:none;">{{ item.icon }}</span>
+          <span style="flex:1;">{{ item.label }}</span>
+          <sc-if value="{{ item.badge }}"><span style="background:#c8952a;color:#1f2d27;font-size:10px;font-weight:700;min-width:18px;height:18px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 4px;">{{ item.badge }}</span></sc-if>
+        </div>
+      </sc-for>
+    </nav>
+    <div style="position:relative;margin-top:auto;border-top:1px solid rgba(244,241,234,.1);padding-top:14px;display:flex;align-items:center;gap:10px;">
+      <div style="width:34px;height:34px;border-radius:50%;background:#3a4a40;color:#f4f1ea;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex:none;">SB</div>
+      <div style="flex:1;min-width:0;"><div style="font-size:13px;color:#f4f1ea;font-weight:600;">Sarah Bender</div><div style="font-size:11px;color:rgba(244,241,234,.45);">Bender branch</div></div>
+      <div onClick="{{ openMobile }}" title="Mobile preview" style="width:30px;height:30px;border-radius:8px;background:rgba(200,149,42,.15);border:1px solid rgba(200,149,42,.3);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;" style-hover="background:rgba(200,149,42,.25);">
+        <svg width="13" height="18" viewBox="0 0 13 18" fill="none"><rect x="1" y="1" width="11" height="16" rx="2.5" stroke="rgba(244,241,234,.7)" stroke-width="1.5"/><circle cx="6.5" cy="14.5" r="1" fill="rgba(244,241,234,.7)"/></svg>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <main style="flex:1;min-width:0;overflow:{{ mainOverflow }};position:relative;">
+
+    <!-- ========================= PROFILE ========================= -->
+    <sc-if value="{{ isProfile }}" hint-placeholder-val="{{ true }}">
+      <div style="padding:36px 44px 60px;max-width:1100px;margin:0 auto;">
+        <div style="font-size:12px;color:#a99f8c;margin-bottom:16px;">Directory &ensp;/&ensp;<span style="color:#20231f;font-weight:600;">Sarah Bender</span></div>
+        <!-- hero card -->
+        <div style="background:#fff;border:1px solid #ece6da;border-radius:18px;padding:26px 28px;display:flex;align-items:center;gap:22px;margin-bottom:22px;box-shadow:0 1px 6px rgba(31,45,39,.05);">
+          <div style="width:76px;height:76px;flex:none;border-radius:50%;background:linear-gradient(135deg,#e7d9bd,#d8c9a0);display:flex;align-items:center;justify-content:center;font-family:'Newsreader',serif;font-size:28px;font-weight:500;color:#5a4820;box-shadow:0 0 0 3px #fff,0 0 0 5px rgba(200,149,42,.25);">SB</div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-family:'Newsreader',serif;font-size:32px;font-weight:500;line-height:1;margin-bottom:7px;letter-spacing:-.01em;">Sarah Bender</div>
+            <div style="font-size:13.5px;color:#8c857a;margin-bottom:10px;">Daughter of Robert &amp; Linda · Born 1994 · Chicago, IL</div>
+            <div style="display:flex;gap:7px;flex-wrap:wrap;">
+              <span style="font-size:11px;font-weight:700;background:#f1ebdd;color:#1f2d27;padding:4px 11px;border-radius:999px;letter-spacing:.04em;">BENDER BRANCH</span>
+              <span style="font-size:11px;font-weight:700;background:#eef3f0;color:#2d4a38;padding:4px 11px;border-radius:999px;letter-spacing:.04em;">3RD GENERATION</span>
+              <span style="font-size:11px;font-weight:700;background:#f4f1ea;color:#8c857a;padding:4px 11px;border-radius:999px;letter-spacing:.04em;">MEMBER SINCE 2021</span>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:9px;flex:none;">
+            <button style="height:38px;padding:0 20px;border-radius:9px;border:none;background:#1f2d27;color:#f4f1ea;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;" style-hover="background:#2d4a38;">Message</button>
+            <button style="height:38px;padding:0 20px;border-radius:9px;border:1px solid #e2ddd3;background:#fff;color:#20231f;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;" style-hover="background:#faf8f3;">Call</button>
+            <button style="height:38px;padding:0 20px;border-radius:9px;border:1px solid #e2ddd3;background:#fff;color:#20231f;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;white-space:nowrap;" style-hover="background:#faf8f3;">View in tree →</button>
+          </div>
+        </div>
+        <!-- body grid -->
+        <div style="display:grid;grid-template-columns:1fr 280px;gap:18px;align-items:start;">
+          <div style="display:flex;flex-direction:column;gap:16px;">
+            <!-- about -->
+            <div style="background:#fff;border:1px solid #ece6da;border-radius:16px;padding:22px 24px;">
+              <div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#a99f8c;margin-bottom:14px;">About</div>
+              <p style="margin:0;font-size:14.5px;line-height:1.7;color:#4f4b44;text-wrap:pretty;">Chicago-based graphic designer and new mom to baby Mia. Passionate about typography, mid-century furniture, and the Wisconsin Badgers. Has never missed a Bender reunion — seventeen consecutive years. Usually found near the s'mores station.</p>
+            </div>
+            <!-- contact -->
+            <div style="background:#fff;border:1px solid #ece6da;border-radius:16px;padding:22px 24px;">
+              <div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#a99f8c;margin-bottom:14px;">Contact</div>
+              <div style="display:flex;flex-direction:column;gap:0;">
+                <div style="display:flex;align-items:center;gap:14px;padding:11px 0;border-bottom:1px solid #f4f0e8;">
+                  <div style="width:32px;height:32px;border-radius:8px;background:#f4f1ea;display:flex;align-items:center;justify-content:center;font-size:13px;flex:none;color:#8c857a;">✉</div>
+                  <div><div style="font-size:13px;color:#a99f8c;margin-bottom:1px;">Email</div><div style="font-size:14px;font-weight:500;">sarah@email.com</div></div>
+                </div>
+                <div style="display:flex;align-items:center;gap:14px;padding:11px 0;border-bottom:1px solid #f4f0e8;">
+                  <div style="width:32px;height:32px;border-radius:8px;background:#f4f1ea;display:flex;align-items:center;justify-content:center;font-size:13px;flex:none;color:#8c857a;">☎</div>
+                  <div><div style="font-size:13px;color:#a99f8c;margin-bottom:1px;">Phone</div><div style="font-size:14px;font-weight:500;">(312) 555-0182</div></div>
+                </div>
+                <div style="display:flex;align-items:center;gap:14px;padding:11px 0;">
+                  <div style="width:32px;height:32px;border-radius:8px;background:#f4f1ea;display:flex;align-items:center;justify-content:center;font-size:13px;flex:none;color:#8c857a;">⌂</div>
+                  <div><div style="font-size:13px;color:#a99f8c;margin-bottom:1px;">Address</div><div style="font-size:14px;font-weight:500;">123 Oak St, Chicago, IL 60614</div></div>
+                </div>
+              </div>
+            </div>
+            <!-- connections -->
+            <div style="background:#fff;border:1px solid #ece6da;border-radius:16px;padding:22px 24px;">
+              <div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#a99f8c;margin-bottom:14px;">Family connections</div>
+              <sc-for list="{{ profileConnections }}" as="c" hint-placeholder-count="4">
+                <div style="display:flex;align-items:center;gap:13px;padding:10px 0;border-bottom:{{ c.border }};cursor:pointer;" style-hover="background:transparent;">
+                  <div style="width:38px;height:38px;border-radius:50%;background:{{ c.tint }};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex:none;">{{ c.initials }}</div>
+                  <div style="flex:1;"><div style="font-size:14px;font-weight:600;">{{ c.name }}</div><div style="font-size:12px;color:#a99f8c;">{{ c.rel }}</div></div>
+                  <span style="font-size:13px;color:#c0bab2;">›</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:16px;">
+            <!-- life events -->
+            <div style="background:#fff;border:1px solid #ece6da;border-radius:16px;padding:22px 24px;">
+              <div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#a99f8c;margin-bottom:18px;">Life events</div>
+              <div style="position:relative;padding-left:22px;">
+                <div style="position:absolute;left:7px;top:8px;bottom:8px;width:2px;background:linear-gradient(to bottom,#c8952a,#ece6da);border-radius:2px;"></div>
+                <sc-for list="{{ lifeEvents }}" as="ev" hint-placeholder-count="4">
+                  <div style="position:relative;margin-bottom:20px;">
+                    <div style="position:absolute;left:-16px;top:4px;width:12px;height:12px;border-radius:50%;background:{{ ev.dot }};box-shadow:0 0 0 3px #fff;"></div>
+                    <div style="font-size:13.5px;font-weight:600;line-height:1.2;">{{ ev.title }}</div>
+                    <div style="font-size:12px;color:#a99f8c;margin-top:2px;">{{ ev.year }}</div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+            <!-- photos -->
+            <div style="background:#fff;border:1px solid #ece6da;border-radius:16px;overflow:hidden;">
+              <div style="padding:16px 20px 10px;display:flex;align-items:center;justify-content:space-between;">
+                <div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#a99f8c;">Photos</div>
+                <span style="font-size:12.5px;color:#c8952a;font-weight:600;cursor:pointer;">See all 12 →</span>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:2px;padding:0 2px 2px;">
+                <sc-for list="{{ profilePhotos }}" as="ph" hint-placeholder-count="6">
+                  <div style="background:{{ ph.bg }};height:78px;display:flex;align-items:center;justify-content:center;cursor:pointer;" style-hover="opacity:.85;"><span style="font-family:monospace;font-size:8px;color:rgba(160,150,130,.7);">PHOTO</span></div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ========================= GALLERY ========================= -->
+    <sc-if value="{{ isGallery }}">
+      <div style="padding:36px 44px 60px;max-width:1100px;margin:0 auto;">
+        <!-- albums list -->
+        <sc-if value="{{ isAlbumsList }}">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px;">
+            <div>
+              <h1 style="margin:0 0 5px;font-family:'Newsreader',serif;font-size:38px;font-weight:500;letter-spacing:-.01em;">Albums</h1>
+              <div style="font-size:14px;color:#a99f8c;">248 photos · 7 albums</div>
+            </div>
+            <button style="height:42px;padding:0 22px;border-radius:10px;border:none;background:#1f2d27;color:#f4f1ea;font-size:14px;font-weight:600;font-family:inherit;cursor:pointer;" style-hover="background:#2d4a38;">+ New album</button>
+          </div>
+          <div style="height:1px;background:#e8e3d8;margin:22px 0 24px;"></div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;">
+            <sc-for list="{{ albums }}" as="al" hint-placeholder-count="6">
+              <div onClick="{{ al.onClick }}" style="border-radius:14px;overflow:hidden;border:{{ al.border }};cursor:pointer;background:#fff;box-shadow:0 1px 4px rgba(31,45,39,.06);transition:box-shadow .15s;" style-hover="box-shadow:0 4px 18px rgba(31,45,39,.12);">
+                <div style="background:{{ al.bg }};height:120px;display:flex;align-items:center;justify-content:center;position:relative;">
+                  <span style="font-family:monospace;font-size:9px;color:rgba(160,150,130,.8);">ALBUM</span>
+                  <sc-if value="{{ al.isNew }}"><span style="position:absolute;top:10px;right:10px;font-size:9.5px;font-weight:700;background:#c8952a;color:#1f2d27;padding:2px 8px;border-radius:999px;">NEW</span></sc-if>
+                </div>
+                <div style="padding:12px 14px;"><div style="font-size:14px;font-weight:600;margin-bottom:2px;">{{ al.label }}</div><div style="font-size:12px;color:#a99f8c;">{{ al.count }} photos · {{ al.year }}</div></div>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <!-- open album -->
+        <sc-if value="{{ isAlbumOpen }}">
+          <div style="display:flex;align-items:center;gap:14px;margin-bottom:22px;">
+            <button onClick="{{ closeAlbum }}" style="height:36px;padding:0 14px;border-radius:9px;border:1px solid #e2ddd3;background:#fff;color:#6b6760;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;display:flex;align-items:center;gap:6px;" style-hover="background:#faf8f3;">‹ Albums</button>
+            <div style="width:1px;height:24px;background:#e2ddd3;"></div>
+            <div>
+              <h1 style="margin:0;font-family:'Newsreader',serif;font-size:32px;font-weight:500;">{{ openAlbumLabel }}</h1>
+              <div style="font-size:13px;color:#a99f8c;margin-top:2px;">{{ openAlbumCount }} photos</div>
+            </div>
+            <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+              <div style="display:flex;gap:6px;">
+                <sc-for list="{{ galleryFilters }}" as="f" hint-placeholder-count="3">
+                  <button onClick="{{ f.onClick }}" style="height:34px;padding:0 14px;border-radius:8px;border:{{ f.border }};background:{{ f.bg }};color:{{ f.color }};font-size:12.5px;font-weight:600;font-family:inherit;cursor:pointer;">{{ f.label }}</button>
+                </sc-for>
+              </div>
+              <button style="height:34px;padding:0 16px;border-radius:8px;border:none;background:#1f2d27;color:#f4f1ea;font-size:12.5px;font-weight:600;font-family:inherit;cursor:pointer;" style-hover="background:#2d4a38;">+ Upload</button>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);grid-auto-rows:120px;gap:8px;">
+            <sc-for list="{{ galleryPhotos }}" as="gp" hint-placeholder-count="10">
+              <div style="background:{{ gp.bg }};border-radius:10px;grid-column:{{ gp.cols }};grid-row:{{ gp.rows }};display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden;" style-hover="opacity:.9;">
+                <span style="font-family:monospace;font-size:9px;color:rgba(160,150,130,.7);">PHOTO</span>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <!-- ========================= NOTIFICATIONS ========================= -->
+    <sc-if value="{{ isNotifications }}">
+      <div style="padding:36px 44px 60px;max-width:780px;margin:0 auto;">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:6px;">
+          <h1 style="margin:0;font-family:'Newsreader',serif;font-size:38px;font-weight:500;letter-spacing:-.01em;">Notifications</h1>
+          <sc-if value="{{ notifBadge }}"><div style="background:#c8952a;color:#1f2d27;font-size:11px;font-weight:700;min-width:22px;height:22px;border-radius:11px;display:flex;align-items:center;justify-content:center;padding:0 5px;">{{ notifBadge }}</div></sc-if>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:28px;">
+          <div style="font-size:14px;color:#a99f8c;">Activity across the Bender family</div>
+          <button onClick="{{ markAllRead }}" style="font-size:13px;color:#c8952a;font-weight:600;background:none;border:none;font-family:inherit;cursor:pointer;padding:0;" style-hover="color:#a87a22;">Mark all read</button>
+        </div>
+        <!-- Today -->
+        <sc-if value="{{ hasUnread }}">
+          <div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#a99f8c;margin-bottom:12px;">Today</div>
+          <div style="background:#fff;border:1px solid #ece6da;border-radius:16px;overflow:hidden;margin-bottom:24px;box-shadow:0 1px 4px rgba(31,45,39,.04);">
+            <sc-for list="{{ notifsToday }}" as="n" hint-placeholder-count="3">
+              <div style="display:flex;align-items:center;gap:16px;padding:16px 22px;border-bottom:{{ n.border }};background:{{ n.bg }};">
+                <div style="width:42px;height:42px;border-radius:50%;background:{{ n.iconBg }};display:flex;align-items:center;justify-content:center;font-size:18px;flex:none;">{{ n.icon }}</div>
+                <div style="flex:1;min-width:0;">
+                  <div style="font-size:14px;line-height:1.4;margin-bottom:3px;">{{ n.text }}</div>
+                  <div style="font-size:12px;color:#a99f8c;">{{ n.sub }}</div>
+                </div>
+                <sc-if value="{{ n.cta }}"><button style="height:34px;padding:0 16px;border-radius:8px;border:{{ n.ctaBorder }};background:{{ n.ctaBg }};color:{{ n.ctaColor }};font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;white-space:nowrap;" style-hover="opacity:.85;">{{ n.cta }}</button></sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <!-- This week -->
+        <div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#a99f8c;margin-bottom:12px;">This week</div>
+        <div style="background:#fff;border:1px solid #ece6da;border-radius:16px;overflow:hidden;margin-bottom:24px;box-shadow:0 1px 4px rgba(31,45,39,.04);">
+          <sc-for list="{{ notifsWeek }}" as="n" hint-placeholder-count="2">
+            <div style="display:flex;align-items:center;gap:16px;padding:16px 22px;border-bottom:{{ n.border }};">
+              <div style="width:42px;height:42px;border-radius:50%;background:{{ n.iconBg }};display:flex;align-items:center;justify-content:center;font-size:18px;flex:none;">{{ n.icon }}</div>
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:14px;line-height:1.4;margin-bottom:3px;">{{ n.text }}</div>
+                <div style="font-size:12px;color:#a99f8c;">{{ n.sub }}</div>
+              </div>
+              <sc-if value="{{ n.cta }}"><button style="height:34px;padding:0 16px;border-radius:8px;border:1px solid #e2ddd3;background:#fff;color:#20231f;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;white-space:nowrap;" style-hover="background:#faf8f3;">{{ n.cta }}</button></sc-if>
+            </div>
+          </sc-for>
+        </div>
+        <!-- Earlier -->
+        <div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#c0bab2;margin-bottom:12px;">Earlier</div>
+        <div style="background:#faf8f3;border:1px solid #f0ebe1;border-radius:16px;overflow:hidden;">
+          <sc-for list="{{ notifsEarlier }}" as="n" hint-placeholder-count="2">
+            <div style="display:flex;align-items:center;gap:16px;padding:14px 22px;border-bottom:{{ n.border }};opacity:.6;">
+              <div style="width:38px;height:38px;border-radius:50%;background:#f0ebe1;display:flex;align-items:center;justify-content:center;font-size:16px;flex:none;">{{ n.icon }}</div>
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:13.5px;line-height:1.4;">{{ n.text }}</div>
+                <div style="font-size:12px;color:#a99f8c;margin-top:2px;">{{ n.sub }}</div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ========================= SEARCH ========================= -->
+    <sc-if value="{{ isSearch }}">
+      <div style="padding:36px 44px 60px;max-width:900px;margin:0 auto;">
+        <h1 style="margin:0 0 20px;font-family:'Newsreader',serif;font-size:38px;font-weight:500;letter-spacing:-.01em;">Search</h1>
+        <!-- search bar -->
+        <div style="position:relative;margin-bottom:18px;">
+          <div style="position:absolute;left:18px;top:50%;transform:translateY(-50%);font-size:20px;color:#a99f8c;pointer-events:none;">⌕</div>
+          <input value="{{ searchInput }}" onInput="{{ onSearch }}" placeholder="Search family members, photos, events…" style="width:100%;height:58px;border-radius:15px;border:2px solid #e2ddd3;background:#fff;padding:0 20px 0 50px;font-size:16px;font-family:inherit;color:#20231f;transition:border-color .15s,box-shadow .15s;" />
+        </div>
+        <!-- filter tabs -->
+        <div style="display:flex;gap:8px;margin-bottom:28px;flex-wrap:wrap;">
+          <sc-for list="{{ searchTabs }}" as="t" hint-placeholder-count="5">
+            <button onClick="{{ t.onClick }}" style="height:36px;padding:0 18px;border-radius:9px;border:{{ t.border }};background:{{ t.bg }};color:{{ t.color }};font-size:13px;font-weight:{{ t.weight }};font-family:inherit;cursor:pointer;transition:all .12s;">{{ t.label }}</button>
+          </sc-for>
+        </div>
+        <!-- recent (empty state) -->
+        <sc-if value="{{ showRecent }}">
+          <div style="font-size:12px;color:#a99f8c;font-weight:600;margin-bottom:12px;">Recent searches</div>
+          <div style="display:flex;gap:9px;flex-wrap:wrap;margin-bottom:30px;">
+            <sc-for list="{{ recentSearches }}" as="r" hint-placeholder-count="3">
+              <button onClick="{{ r.onClick }}" style="height:32px;padding:0 16px;border-radius:999px;background:#fff;border:1px solid #e2ddd3;font-size:13px;font-weight:500;color:#6b6760;font-family:inherit;cursor:pointer;display:flex;align-items:center;gap:7px;" style-hover="border-color:#c8952a;color:#20231f;"><span style="font-size:12px;color:#c0bab2;">↺</span> {{ r.q }}</button>
+            </sc-for>
+          </div>
+          <div style="font-size:12px;color:#a99f8c;font-weight:600;margin-bottom:14px;">Browse all people</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+            <sc-for list="{{ browsepeople }}" as="p" hint-placeholder-count="6">
+              <div style="background:#fff;border:1px solid #ece6da;border-radius:14px;padding:16px;display:flex;align-items:center;gap:13px;cursor:pointer;" style-hover="border-color:#c8952a;box-shadow:0 2px 10px rgba(200,149,42,.1);">
+                <div style="width:42px;height:42px;flex:none;border-radius:50%;background:{{ p.tint }};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;">{{ p.initials }}</div>
+                <div style="min-width:0;"><div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ p.name }}</div><div style="font-size:12px;color:#a99f8c;">{{ p.loc }}</div></div>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <!-- results -->
+        <sc-if value="{{ showResults }}">
+          <sc-if value="{{ searchPeople.length }}">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#a99f8c;margin-bottom:14px;">People · {{ searchPeople.length }}</div>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:28px;">
+              <sc-for list="{{ searchPeople }}" as="p" hint-placeholder-count="3">
+                <div style="background:#fff;border:1px solid #ece6da;border-radius:14px;padding:16px;display:flex;align-items:center;gap:13px;cursor:pointer;" style-hover="border-color:#c8952a;box-shadow:0 2px 10px rgba(200,149,42,.1);">
+                  <div style="width:42px;height:42px;flex:none;border-radius:50%;background:{{ p.tint }};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;">{{ p.initials }}</div>
+                  <div style="min-width:0;"><div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ p.name }}</div><div style="font-size:12px;color:#a99f8c;">{{ p.loc }}</div></div>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+          <sc-if value="{{ noResults }}">
+            <div style="text-align:center;padding:60px 0;">
+              <div style="font-size:36px;margin-bottom:14px;">⌕</div>
+              <div style="font-family:'Newsreader',serif;font-size:22px;font-weight:500;margin-bottom:8px;">No results for "{{ searchInput }}"</div>
+              <div style="font-size:14px;color:#a99f8c;">Try a different name, location, or event.</div>
+            </div>
+          </sc-if>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <!-- ========================= SETTINGS ========================= -->
+    <sc-if value="{{ isSettings }}">
+      <div style="height:100%;display:flex;">
+        <!-- settings sidebar -->
+        <div style="width:224px;flex:none;border-right:1px solid #e8e3d8;background:#faf8f3;padding:28px 16px;overflow-y:auto;">
+          <div style="font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#a99f8c;padding-left:4px;margin-bottom:12px;">Account</div>
+          <sc-for list="{{ settingsTabs }}" as="t" hint-placeholder-count="5">
+            <div onClick="{{ t.onClick }}" style="display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:9px;cursor:pointer;background:{{ t.bg }};color:{{ t.color }};font-size:13.5px;font-weight:{{ t.weight }};margin-bottom:2px;transition:background .1s;">
+              <span style="font-size:14px;width:16px;text-align:center;flex:none;">{{ t.icon }}</span>{{ t.label }}
+            </div>
+          </sc-for>
+          <div style="margin-top:14px;padding-top:14px;border-top:1px solid #e2ddd3;">
+            <div style="display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:9px;cursor:pointer;color:#c04040;font-size:13.5px;font-weight:500;" style-hover="background:#fdf2f2;">
+              <span style="font-size:14px;width:16px;text-align:center;flex:none;">↩</span>Sign out
+            </div>
+          </div>
+        </div>
+        <!-- settings content -->
+        <div style="flex:1;overflow-y:auto;padding:32px 36px 60px;">
+          <!-- Profile tab -->
+          <sc-if value="{{ isSettingsProfile }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;">
+              <h2 style="margin:0;font-size:24px;font-weight:700;letter-spacing:-.01em;">Profile</h2>
+              <button style="height:38px;padding:0 20px;border-radius:9px;border:none;background:#1f2d27;color:#f4f1ea;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;" style-hover="background:#2d4a38;">Save changes</button>
+            </div>
+            <!-- photo row -->
+            <div style="display:flex;align-items:center;gap:18px;padding:20px 0;border-bottom:1px solid #ece6da;margin-bottom:24px;">
+              <div style="width:68px;height:68px;border-radius:50%;background:linear-gradient(135deg,#e7d9bd,#d8c9a0);display:flex;align-items:center;justify-content:center;font-family:'Newsreader',serif;font-size:26px;font-weight:500;color:#5a4820;flex:none;">SB</div>
+              <div><div style="font-size:15px;font-weight:600;margin-bottom:8px;">Profile photo</div><div style="display:flex;gap:10px;"><button style="height:34px;padding:0 16px;border-radius:8px;border:1px solid #e2ddd3;background:#fff;font-size:13px;font-weight:600;color:#20231f;font-family:inherit;cursor:pointer;" style-hover="background:#faf8f3;">Upload photo</button><button style="height:34px;padding:0 16px;border-radius:8px;border:1px solid #e2ddd3;background:#fff;font-size:13px;font-weight:600;color:#a99f8c;font-family:inherit;cursor:pointer;" style-hover="background:#faf8f3;">Remove</button></div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px 22px;">
+              <div><label style="display:block;font-size:12px;font-weight:600;color:#6b6760;margin-bottom:8px;letter-spacing:.02em;">First name</label><input value="Sarah" style="width:100%;height:46px;border-radius:10px;border:1px solid #e2ddd3;background:#fff;padding:0 14px;font-size:14.5px;font-family:inherit;color:#20231f;" /></div>
+              <div><label style="display:block;font-size:12px;font-weight:600;color:#6b6760;margin-bottom:8px;letter-spacing:.02em;">Last name</label><input value="Bender" style="width:100%;height:46px;border-radius:10px;border:1px solid #e2ddd3;background:#fff;padding:0 14px;font-size:14.5px;font-family:inherit;color:#20231f;" /></div>
+              <div style="grid-column:1/-1;"><label style="display:block;font-size:12px;font-weight:600;color:#6b6760;margin-bottom:8px;letter-spacing:.02em;">Bio</label><textarea style="width:100%;height:90px;border-radius:10px;border:1px solid #e2ddd3;background:#fff;padding:11px 14px;font-size:14px;font-family:inherit;color:#4f4b44;resize:vertical;line-height:1.6;">Chicago-based designer and new mom to baby Mia. Never missed a Bender reunion in 17 years.</textarea></div>
+              <div><label style="display:block;font-size:12px;font-weight:600;color:#6b6760;margin-bottom:8px;letter-spacing:.02em;">Email</label><input value="sarah@email.com" style="width:100%;height:46px;border-radius:10px;border:1px solid #e2ddd3;background:#fff;padding:0 14px;font-size:14.5px;font-family:inherit;color:#20231f;" /></div>
+              <div><label style="display:block;font-size:12px;font-weight:600;color:#6b6760;margin-bottom:8px;letter-spacing:.02em;">Phone</label><input value="(312) 555-0182" style="width:100%;height:46px;border-radius:10px;border:1px solid #e2ddd3;background:#fff;padding:0 14px;font-size:14.5px;font-family:inherit;color:#20231f;" /></div>
+              <div style="grid-column:1/-1;"><label style="display:block;font-size:12px;font-weight:600;color:#6b6760;margin-bottom:8px;letter-spacing:.02em;">Home address</label><input value="123 Oak St, Chicago, IL 60614" style="width:100%;height:46px;border-radius:10px;border:1px solid #e2ddd3;background:#fff;padding:0 14px;font-size:14.5px;font-family:inherit;color:#20231f;" /></div>
+              <div style="grid-column:1/-1;"><label style="display:block;font-size:12px;font-weight:600;color:#6b6760;margin-bottom:8px;letter-spacing:.02em;">Family position <span style="font-weight:400;color:#a99f8c;">(managed from the tree)</span></label><div style="height:46px;border-radius:10px;border:1px solid #f0ebe1;background:#faf8f3;padding:0 14px;font-size:14px;color:#8c857a;display:flex;align-items:center;">Daughter of Robert &amp; Linda · Bender branch · 3rd generation</div></div>
+            </div>
+          </sc-if>
+          <!-- Privacy tab -->
+          <sc-if value="{{ isSettingsPrivacy }}">
+            <h2 style="margin:0 0 6px;font-size:24px;font-weight:700;letter-spacing:-.01em;">Privacy</h2>
+            <p style="margin:0 0 28px;font-size:14px;color:#8c857a;line-height:1.5;">Control who can see your details within the family portal.</p>
+            <div style="background:#fff;border:1px solid #ece6da;border-radius:16px;overflow:hidden;margin-bottom:18px;">
+              <sc-for list="{{ privacyRows }}" as="row" hint-placeholder-count="3">
+                <div style="display:flex;align-items:center;gap:16px;padding:16px 22px;border-bottom:{{ row.border }};">
+                  <div style="flex:1;"><div style="font-size:14.5px;font-weight:600;margin-bottom:3px;">{{ row.label }}</div><div style="font-size:13px;color:#a99f8c;">{{ row.sub }}</div></div>
+                  <div style="display:flex;gap:6px;">
+                    <sc-for list="{{ row.options }}" as="opt" hint-placeholder-count="3">
+                      <button onClick="{{ opt.onClick }}" style="height:32px;padding:0 13px;border-radius:8px;border:{{ opt.border }};background:{{ opt.bg }};color:{{ opt.color }};font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;">{{ opt.label }}</button>
+                    </sc-for>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+          <!-- Notifications tab -->
+          <sc-if value="{{ isSettingsNotifs }}">
+            <h2 style="margin:0 0 6px;font-size:24px;font-weight:700;letter-spacing:-.01em;">Notifications</h2>
+            <p style="margin:0 0 28px;font-size:14px;color:#8c857a;line-height:1.5;">Choose what you want to hear about.</p>
+            <div style="background:#fff;border:1px solid #ece6da;border-radius:16px;overflow:hidden;">
+              <sc-for list="{{ notifRows }}" as="row" hint-placeholder-count="4">
+                <div style="display:flex;align-items:center;gap:16px;padding:16px 22px;border-bottom:{{ row.border }};">
+                  <div style="width:38px;height:38px;border-radius:9px;background:#f4f1ea;display:flex;align-items:center;justify-content:center;font-size:17px;flex:none;">{{ row.icon }}</div>
+                  <div style="flex:1;"><div style="font-size:14.5px;font-weight:600;margin-bottom:2px;">{{ row.label }}</div><div style="font-size:13px;color:#a99f8c;">{{ row.sub }}</div></div>
+                  <div onClick="{{ row.toggle }}" style="width:44px;height:24px;border-radius:12px;background:{{ row.trackBg }};position:relative;cursor:pointer;transition:background .2s;flex:none;"><div style="position:absolute;top:3px;left:{{ row.knobX }};width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.2);transition:left .2s;"></div></div>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+          <!-- Account tab -->
+          <sc-if value="{{ isSettingsAccount }}">
+            <h2 style="margin:0 0 6px;font-size:24px;font-weight:700;letter-spacing:-.01em;">Account</h2>
+            <p style="margin:0 0 28px;font-size:14px;color:#8c857a;">Manage your login and security settings.</p>
+            <div style="background:#fff;border:1px solid #ece6da;border-radius:16px;padding:22px 24px;margin-bottom:18px;">
+              <div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#a99f8c;margin-bottom:18px;">Sign-in</div>
+              <div style="display:flex;flex-direction:column;gap:16px;">
+                <div><label style="display:block;font-size:12px;font-weight:600;color:#6b6760;margin-bottom:8px;">Email</label><div style="display:flex;gap:10px;"><input value="sarah@email.com" style="flex:1;height:46px;border-radius:10px;border:1px solid #e2ddd3;background:#fff;padding:0 14px;font-size:14.5px;font-family:inherit;color:#20231f;" /><button style="height:46px;padding:0 18px;border-radius:10px;border:1px solid #e2ddd3;background:#fff;font-size:13px;font-weight:600;color:#20231f;font-family:inherit;cursor:pointer;white-space:nowrap;" style-hover="background:#faf8f3;">Change email</button></div></div>
+                <div><label style="display:block;font-size:12px;font-weight:600;color:#6b6760;margin-bottom:8px;">Password</label><div style="display:flex;gap:10px;"><input type="password" value="supersecret" style="flex:1;height:46px;border-radius:10px;border:1px solid #e2ddd3;background:#fff;padding:0 14px;font-size:14.5px;font-family:inherit;color:#20231f;" /><button style="height:46px;padding:0 18px;border-radius:10px;border:1px solid #e2ddd3;background:#fff;font-size:13px;font-weight:600;color:#20231f;font-family:inherit;cursor:pointer;white-space:nowrap;" style-hover="background:#faf8f3;">Change password</button></div></div>
+              </div>
+            </div>
+            <div style="background:#fff;border:1.5px solid #f5d5d5;border-radius:16px;padding:22px 24px;">
+              <div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#c04040;margin-bottom:6px;">Danger zone</div>
+              <div style="font-size:13.5px;color:#8c857a;margin-bottom:16px;line-height:1.5;">Removing your account will hide your profile and contact info from the family directory. You can request re-access at any time.</div>
+              <button style="height:38px;padding:0 18px;border-radius:9px;border:1.5px solid #f5d5d5;background:#fff;color:#c04040;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;" style-hover="background:#fdf2f2;">Remove my account</button>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ========================= ADMIN ========================= -->
+    <sc-if value="{{ isAdmin }}">
+      <div style="padding:36px 44px 60px;max-width:1100px;margin:0 auto;">
+        <div style="display:flex;align-items:center;gap:13px;margin-bottom:5px;">
+          <h1 style="margin:0;font-family:'Newsreader',serif;font-size:38px;font-weight:500;letter-spacing:-.01em;">Admin Panel</h1>
+          <span style="font-size:10px;font-weight:700;letter-spacing:.12em;background:#c8952a;color:#1f2d27;padding:4px 10px;border-radius:999px;">ADMIN ONLY</span>
+        </div>
+        <div style="font-size:14px;color:#a99f8c;margin-bottom:28px;">Bender branch · manage members, content and portal settings</div>
+        <!-- stats -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:32px;">
+          <sc-for list="{{ adminStats }}" as="stat" hint-placeholder-count="4">
+            <div style="background:#fff;border:1px solid #ece6da;border-radius:14px;padding:20px 22px;box-shadow:0 1px 4px rgba(31,45,39,.04);">
+              <div style="font-family:'Newsreader',serif;font-size:38px;font-weight:500;line-height:1;color:{{ stat.color }};margin-bottom:6px;">{{ stat.value }}</div>
+              <div style="font-size:13px;color:#a99f8c;font-weight:500;">{{ stat.label }}</div>
+            </div>
+          </sc-for>
+        </div>
+        <!-- tabs -->
+        <div style="display:flex;border-bottom:2px solid #ece6da;margin-bottom:22px;">
+          <sc-for list="{{ adminTabs }}" as="t" hint-placeholder-count="3">
+            <div onClick="{{ t.onClick }}" style="padding:11px 20px;border-bottom:2px solid {{ t.activeLine }};margin-bottom:-2px;font-size:14px;font-weight:{{ t.weight }};color:{{ t.color }};cursor:pointer;display:flex;align-items:center;gap:8px;transition:color .12s;">{{ t.label }}<sc-if value="{{ t.badge }}"><span style="background:{{ t.badgeBg }};color:{{ t.badgeColor }};font-size:10px;font-weight:700;min-width:18px;height:18px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;padding:0 4px;">{{ t.badge }}</span></sc-if></div>
+          </sc-for>
+        </div>
+        <!-- Pending tab -->
+        <sc-if value="{{ isAdminPending }}" hint-placeholder-val="{{ true }}">
+          <sc-if value="{{ pendingMembers.length }}">
+            <div style="background:#fff;border:1px solid #ece6da;border-radius:16px;overflow:hidden;box-shadow:0 1px 4px rgba(31,45,39,.04);">
+              <div style="display:grid;grid-template-columns:2fr 1.2fr 1fr 1fr 1.6fr;padding:12px 22px;background:#faf8f3;border-bottom:1px solid #ece6da;">
+                <sc-for list="{{ adminTableHeaders }}" as="h" hint-placeholder-count="5">
+                  <div style="font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#a99f8c;">{{ h }}</div>
+                </sc-for>
+              </div>
+              <sc-for list="{{ pendingMembers }}" as="m" hint-placeholder-count="3">
+                <div style="display:grid;grid-template-columns:2fr 1.2fr 1fr 1fr 1.6fr;padding:16px 22px;border-bottom:{{ m.border }};align-items:center;">
+                  <div style="display:flex;align-items:center;gap:13px;"><div style="width:38px;height:38px;border-radius:50%;background:{{ m.tint }};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex:none;">{{ m.initials }}</div><div><div style="font-size:14px;font-weight:600;">{{ m.name }}</div><div style="font-size:12px;color:#a99f8c;">{{ m.email }}</div></div></div>
+                  <div style="font-size:13px;color:#6b6760;">{{ m.date }}</div>
+                  <div style="font-size:13px;font-weight:600;">{{ m.branch }}</div>
+                  <div style="font-size:13px;color:#6b6760;">{{ m.connectedBy }}</div>
+                  <div style="display:flex;gap:8px;"><button onClick="{{ m.approve }}" style="height:33px;padding:0 16px;border-radius:8px;border:none;background:#1f2d27;color:#f4f1ea;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;" style-hover="background:#2d4a38;">Approve</button><button onClick="{{ m.deny }}" style="height:33px;padding:0 14px;border-radius:8px;border:1.5px solid #f5d5d5;background:#fff;color:#c04040;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;" style-hover="background:#fdf2f2;">Deny</button><button style="height:33px;padding:0 14px;border-radius:8px;border:1px solid #e2ddd3;background:#fff;color:#6b6760;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;" style-hover="background:#faf8f3;">Review</button></div>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+          <sc-if value="{{ noPending }}">
+            <div style="text-align:center;padding:70px 0;"><div style="font-size:36px;margin-bottom:14px;">✓</div><div style="font-family:'Newsreader',serif;font-size:22px;font-weight:500;margin-bottom:8px;">All caught up</div><div style="font-size:14px;color:#a99f8c;">No pending member approvals.</div></div>
+          </sc-if>
+        </sc-if>
+        <!-- Members tab -->
+        <sc-if value="{{ isAdminMembers }}">
+          <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px;">
+            <div style="position:relative;flex:1;max-width:380px;">
+              <div style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:16px;color:#a99f8c;pointer-events:none;">⌕</div>
+              <input placeholder="Search members…" style="width:100%;height:42px;border-radius:10px;border:1px solid #e2ddd3;background:#fff;padding:0 14px 0 38px;font-size:14px;font-family:inherit;color:#20231f;" />
+            </div>
+            <select style="height:42px;border-radius:10px;border:1px solid #e2ddd3;background:#fff;padding:0 14px;font-size:13.5px;font-family:inherit;color:#20231f;cursor:pointer;">
+              <option>All branches</option>
+              <option>Bender</option>
+              <option>Kelsall</option>
+            </select>
+          </div>
+          <div style="background:#fff;border:1px solid #ece6da;border-radius:16px;overflow:hidden;">
+            <div style="display:grid;grid-template-columns:2fr 1.5fr 1fr 1fr;padding:12px 22px;background:#faf8f3;border-bottom:1px solid #ece6da;">
+              <div style="font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#a99f8c;">Member</div>
+              <div style="font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#a99f8c;">Email</div>
+              <div style="font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#a99f8c;">Branch</div>
+              <div style="font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#a99f8c;">Joined</div>
+            </div>
+            <sc-for list="{{ membersList }}" as="m" hint-placeholder-count="6">
+              <div style="display:grid;grid-template-columns:2fr 1.5fr 1fr 1fr;padding:13px 22px;border-bottom:{{ m.border }};align-items:center;" style-hover="background:#faf8f3;">
+                <div style="display:flex;align-items:center;gap:13px;"><div style="width:34px;height:34px;border-radius:50%;background:{{ m.tint }};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex:none;">{{ m.initials }}</div><div style="font-size:14px;font-weight:600;">{{ m.name }}</div></div>
+                <div style="font-size:13px;color:#6b6760;">{{ m.email }}</div>
+                <div style="font-size:13px;font-weight:600;">{{ m.branch }}</div>
+                <div style="font-size:13px;color:#a99f8c;">{{ m.joined }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <!-- Reports tab -->
+        <sc-if value="{{ isAdminReports }}">
+          <div style="text-align:center;padding:70px 0;"><div style="font-size:36px;margin-bottom:14px;">⚑</div><div style="font-family:'Newsreader',serif;font-size:22px;font-weight:500;margin-bottom:8px;">No flagged content</div><div style="font-size:14px;color:#a99f8c;">Content reports from members will appear here.</div></div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+  </main>
+</div>
+
+<!-- MOBILE OVERLAY -->
+<sc-if value="{{ showMobile }}">
+  <div onClick="{{ closeMobile }}" style="position:fixed;inset:0;background:rgba(20,30,24,.7);z-index:100;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
+    <div onClick="{{ stopProp }}" style="display:flex;flex-direction:column;align-items:center;gap:20px;">
+      <!-- phone frame -->
+      <div style="width:375px;max-height:812px;border-radius:48px;background:#111;box-shadow:0 40px 80px rgba(0,0,0,.6),inset 0 0 0 2px #333;overflow:hidden;position:relative;border:10px solid #1a1a1a;">
+        <div style="background:#f4f1ea;height:100%;overflow-y:auto;border-radius:38px;overflow:hidden;">
+          <!-- status bar -->
+          <div style="background:#1f2d27;height:44px;display:flex;align-items:center;padding:0 24px;justify-content:space-between;flex:none;">
+            <span style="font-size:12px;font-weight:600;color:#f4f1ea;letter-spacing:.02em;">9:41</span>
+            <div style="display:flex;gap:5px;align-items:center;"><div style="width:16px;height:7px;border-radius:2px;border:1px solid rgba(244,241,234,.7);"><div style="width:60%;height:100%;background:rgba(244,241,234,.7);border-radius:1px;"></div></div><span style="font-size:11px;color:rgba(244,241,234,.6);">●●●</span></div>
+          </div>
+          <!-- mobile content per screen -->
+          <sc-if value="{{ isMobileProfile }}"><div style="padding:16px;"><div style="background:#fff;border-radius:20px;padding:20px;margin-bottom:12px;text-align:center;"><div style="width:68px;height:68px;border-radius:50%;background:linear-gradient(135deg,#e7d9bd,#d8c9a0);display:flex;align-items:center;justify-content:center;font-family:'Newsreader',serif;font-size:26px;font-weight:500;color:#5a4820;margin:0 auto 12px;">SB</div><div style="font-family:'Newsreader',serif;font-size:24px;font-weight:500;margin-bottom:5px;">Sarah Bender</div><div style="font-size:12px;color:#8c857a;margin-bottom:12px;">Chicago, IL · Bender branch</div><div style="display:flex;gap:8px;justify-content:center;"><button style="flex:1;height:38px;border-radius:9px;border:none;background:#1f2d27;color:#f4f1ea;font-size:13px;font-weight:600;font-family:inherit;">Message</button><button style="flex:1;height:38px;border-radius:9px;border:1.5px solid #e2ddd3;background:#fff;color:#20231f;font-size:13px;font-weight:600;font-family:inherit;">Call</button></div></div><div style="background:#fff;border-radius:16px;padding:16px;margin-bottom:12px;"><div style="font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#a99f8c;margin-bottom:10px;">Contact</div><div style="font-size:13.5px;color:#20231f;margin-bottom:8px;display:flex;align-items:center;gap:9px;"><span style="color:#a99f8c;">✉</span>sarah@email.com</div><div style="font-size:13.5px;color:#20231f;display:flex;align-items:center;gap:9px;"><span style="color:#a99f8c;">☎</span>(312) 555-0182</div></div><div style="background:#fff;border-radius:16px;padding:16px;"><div style="font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#a99f8c;margin-bottom:12px;">Life events</div><div style="display:flex;flex-direction:column;gap:11px;"><div style="display:flex;gap:11px;align-items:flex-start;"><div style="width:10px;height:10px;border-radius:50%;background:#c8952a;flex:none;margin-top:3px;"></div><div><div style="font-size:13.5px;font-weight:600;">Born, Madison WI</div><div style="font-size:12px;color:#a99f8c;">1994</div></div></div><div style="display:flex;gap:11px;align-items:flex-start;"><div style="width:10px;height:10px;border-radius:50%;background:#e8e3d8;border:2px solid #ddd8ce;flex:none;margin-top:3px;"></div><div><div style="font-size:13.5px;font-weight:600;">Graduated UChicago</div><div style="font-size:12px;color:#a99f8c;">2016</div></div></div><div style="display:flex;gap:11px;align-items:flex-start;"><div style="width:10px;height:10px;border-radius:50%;background:#c8952a;flex:none;margin-top:3px;"></div><div><div style="font-size:13.5px;font-weight:600;">Baby Mia born</div><div style="font-size:12px;color:#a99f8c;">May 2026</div></div></div></div></div></div></sc-if>
+          <sc-if value="{{ isMobileGallery }}"><div style="padding:16px;"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;"><span style="font-family:'Newsreader',serif;font-size:24px;font-weight:500;">Albums</span><button style="height:32px;padding:0 14px;border-radius:8px;border:none;background:#1f2d27;color:#f4f1ea;font-size:12px;font-weight:600;font-family:inherit;">+ New</button></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;"><div style="border-radius:13px;overflow:hidden;border:2px solid #c8952a;background:#fff;"><div style="background:repeating-linear-gradient(135deg,#ddd6c4 0 8px,#e8e0d0 8px 16px);height:90px;display:flex;align-items:center;justify-content:center;"><span style="font-family:monospace;font-size:8px;color:#b7ad99;">ALBUM</span></div><div style="padding:9px 10px;"><div style="font-size:12.5px;font-weight:600;">Reunion 2024</div><div style="font-size:11px;color:#a99f8c;">142 photos</div></div></div><div style="border-radius:13px;overflow:hidden;border:1px solid #ece6da;background:#fff;"><div style="background:repeating-linear-gradient(135deg,#e6dfd0 0 8px,#efe9db 8px 16px);height:90px;display:flex;align-items:center;justify-content:center;"><span style="font-family:monospace;font-size:8px;color:#b7ad99;">ALBUM</span></div><div style="padding:9px 10px;"><div style="font-size:12.5px;font-weight:600;">Summer Lake</div><div style="font-size:11px;color:#a99f8c;">68 photos</div></div></div><div style="border-radius:13px;overflow:hidden;border:1px solid #ece6da;background:#fff;"><div style="background:repeating-linear-gradient(135deg,#e6dfd0 0 8px,#efe9db 8px 16px);height:90px;display:flex;align-items:center;justify-content:center;"><span style="font-family:monospace;font-size:8px;color:#b7ad99;">ALBUM</span></div><div style="padding:9px 10px;"><div style="font-size:12.5px;font-weight:600;">Walter's 80th</div><div style="font-size:11px;color:#a99f8c;">96 photos</div></div></div><div style="border-radius:13px;overflow:hidden;border:1px solid #ece6da;background:#fff;"><div style="background:repeating-linear-gradient(135deg,#e6dfd0 0 8px,#efe9db 8px 16px);height:90px;display:flex;align-items:center;justify-content:center;"><span style="font-family:monospace;font-size:8px;color:#b7ad99;">ALBUM</span></div><div style="padding:9px 10px;"><div style="font-size:12.5px;font-weight:600;">Christmas 2025</div><div style="font-size:11px;color:#a99f8c;">38 photos</div></div></div></div></div></sc-if>
+          <sc-if value="{{ isMobileNotifications }}"><div style="padding:16px;"><div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;"><span style="font-family:'Newsreader',serif;font-size:24px;font-weight:500;">Notifications</span><div style="background:#c8952a;color:#1f2d27;font-size:10px;font-weight:700;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;">4</div></div><div style="font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#a99f8c;margin-bottom:10px;">Today</div><div style="background:#fff;border-radius:14px;border:1px solid #ece6da;overflow:hidden;margin-bottom:14px;"><div style="display:flex;gap:12px;padding:13px 14px;border-bottom:1px solid #f0ebe1;align-items:flex-start;"><div style="width:36px;height:36px;border-radius:50%;background:#f1ebdd;display:flex;align-items:center;justify-content:center;font-size:16px;flex:none;">🎂</div><div style="flex:1;"><div style="font-size:13.5px;line-height:1.4;"><strong>James Bender</strong> turns 52 in 6 days</div><div style="font-size:11.5px;color:#a99f8c;margin-top:3px;">June 24</div></div></div><div style="display:flex;gap:12px;padding:13px 14px;border-bottom:1px solid #f0ebe1;align-items:flex-start;"><div style="width:36px;height:36px;border-radius:50%;background:#f1ebdd;display:flex;align-items:center;justify-content:center;font-size:16px;flex:none;">👶</div><div style="flex:1;"><div style="font-size:13.5px;line-height:1.4;"><strong>Mia Bender</strong> added to tree</div><div style="font-size:11.5px;color:#a99f8c;margin-top:3px;">2 hours ago</div></div></div><div style="display:flex;gap:12px;padding:13px 14px;align-items:flex-start;"><div style="width:36px;height:36px;border-radius:50%;background:#f1ebdd;display:flex;align-items:center;justify-content:center;font-size:16px;flex:none;">📅</div><div style="flex:1;"><div style="font-size:13.5px;line-height:1.4;">RSVP for <strong>Reunion 2026</strong> closes in 30 days</div><button style="margin-top:8px;height:28px;padding:0 12px;border-radius:7px;border:none;background:#1f2d27;color:#f4f1ea;font-size:11.5px;font-weight:600;font-family:inherit;">RSVP now</button></div></div></div></div></sc-if>
+          <sc-if value="{{ isMobileSearch }}"><div style="padding:16px;"><div style="position:relative;margin-bottom:12px;"><div style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:18px;color:#a99f8c;">⌕</div><div style="width:100%;height:46px;border-radius:13px;border:2px solid #c8952a;background:#fff;padding:0 14px 0 40px;font-size:15px;color:#a99f8c;display:flex;align-items:center;">Search family…</div></div><div style="display:flex;gap:7px;overflow-x:auto;padding-bottom:10px;margin-bottom:10px;"><div style="height:30px;padding:0 13px;border-radius:8px;background:#1f2d27;color:#f4f1ea;font-size:12px;font-weight:600;display:flex;align-items:center;flex:none;">All</div><div style="height:30px;padding:0 13px;border-radius:8px;background:#fff;border:1px solid #e2ddd3;color:#6b6760;font-size:12px;display:flex;align-items:center;flex:none;">People</div><div style="height:30px;padding:0 13px;border-radius:8px;background:#fff;border:1px solid #e2ddd3;color:#6b6760;font-size:12px;display:flex;align-items:center;flex:none;">Photos</div><div style="height:30px;padding:0 13px;border-radius:8px;background:#fff;border:1px solid #e2ddd3;color:#6b6760;font-size:12px;display:flex;align-items:center;flex:none;">Events</div></div><div style="font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#a99f8c;margin-bottom:10px;">People</div><div style="display:flex;flex-direction:column;gap:9px;"><div style="background:#fff;border:1px solid #ece6da;border-radius:13px;padding:13px 14px;display:flex;align-items:center;gap:12px;"><div style="width:38px;height:38px;flex:none;border-radius:50%;background:#d8e0d2;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;">TB</div><div><div style="font-size:14px;font-weight:600;">Tom Bender</div><div style="font-size:12px;color:#a99f8c;">Son · Austin, TX</div></div></div><div style="background:#fff;border:1px solid #ece6da;border-radius:13px;padding:13px 14px;display:flex;align-items:center;gap:12px;"><div style="width:38px;height:38px;flex:none;border-radius:50%;background:#ece0cf;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;">RB</div><div><div style="font-size:14px;font-weight:600;">Robert Bender</div><div style="font-size:12px;color:#a99f8c;">Father · Chicago, IL</div></div></div></div></div></sc-if>
+          <sc-if value="{{ isMobileSettings }}"><div style="background:#fff;padding:20px 18px;display:flex;align-items:center;gap:14px;border-bottom:8px solid #f4f1ea;"><div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#e7d9bd,#d8c9a0);display:flex;align-items:center;justify-content:center;font-family:'Newsreader',serif;font-size:20px;font-weight:500;color:#5a4820;flex:none;">SB</div><div><div style="font-size:16px;font-weight:700;">Sarah Bender</div><div style="font-size:12.5px;color:#a99f8c;margin-top:2px;">Bender branch · Chicago</div></div></div><div style="background:#fff;"><div style="font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#a99f8c;padding:14px 18px 8px;">Account</div><div style="display:flex;align-items:center;justify-content:space-between;padding:13px 18px;border-top:1px solid #f0ebe1;"><div style="display:flex;align-items:center;gap:12px;"><div style="width:34px;height:34px;border-radius:9px;background:#f4f1ea;display:flex;align-items:center;justify-content:center;font-size:15px;">◎</div><span style="font-size:14.5px;font-weight:500;">Profile</span></div><span style="font-size:16px;color:#c0bab2;">›</span></div><div style="display:flex;align-items:center;justify-content:space-between;padding:13px 18px;border-top:1px solid #f0ebe1;"><div style="display:flex;align-items:center;gap:12px;"><div style="width:34px;height:34px;border-radius:9px;background:#f4f1ea;display:flex;align-items:center;justify-content:center;font-size:15px;">⊕</div><span style="font-size:14.5px;font-weight:500;">Privacy</span></div><span style="font-size:16px;color:#c0bab2;">›</span></div><div style="display:flex;align-items:center;justify-content:space-between;padding:13px 18px;border-top:1px solid #f0ebe1;"><div style="display:flex;align-items:center;gap:12px;"><div style="width:34px;height:34px;border-radius:9px;background:#f4f1ea;display:flex;align-items:center;justify-content:center;font-size:15px;">🔔</div><span style="font-size:14.5px;font-weight:500;">Notifications</span></div><span style="font-size:16px;color:#c0bab2;">›</span></div><div style="display:flex;align-items:center;justify-content:space-between;padding:13px 18px;border-top:8px solid #f4f1ea;"><div style="display:flex;align-items:center;gap:12px;"><div style="width:34px;height:34px;border-radius:9px;background:#f4f1ea;display:flex;align-items:center;justify-content:center;font-size:15px;">⧉</div><span style="font-size:14.5px;font-weight:500;">Branch &amp; tree</span></div><span style="font-size:16px;color:#c0bab2;">›</span></div><div style="padding:13px 18px;border-top:1px solid #f0ebe1;"><span style="font-size:14.5px;font-weight:600;color:#c04040;">Sign out</span></div></div></sc-if>
+          <sc-if value="{{ isMobileAdmin }}"><div style="padding:14px;"><div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;"><span style="font-family:'Newsreader',serif;font-size:24px;font-weight:500;">Admin</span><span style="font-size:9.5px;font-weight:700;letter-spacing:.08em;background:#c8952a;color:#1f2d27;padding:3px 8px;border-radius:999px;">ADMIN</span></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:16px;"><div style="background:#fff;border:1px solid #ece6da;border-radius:12px;padding:14px;"><div style="font-family:'Newsreader',serif;font-size:28px;font-weight:500;color:#c8952a;">3</div><div style="font-size:11px;color:#a99f8c;">Pending</div></div><div style="background:#fff;border:1px solid #ece6da;border-radius:12px;padding:14px;"><div style="font-family:'Newsreader',serif;font-size:28px;font-weight:500;">392</div><div style="font-size:11px;color:#a99f8c;">Members</div></div></div><div style="font-size:12px;font-weight:700;margin-bottom:12px;">Pending approvals</div><div style="display:flex;flex-direction:column;gap:9px;"><div style="background:#fff;border:1px solid #ece6da;border-radius:13px;padding:14px;"><div style="display:flex;align-items:center;gap:11px;margin-bottom:11px;"><div style="width:36px;height:36px;border-radius:50%;background:#dfe2e6;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex:none;">JK</div><div><div style="font-size:14px;font-weight:600;">Jake Kelsall</div><div style="font-size:11.5px;color:#a99f8c;">Kelsall branch</div></div></div><div style="display:flex;gap:8px;"><button style="flex:1;height:36px;border-radius:9px;border:none;background:#1f2d27;color:#f4f1ea;font-size:13px;font-weight:600;font-family:inherit;">Approve</button><button style="flex:1;height:36px;border-radius:9px;border:1.5px solid #f5d5d5;background:#fff;color:#c04040;font-size:13px;font-weight:600;font-family:inherit;">Deny</button></div></div></div></div></sc-if>
+          <!-- bottom nav -->
+          <div style="background:#fff;border-top:1px solid #ece6da;height:56px;display:flex;align-items:center;flex:none;">
+            <sc-for list="{{ mobileNavItems }}" as="mn" hint-placeholder-count="5">
+              <div onClick="{{ mn.onClick }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;">
+                <span style="font-size:{{ mn.iconSize }};color:{{ mn.iconColor }};">{{ mn.icon }}</span>
+                <span style="font-size:8.5px;font-weight:{{ mn.labelWeight }};color:{{ mn.labelColor }};">{{ mn.label }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+      <!-- close button -->
+      <button onClick="{{ closeMobile }}" style="height:44px;padding:0 24px;border-radius:999px;background:rgba(244,241,234,.15);border:1px solid rgba(244,241,234,.25);color:#f4f1ea;font-size:14px;font-weight:600;font-family:inherit;cursor:pointer;backdrop-filter:blur(4px);" style-hover="background:rgba(244,241,234,.25);">Close mobile preview</button>
+    </div>
+  </div>
+</sc-if>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;100%&quot;,&quot;height&quot;:&quot;100%&quot;}}">
+class Component extends DCLogic {
+  tints = ["#e7d9bd","#d8e0d2","#e8dcd2","#dfe2e6","#ece0cf","#dde4dd","#e7d9bd","#d8e0d2"];
+
+  people = [
+    { id:"walter",   first:"Walter",   last:"Bender",  loc:"Madison, WI",    role:"Patriarch" },
+    { id:"margaret", first:"Margaret", last:"Bender",  loc:"Madison, WI",    role:"Matriarch" },
+    { id:"robert",   first:"Robert",   last:"Bender",  loc:"Chicago, IL",    role:"Son of Walter & Margaret" },
+    { id:"linda",    first:"Linda",    last:"Bender",  loc:"Chicago, IL",    role:"Married into Bender" },
+    { id:"susan",    first:"Susan",    last:"Kelsall", loc:"Milwaukee, WI",  role:"Daughter of Walter & Margaret" },
+    { id:"james",    first:"James",    last:"Bender",  loc:"Denver, CO",     role:"Son of Walter & Margaret" },
+    { id:"sarah",    first:"Sarah",    last:"Bender",  loc:"Chicago, IL",    role:"Daughter of Robert & Linda" },
+    { id:"tom",      first:"Tom",      last:"Bender",  loc:"Austin, TX",     role:"Son of Robert & Linda" },
+    { id:"emily",    first:"Emily",    last:"Kelsall", loc:"Madison, WI",    role:"Daughter of Susan & David" },
+    { id:"jack",     first:"Jack",     last:"Kelsall", loc:"Milwaukee, WI",  role:"Son of Susan & David" },
+    { id:"grace",    first:"Grace",    last:"Bender",  loc:"Denver, CO",     role:"Daughter of James & Patricia" },
+    { id:"mia",      first:"Mia",      last:"Bender",  loc:"Chicago, IL",    role:"Daughter of Sarah" },
+  ];
+
+  pendingMembersData = [
+    { id:"jk", initials:"JK", name:"Jake Kelsall",    email:"jake@email.com", branch:"Kelsall", date:"June 15", connectedBy:"Emily K.", tint:"#dfe2e6" },
+    { id:"pw", initials:"PW", name:"Patricia Warfel", email:"pat@email.com",  branch:"Warfel",  date:"June 12", connectedBy:"Unknown",  tint:"#ece0cf" },
+    { id:"ch", initials:"CH", name:"Carl Hubber",     email:"carl@email.com", branch:"Hubber",  date:"June 10", connectedBy:"Nancy H.", tint:"#dde4dd" },
+  ];
+
+  state = {
+    screen: "profile",
+    showMobile: false,
+    settingsTab: "profile",
+    galleryAlbum: null,
+    galleryFilter: "all",
+    searchInput: "",
+    searchTab: "all",
+    adminTab: "pending",
+    notifRead: false,
+    approvedIds: [],
+    deniedIds: [],
+    privacyPhone: "family",
+    privacyAddress: "branch",
+    notifBirthdays: true,
+    notifMembers: true,
+    notifPhotos: false,
+    notifReunion: true,
+  };
+
+  initials(p) { return (p.first[0] + p.last[0]).toUpperCase(); }
+  tintFor(i)  { return this.tints[i % this.tints.length]; }
+
+  renderVals() {
+    const s = this.state;
+
+    // Sidebar nav
+    const screens = [
+      { id:"profile",       label:"Member Profile",  icon:"◎" },
+      { id:"gallery",       label:"Photo Gallery",   icon:"⬡" },
+      { id:"notifications", label:"Notifications",   icon:"◉", badge: s.notifRead ? 0 : 4 },
+      { id:"search",        label:"Search",          icon:"⌕" },
+      { id:"settings",      label:"Settings",        icon:"⚙" },
+      { id:"admin",         label:"Admin Panel",     icon:"⚑", badge: s.approvedIds.length + s.deniedIds.length < 3 ? (3 - s.approvedIds.length - s.deniedIds.length) : 0 },
+    ];
+    const navItems = screens.map(sc => ({
+      ...sc,
+      onClick: () => this.setState({ screen: sc.id }),
+      bg:     s.screen === sc.id ? "rgba(200,149,42,.18)" : "transparent",
+      color:  s.screen === sc.id ? "#f4f1ea" : "rgba(244,241,234,.62)",
+      weight: s.screen === sc.id ? 700 : 400,
+    }));
+
+    // Screen flags
+    const isProfile       = s.screen === "profile";
+    const isGallery       = s.screen === "gallery";
+    const isNotifications = s.screen === "notifications";
+    const isSearch        = s.screen === "search";
+    const isSettings      = s.screen === "settings";
+    const isAdmin         = s.screen === "admin";
+    const mainOverflow    = isSettings ? "hidden" : "auto";
+
+    // Profile
+    const profileConnections = [
+      { name:"Robert Bender", rel:"Father",   initials:"RB", tint:"#ece0cf", border:"1px solid #f4f0e8" },
+      { name:"Linda Bender",  rel:"Mother",   initials:"LB", tint:"#dde4dd", border:"1px solid #f4f0e8" },
+      { name:"Tom Bender",    rel:"Brother",  initials:"TB", tint:"#d8e0d2", border:"1px solid #f4f0e8" },
+      { name:"Mia Bender",    rel:"Daughter", initials:"MB", tint:"#e7d9bd", border:"none" },
+    ];
+    const lifeEvents = [
+      { title:"Born, Madison WI",    year:"1994",     dot:"#c8952a" },
+      { title:"Graduated UChicago",  year:"2016",     dot:"#e8e3d8" },
+      { title:"Married Jake H.",     year:"2020",     dot:"#e8e3d8" },
+      { title:"Baby Mia born",       year:"May 2026", dot:"#c8952a" },
+    ];
+    const photoBgs = [
+      "repeating-linear-gradient(135deg,#ece8e0 0 10px,#f4f0e8 10px 20px)",
+      "repeating-linear-gradient(135deg,#e4dfd8 0 10px,#ece8e0 10px 20px)",
+      "repeating-linear-gradient(135deg,#eae5dc 0 10px,#f2ede5 10px 20px)",
+      "repeating-linear-gradient(135deg,#e8e3da 0 10px,#f0ece4 10px 20px)",
+      "repeating-linear-gradient(135deg,#e6e0d6 0 10px,#eee8de 10px 20px)",
+      "repeating-linear-gradient(135deg,#e0dbd2 0 10px,#e8e3da 10px 20px)",
+    ];
+    const profilePhotos = photoBgs.map(bg => ({ bg }));
+
+    // Gallery
+    const albumsData = [
+      { id:"reunion",    label:"Reunion 2024",        count:142, year:"2024", isNew:false, bg:"repeating-linear-gradient(135deg,#e6dfd0 0 12px,#efe9db 12px 24px)" },
+      { id:"summer",     label:"Summer at the Lake",  count:68,  year:"2025", isNew:false, bg:"repeating-linear-gradient(135deg,#ddd6c4 0 12px,#e8e0d0 12px 24px)" },
+      { id:"walters",    label:"Walter's 80th",       count:96,  year:"2023", isNew:false, bg:"repeating-linear-gradient(135deg,#e0dbd0 0 12px,#e8e4da 12px 24px)" },
+      { id:"christmas",  label:"Christmas 2025",      count:38,  year:"2025", isNew:false, bg:"repeating-linear-gradient(135deg,#e6dfd0 0 12px,#efe9db 12px 24px)" },
+      { id:"graduation", label:"Emily's Graduation",  count:54,  year:"2026", isNew:true,  bg:"repeating-linear-gradient(135deg,#dde4d8 0 12px,#e6ede0 12px 24px)" },
+      { id:"wedding",    label:"Tom & Rachel",        count:22,  year:"2026", isNew:true,  bg:"repeating-linear-gradient(135deg,#e4dfd8 0 12px,#ece8e0 12px 24px)" },
+    ];
+    const albums = albumsData.map(al => ({
+      ...al,
+      border: al.id === s.galleryAlbum ? "2px solid #c8952a" : "1px solid #ece6da",
+      onClick: () => this.setState({ galleryAlbum: al.id }),
+    }));
+    const isAlbumsList = !s.galleryAlbum;
+    const isAlbumOpen  = !!s.galleryAlbum;
+    const openAlbum    = albumsData.find(a => a.id === s.galleryAlbum) || albumsData[0];
+    const openAlbumLabel = openAlbum.label;
+    const openAlbumCount = openAlbum.count;
+    const galleryFilters = ["all","2026","2025","2024"].map(f => ({
+      label: f === "all" ? "All" : f,
+      onClick: () => this.setState({ galleryFilter: f }),
+      bg:     s.galleryFilter === f ? "#f1ebdd" : "#fff",
+      color:  s.galleryFilter === f ? "#c8952a" : "#6b6760",
+      border: s.galleryFilter === f ? "1px solid #c8952a" : "1px solid #e2ddd3",
+    }));
+    const galleryBgs = [
+      "repeating-linear-gradient(135deg,#ece8e0 0 10px,#f4f0e8 10px 20px)",
+      "repeating-linear-gradient(135deg,#e4dfd8 0 10px,#ece8e0 10px 20px)",
+      "repeating-linear-gradient(135deg,#eae5dc 0 10px,#f2ede5 10px 20px)",
+      "repeating-linear-gradient(135deg,#e8e3da 0 10px,#f0ece4 10px 20px)",
+      "repeating-linear-gradient(135deg,#e0dbd2 0 10px,#e8e3da 10px 20px)",
+      "repeating-linear-gradient(135deg,#ddd8d0 0 10px,#e6e1d8 10px 20px)",
+      "repeating-linear-gradient(135deg,#e6e0d6 0 10px,#eee8de 10px 20px)",
+      "repeating-linear-gradient(135deg,#ece6de 0 10px,#f4efe7 10px 20px)",
+      "repeating-linear-gradient(135deg,#e4dfd6 0 10px,#ece7de 10px 20px)",
+      "repeating-linear-gradient(135deg,#e8e2d8 0 10px,#f0ebe1 10px 20px)",
+    ];
+    const spanPatterns = [[1,1],[2,2],[1,1],[1,1],[1,2],[1,1],[2,1],[1,1],[1,1],[1,1]];
+    const galleryPhotos = galleryBgs.map((bg, i) => ({
+      bg,
+      cols: spanPatterns[i][0] > 1 ? `span ${spanPatterns[i][0]}` : "span 1",
+      rows: spanPatterns[i][1] > 1 ? `span ${spanPatterns[i][1]}` : "span 1",
+    }));
+
+    // Notifications
+    const notifBadge = s.notifRead ? 0 : 4;
+    const hasUnread  = !s.notifRead;
+    const notifsToday = [
+      { icon:"🎂", iconBg:"#f1ebdd", text:"James Bender's birthday is in 6 days", sub:"June 24 · turns 52", cta:"Send wish", ctaBg:"#fff", ctaColor:"#20231f", ctaBorder:"1px solid #e2ddd3", bg:"rgba(200,149,42,.04)", border:"1px solid #f4f0e8" },
+      { icon:"👶", iconBg:"#f1ebdd", text:"Mia Bender was added to the family tree", sub:"Added by Sarah Bender · 2 hours ago", cta:"View profile", ctaBg:"#fff", ctaColor:"#20231f", ctaBorder:"1px solid #e2ddd3", bg:"rgba(200,149,42,.04)", border:"1px solid #f4f0e8" },
+      { icon:"📅", iconBg:"#f1ebdd", text:"RSVP for Reunion 2026 closes in 30 days", sub:"July 18–20 · Lake Geneva, WI", cta:"RSVP now", ctaBg:"#1f2d27", ctaColor:"#f4f1ea", ctaBorder:"none", bg:"rgba(200,149,42,.04)", border:"none" },
+    ];
+    const notifsWeek = [
+      { icon:"📸", iconBg:"#eef3f0", text:"Tom Bender added 12 photos to Summer at the Lake", sub:"3 days ago", cta:"See album", border:"1px solid #f4f0e8" },
+      { icon:"✅", iconBg:"#eef3f0", text:"Grace Bender joined the family portal", sub:"4 days ago · Denver, CO", cta:"View profile", border:"none" },
+    ];
+    const notifsEarlier = [
+      { icon:"📢", text:"Emily Kelsall graduation announcement posted", sub:"2 weeks ago", border:"1px solid #f4f0e8" },
+      { icon:"💍", text:"Tom & Rachel engagement announcement", sub:"1 month ago", border:"none" },
+    ];
+
+    // Search
+    const query = (s.searchInput || "").toLowerCase().trim();
+    const searchPeopleRaw = query.length > 1
+      ? this.people.filter(p => (p.first + " " + p.last).toLowerCase().includes(query) || p.loc.toLowerCase().includes(query))
+      : [];
+    const searchPeople = searchPeopleRaw.map((p, i) => ({ name: p.first + " " + p.last, loc: p.loc, initials: this.initials(p), tint: this.tintFor(i) }));
+    const showRecent  = query.length === 0;
+    const showResults = query.length > 1;
+    const noResults   = showResults && searchPeople.length === 0;
+    const recentSearches = ["Tom Bender", "Reunion 2024", "Madison photos"].map(q => ({ q, onClick: () => this.setState({ searchInput: q }) }));
+    const browsepeople = this.people.slice(0, 6).map((p, i) => ({ name: p.first + " " + p.last, loc: p.loc, initials: this.initials(p), tint: this.tintFor(i) }));
+    const searchTabDefs = [["all","All"],["people","People"],["photos","Photos"],["events","Events"],["posts","Posts"]];
+    const searchTabs = searchTabDefs.map(([id, label]) => ({
+      label, onClick: () => this.setState({ searchTab: id }),
+      bg:     s.searchTab === id ? "#1f2d27" : "#fff",
+      color:  s.searchTab === id ? "#f4f1ea" : "#6b6760",
+      border: s.searchTab === id ? "none" : "1px solid #e2ddd3",
+      weight: s.searchTab === id ? 600 : 500,
+    }));
+
+    // Settings tabs
+    const settingsTabDefs = [
+      { id:"profile",       label:"Profile",       icon:"◎" },
+      { id:"privacy",       label:"Privacy",       icon:"⊕" },
+      { id:"notifications", label:"Notifications", icon:"◉" },
+      { id:"account",       label:"Account",       icon:"⚙" },
+    ];
+    const settingsTabs = settingsTabDefs.map(t => ({
+      ...t,
+      onClick: () => this.setState({ settingsTab: t.id }),
+      bg:     s.settingsTab === t.id ? "#1f2d27" : "transparent",
+      color:  s.settingsTab === t.id ? "#f4f1ea" : "#6b6760",
+      weight: s.settingsTab === t.id ? 600 : 400,
+    }));
+    const isSettingsProfile = s.settingsTab === "profile";
+    const isSettingsPrivacy = s.settingsTab === "privacy";
+    const isSettingsNotifs  = s.settingsTab === "notifications";
+    const isSettingsAccount = s.settingsTab === "account";
+
+    // Privacy rows
+    const privacyOpts = (field, current) =>
+      [["family","All family"],["branch","My branch"],["admins","Admins only"]].map(([val, label]) => ({
+        label, val,
+        onClick: () => this.setState({ [field]: val }),
+        bg:     current === val ? "#f1ebdd" : "#fff",
+        color:  current === val ? "#c8952a" : "#6b6760",
+        border: current === val ? "1px solid #c8952a" : "1px solid #e2ddd3",
+      }));
+    const privacyRows = [
+      { label:"Phone number", sub:"Who can see your phone number", options: privacyOpts("privacyPhone", s.privacyPhone), border:"1px solid #f4f0e8" },
+      { label:"Home address", sub:"Who can see your address",      options: privacyOpts("privacyAddress", s.privacyAddress), border:"1px solid #f4f0e8" },
+      { label:"Profile in directory", sub:"Show your profile in the member directory", options: [
+        { label:"Visible", val:"true",  onClick: () => {}, bg:"#f1ebdd", color:"#c8952a", border:"1px solid #c8952a" },
+        { label:"Hidden",  val:"false", onClick: () => {}, bg:"#fff",    color:"#6b6760", border:"1px solid #e2ddd3" },
+      ], border:"none" },
+    ];
+
+    // Notif rows
+    const notifRowDefs = [
+      { key:"notifBirthdays", label:"Birthday reminders",    sub:"7-day heads-up before family birthdays", icon:"🎂", val: s.notifBirthdays },
+      { key:"notifMembers",   label:"New members",           sub:"When someone joins the portal",          icon:"✅", val: s.notifMembers },
+      { key:"notifPhotos",    label:"Photo uploads",         sub:"When new photos are added to albums",    icon:"📸", val: s.notifPhotos },
+      { key:"notifReunion",   label:"Reunion updates",       sub:"Schedule changes, reminders, RSVPs",     icon:"◆", val: s.notifReunion },
+    ];
+    const notifRows = notifRowDefs.map((r, i) => ({
+      ...r,
+      toggle:   () => this.setState({ [r.key]: !r.val }),
+      trackBg:  r.val ? "#c8952a" : "#e2ddd3",
+      knobX:    r.val ? "23px" : "3px",
+      border:   i < notifRowDefs.length - 1 ? "1px solid #f4f0e8" : "none",
+    }));
+
+    // Admin
+    const adminStats = [
+      { value: 3 - s.approvedIds.length - s.deniedIds.length < 0 ? 0 : 3 - s.approvedIds.length - s.deniedIds.length, label:"Pending approvals", color:"#c8952a" },
+      { value: 392, label:"Active members",  color:"#20231f" },
+      { value: 0,   label:"Flagged content", color:"#20231f" },
+      { value: 5,   label:"Branches",        color:"#20231f" },
+    ];
+    const adminTabDefs = [
+      { id:"pending", label:"Pending approvals", badge: adminStats[0].value, badgeBg: adminStats[0].value > 0 ? "#c8952a" : "#e2ddd3", badgeColor: adminStats[0].value > 0 ? "#1f2d27" : "#a99f8c" },
+      { id:"members", label:"All members",        badge: 0 },
+      { id:"reports", label:"Reports",            badge: 0 },
+    ];
+    const adminTabs = adminTabDefs.map(t => ({
+      ...t,
+      onClick:    () => this.setState({ adminTab: t.id }),
+      activeLine: s.adminTab === t.id ? "#1f2d27" : "transparent",
+      color:      s.adminTab === t.id ? "#20231f" : "#a99f8c",
+      weight:     s.adminTab === t.id ? 700 : 500,
+    }));
+    const isAdminPending = s.adminTab === "pending";
+    const isAdminMembers = s.adminTab === "members";
+    const isAdminReports = s.adminTab === "reports";
+    const adminTableHeaders = ["Member","Requested","Branch","Connected by","Actions"];
+    const pendingMembers = this.pendingMembersData
+      .filter(m => !s.approvedIds.includes(m.id) && !s.deniedIds.includes(m.id))
+      .map((m, i, arr) => ({
+        ...m,
+        border:  i < arr.length - 1 ? "1px solid #f4f0e8" : "none",
+        approve: () => this.setState(prev => ({ approvedIds: [...prev.approvedIds, m.id] })),
+        deny:    () => this.setState(prev => ({ deniedIds:   [...prev.deniedIds,   m.id] })),
+      }));
+    const noPending = pendingMembers.length === 0;
+    const membersList = this.people.map((p, i) => ({
+      name:      p.first + " " + p.last,
+      initials:  this.initials(p),
+      tint:      this.tintFor(i),
+      email:     p.first.toLowerCase() + "@email.com",
+      branch:    p.last,
+      joined:    ["Jan 2021","Mar 2022","Apr 2021","Jun 2020","Nov 2021","Dec 2019","Feb 2021","Aug 2023","May 2022","Sep 2021","Oct 2020","May 2026"][i] || "—",
+      border:    i < this.people.length - 1 ? "1px solid #f4f0e8" : "none",
+    }));
+
+    // Mobile overlay
+    const mobileScreenOrder = ["profile","gallery","notifications","search","settings","admin"];
+    const mobileNavDefs = [
+      { id:"profile",       icon:"◎", label:"Profile" },
+      { id:"gallery",       icon:"⬡", label:"Gallery" },
+      { id:"notifications", icon:"◉", label:"Notifs" },
+      { id:"search",        icon:"⌕", label:"Search" },
+      { id:"settings",      icon:"⚙", label:"Settings" },
+    ];
+    const mobileNavItems = mobileNavDefs.map(mn => ({
+      ...mn,
+      onClick:     () => this.setState({ screen: mn.id }),
+      iconSize:    s.screen === mn.id ? "14px" : "15px",
+      iconColor:   s.screen === mn.id ? "#c8952a" : "#a99f8c",
+      labelWeight: s.screen === mn.id ? 600 : 400,
+      labelColor:  s.screen === mn.id ? "#c8952a" : "#a99f8c",
+    }));
+
+    return {
+      // nav
+      navItems,
+      // screen flags
+      isProfile, isGallery, isNotifications, isSearch, isSettings, isAdmin,
+      mainOverflow,
+      // profile
+      profileConnections, lifeEvents, profilePhotos,
+      // gallery
+      albums, isAlbumsList, isAlbumOpen, openAlbumLabel, openAlbumCount,
+      galleryFilters, galleryPhotos,
+      closeAlbum: () => this.setState({ galleryAlbum: null }),
+      // notifications
+      notifBadge, hasUnread, notifsToday, notifsWeek, notifsEarlier,
+      markAllRead: () => this.setState({ notifRead: true }),
+      // search
+      searchInput: s.searchInput,
+      onSearch: (e) => this.setState({ searchInput: e.target.value }),
+      searchTabs, showRecent, showResults, noResults,
+      recentSearches, browsepeople, searchPeople,
+      // settings
+      settingsTabs, isSettingsProfile, isSettingsPrivacy, isSettingsNotifs, isSettingsAccount,
+      privacyRows, notifRows,
+      // admin
+      adminStats, adminTabs, isAdminPending, isAdminMembers, isAdminReports,
+      adminTableHeaders, pendingMembers, noPending, membersList,
+      // mobile
+      showMobile: s.showMobile,
+      openMobile:  () => this.setState({ showMobile: true }),
+      closeMobile: () => this.setState({ showMobile: false }),
+      stopProp:    (e) => e.stopPropagation(),
+      isMobileProfile:       s.screen === "profile",
+      isMobileGallery:       s.screen === "gallery",
+      isMobileNotifications: s.screen === "notifications",
+      isMobileSearch:        s.screen === "search",
+      isMobileSettings:      s.screen === "settings",
+      isMobileAdmin:         s.screen === "admin",
+      mobileNavItems,
+    };
+  }
+}
+</script>
+</body>
+</html>

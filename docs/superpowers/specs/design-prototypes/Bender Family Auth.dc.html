@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Schibsted+Grotesk:wght@400;500;600;700&family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  *{ box-sizing:border-box; }
+  body{ margin:0; }
+  ::placeholder{ color:#a9a39a; }
+</style>
+</helmet>
+
+<div style="width:max-content; min-width:100%; min-height:100vh; box-sizing:border-box; padding:48px; background:#e7e5df; font-family:'Hanken Grotesk',sans-serif;">
+
+  <!-- INTRO -->
+  <div style="max-width:760px; margin-bottom:8px;">
+    <div style="font-family:'Hanken Grotesk',sans-serif; font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:#9a9489; margin-bottom:14px;">Family Reunion App · Auth Flow</div>
+    <div style="background:#fffdfa; border-radius:6px; box-shadow:0 1px 3px rgba(0,0,0,.08); padding:36px 40px;">
+      <h1 style="margin:0 0 14px; font-size:30px; line-height:1.15; font-weight:700; color:#2a2723; letter-spacing:-.02em;">Sign-up &amp; login — three directions</h1>
+      <p style="margin:0 0 22px; font-size:16px; line-height:1.6; color:#6b6760; max-width:620px;">Each direction covers the <strong style="color:#2a2723;font-weight:600;">welcome</strong> screen (Google · Apple · email) and the <strong style="color:#2a2723;font-weight:600;">details</strong> step (name, email, phone, address). All built for the Bender branch but structured so focus can shift to Kelsall, Warfel, Flannigan &amp; Hubber later. Logos are neutral placeholders.</p>
+      <div style="display:flex; gap:28px; flex-wrap:wrap;">
+        <div style="flex:1; min-width:200px;"><div style="font-weight:700; color:#2a2723; font-size:15px; margin-bottom:4px;">A · Hearth</div><div style="font-size:14px; color:#8c857a; line-height:1.5;">Centered card, warm neutrals, calm. Safest, ships fast.</div></div>
+        <div style="flex:1; min-width:200px;"><div style="font-weight:700; color:#2a2723; font-size:15px; margin-bottom:4px; font-family:'Newsreader',serif;">B · Heritage Split</div><div style="font-size:14px; color:#8c857a; line-height:1.5;">Two-panel desktop, serif brand wall, premium &amp; timeless.</div></div>
+        <div style="flex:1; min-width:200px;"><div style="font-weight:700; color:#2a2723; font-size:15px; margin-bottom:4px; font-family:'Figtree',sans-serif;">C · Branch</div><div style="font-size:14px; color:#8c857a; line-height:1.5;">Branch-aware onboarding, friendly &amp; bright, scales to all families.</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ DIRECTION A — HEARTH ============ -->
+  <div style="margin-top:56px; margin-bottom:14px;">
+    <div style="font-family:'Hanken Grotesk',sans-serif; font-size:13px; letter-spacing:.16em; text-transform:uppercase; color:#6b6760; font-weight:600;">A · Hearth</div>
+  </div>
+  <div style="display:flex; gap:48px; align-items:flex-start;">
+
+    <!-- A · Welcome -->
+    <div style="flex:none; width:420px;">
+      <div style="font-size:12px; color:#8c857a; margin-bottom:12px; font-weight:500;">Welcome</div>
+      <div style="width:420px; height:740px; border-radius:22px; box-shadow:0 12px 34px rgba(0,0,0,.12); overflow:hidden; background:#f6f4ef; display:flex; flex-direction:column; padding:48px 40px;">
+        <div style="display:flex; align-items:center; gap:11px; margin-bottom:auto;">
+          <div style="width:36px; height:36px; border-radius:50%; background:#5e7150; color:#f6f4ef; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:17px;">B</div>
+          <div style="font-weight:700; font-size:15px; color:#2a2723; letter-spacing:-.01em;">The Bender Family</div>
+        </div>
+        <div style="margin:36px 0;">
+          <h2 style="margin:0 0 12px; font-size:34px; line-height:1.1; font-weight:700; color:#2a2723; letter-spacing:-.025em;">Welcome home.</h2>
+          <p style="margin:0; font-size:16px; line-height:1.55; color:#8c857a;">Sign in to see family news, photos, and the tree.</p>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:12px;">
+          <button style="display:flex; align-items:center; justify-content:center; gap:10px; height:52px; border-radius:12px; border:1px solid #ddd6ca; background:#fffdfa; color:#2a2723; font-size:15px; font-weight:600; font-family:inherit; cursor:pointer;"><span style="width:20px;height:20px;border-radius:5px;background:#ece6da;display:flex;align-items:center;justify-content:center;font-size:11px;color:#8c857a;font-weight:700;">G</span>Continue with Google</button>
+          <button style="display:flex; align-items:center; justify-content:center; gap:10px; height:52px; border-radius:12px; border:1px solid #2a2723; background:#2a2723; color:#f6f4ef; font-size:15px; font-weight:600; font-family:inherit; cursor:pointer;"><span style="width:20px;height:20px;border-radius:5px;background:rgba(255,255,255,.16);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;"></span>Continue with Apple</button>
+          <div style="display:flex; align-items:center; gap:14px; margin:8px 0; color:#b7b0a4; font-size:13px;"><div style="flex:1; height:1px; background:#ddd6ca;"></div>or<div style="flex:1; height:1px; background:#ddd6ca;"></div></div>
+          <input placeholder="you@email.com" style="height:52px; border-radius:12px; border:1px solid #ddd6ca; background:#fffdfa; padding:0 16px; font-size:15px; font-family:inherit; color:#2a2723; outline:none;" />
+          <button style="height:52px; border-radius:12px; border:none; background:#5e7150; color:#fff; font-size:15px; font-weight:600; font-family:inherit; cursor:pointer;">Continue with email</button>
+        </div>
+        <div style="margin-top:auto; text-align:center; font-size:14px; color:#8c857a; padding-top:28px;">New to the family page? <span style="color:#5e7150; font-weight:600;">Create account</span></div>
+      </div>
+    </div>
+
+    <!-- A · Details -->
+    <div style="flex:none; width:420px;">
+      <div style="font-size:12px; color:#8c857a; margin-bottom:12px; font-weight:500;">Your details</div>
+      <div style="width:420px; height:740px; border-radius:22px; box-shadow:0 12px 34px rgba(0,0,0,.12); overflow:hidden; background:#f6f4ef; display:flex; flex-direction:column; padding:40px;">
+        <div style="display:flex; align-items:center; gap:12px; margin-bottom:30px;">
+          <div style="width:34px; height:34px; border-radius:10px; border:1px solid #ddd6ca; background:#fffdfa; display:flex; align-items:center; justify-content:center; color:#8c857a; font-size:18px;">‹</div>
+          <div style="font-size:13px; color:#8c857a;">Step 2 of 2</div>
+        </div>
+        <h2 style="margin:0 0 8px; font-size:27px; line-height:1.15; font-weight:700; color:#2a2723; letter-spacing:-.02em;">A few details</h2>
+        <p style="margin:0 0 26px; font-size:15px; line-height:1.5; color:#8c857a;">So family can find you and stay in touch.</p>
+        <div style="display:flex; flex-direction:column; gap:16px;">
+          <div><label style="display:block; font-size:13px; font-weight:600; color:#6b6760; margin-bottom:7px;">Full name</label><input value="Sarah Bender" style="width:100%; height:48px; border-radius:11px; border:1px solid #ddd6ca; background:#fffdfa; padding:0 14px; font-size:15px; font-family:inherit; color:#2a2723; outline:none;" /></div>
+          <div><label style="display:block; font-size:13px; font-weight:600; color:#6b6760; margin-bottom:7px;">Email</label><input value="sarah@email.com" style="width:100%; height:48px; border-radius:11px; border:1px solid #ddd6ca; background:#fffdfa; padding:0 14px; font-size:15px; font-family:inherit; color:#2a2723; outline:none;" /></div>
+          <div><label style="display:block; font-size:13px; font-weight:600; color:#6b6760; margin-bottom:7px;">Phone</label><input placeholder="(555) 000-0000" style="width:100%; height:48px; border-radius:11px; border:1px solid #ddd6ca; background:#fffdfa; padding:0 14px; font-size:15px; font-family:inherit; color:#2a2723; outline:none;" /></div>
+          <div><label style="display:block; font-size:13px; font-weight:600; color:#6b6760; margin-bottom:7px;">Home address</label><input placeholder="Street, city, state" style="width:100%; height:48px; border-radius:11px; border:1px solid #ddd6ca; background:#fffdfa; padding:0 14px; font-size:15px; font-family:inherit; color:#2a2723; outline:none;" /></div>
+        </div>
+        <button style="margin-top:auto; height:52px; border-radius:12px; border:none; background:#5e7150; color:#fff; font-size:15px; font-weight:700; font-family:inherit; cursor:pointer;">Create account</button>
+        <p style="margin:14px 0 0; text-align:center; font-size:12px; color:#a9a39a; line-height:1.5;">Your details are visible only to verified family members.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ DIRECTION B — HERITAGE SPLIT ============ -->
+  <div style="margin-top:64px; margin-bottom:14px;">
+    <div style="font-family:'Hanken Grotesk',sans-serif; font-size:13px; letter-spacing:.16em; text-transform:uppercase; color:#6b6760; font-weight:600;">B · Heritage Split</div>
+  </div>
+  <div style="display:flex; gap:48px; align-items:flex-start;">
+
+    <!-- B · Welcome -->
+    <div style="flex:none; width:1000px;">
+      <div style="font-size:12px; color:#8c857a; margin-bottom:12px; font-weight:500;">Welcome</div>
+      <div style="width:1000px; height:620px; border-radius:18px; box-shadow:0 12px 34px rgba(0,0,0,.14); overflow:hidden; display:flex; background:#fff;">
+        <!-- brand wall -->
+        <div style="width:440px; background:#1f2d27; padding:52px 48px; display:flex; flex-direction:column; position:relative; overflow:hidden;">
+          <div style="position:absolute; inset:0; opacity:.5; background:repeating-linear-gradient(135deg, rgba(201,168,106,.08) 0 1px, transparent 1px 22px);"></div>
+          <div style="position:relative; font-family:'Schibsted Grotesk',sans-serif; font-size:12px; letter-spacing:.22em; text-transform:uppercase; color:#c9a86a;">Est. 1948</div>
+          <div style="position:relative; margin:auto 0;">
+            <div style="font-family:'Newsreader',serif; font-size:64px; line-height:1; color:#f4f1ea; font-weight:500; letter-spacing:-.01em;">The</div>
+            <div style="height:64px; overflow:hidden; position:relative;">
+              <div style="transform:translateY({{ rollerY }}); transition:{{ rollerTransition }}; will-change:transform;">
+                <sc-for list="{{ surnames }}" as="name" hint-placeholder-count="6">
+                  <div style="height:64px; display:flex; align-items:center; font-family:'Newsreader',serif; font-size:64px; line-height:1; color:#c9a86a; font-weight:500; letter-spacing:-.01em;">{{ name }}</div>
+                </sc-for>
+              </div>
+            </div>
+            <div style="font-family:'Newsreader',serif; font-size:64px; line-height:1; color:#f4f1ea; font-weight:500; letter-spacing:-.01em;">Family</div>
+            <p style="font-family:'Newsreader',serif; font-style:italic; font-size:20px; color:#c9a86a; margin:22px 0 0; line-height:1.4;">Four generations, one table.</p>
+          </div>
+          <div style="position:relative; display:flex; gap:8px;">
+            <span style="font-family:'Schibsted Grotesk',sans-serif; font-size:11px; color:rgba(244,241,234,.45); letter-spacing:.04em;">Bender</span>
+            <span style="font-family:'Schibsted Grotesk',sans-serif; font-size:11px; color:rgba(244,241,234,.28);">· Kelsall · Warfel · Flannigan · Hubber</span>
+          </div>
+        </div>
+        <!-- form -->
+        <div style="flex:1; padding:64px 72px; display:flex; flex-direction:column; justify-content:center; font-family:'Schibsted Grotesk',sans-serif;">
+          <h2 style="margin:0 0 8px; font-size:30px; font-weight:700; color:#20231f; letter-spacing:-.02em;">Welcome back</h2>
+          <p style="margin:0 0 30px; font-size:15px; color:#8c857a;">Sign in to the family portal.</p>
+          <div style="display:flex; gap:12px; margin-bottom:18px;">
+            <button style="flex:1; display:flex; align-items:center; justify-content:center; gap:9px; height:50px; border-radius:10px; border:1px solid #e2ddd3; background:#fff; color:#20231f; font-size:14px; font-weight:600; font-family:inherit; cursor:pointer;"><span style="width:18px;height:18px;border-radius:4px;background:#eee9df;font-size:10px;color:#8c857a;font-weight:700;display:flex;align-items:center;justify-content:center;">G</span>Google</button>
+            <button style="flex:1; display:flex; align-items:center; justify-content:center; gap:9px; height:50px; border-radius:10px; border:1px solid #20231f; background:#20231f; color:#fff; font-size:14px; font-weight:600; font-family:inherit; cursor:pointer;">Apple</button>
+          </div>
+          <div style="display:flex; align-items:center; gap:14px; margin:8px 0 18px; color:#b7b0a4; font-size:13px;"><div style="flex:1; height:1px; background:#e2ddd3;"></div>or with email<div style="flex:1; height:1px; background:#e2ddd3;"></div></div>
+          <label style="font-size:13px; font-weight:600; color:#6b6760; margin-bottom:7px;">Email</label>
+          <input placeholder="you@email.com" style="height:50px; border-radius:10px; border:1px solid #e2ddd3; background:#faf8f3; padding:0 15px; font-size:15px; font-family:inherit; color:#20231f; outline:none; margin-bottom:14px;" />
+          <label style="font-size:13px; font-weight:600; color:#6b6760; margin-bottom:7px;">Password</label>
+          <input type="password" value="password" style="height:50px; border-radius:10px; border:1px solid #e2ddd3; background:#faf8f3; padding:0 15px; font-size:15px; font-family:inherit; color:#20231f; outline:none; margin-bottom:22px;" />
+          <button style="height:52px; border-radius:10px; border:none; background:#1f2d27; color:#f4f1ea; font-size:15px; font-weight:700; font-family:inherit; cursor:pointer;">Sign in</button>
+          <div style="margin-top:20px; font-size:14px; color:#8c857a;">No account yet? <span style="color:#1f2d27; font-weight:700; border-bottom:1.5px solid #c9a86a; padding-bottom:1px;">Request access</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- B · Details -->
+    <div style="flex:none; width:1000px;">
+      <div style="font-size:12px; color:#8c857a; margin-bottom:12px; font-weight:500;">Create account</div>
+      <div style="width:1000px; height:620px; border-radius:18px; box-shadow:0 12px 34px rgba(0,0,0,.14); overflow:hidden; display:flex; background:#fff;">
+        <div style="width:440px; background:#1f2d27; padding:52px 48px; display:flex; flex-direction:column; justify-content:space-between; position:relative; overflow:hidden;">
+          <div style="position:absolute; inset:0; opacity:.5; background:repeating-linear-gradient(135deg, rgba(201,168,106,.08) 0 1px, transparent 1px 22px);"></div>
+          <div style="position:relative; font-family:'Newsreader',serif; font-size:30px; color:#f4f1ea; line-height:1.25; font-weight:500;">Join the<br>Bender circle.</div>
+          <div style="position:relative;">
+            <div style="font-family:'Schibsted Grotesk',sans-serif; font-size:12px; letter-spacing:.04em; color:rgba(244,241,234,.6); line-height:1.7;">✓ &nbsp;See family news &amp; milestones<br>✓ &nbsp;Browse the living family tree<br>✓ &nbsp;RSVP to the next reunion</div>
+          </div>
+        </div>
+        <div style="flex:1; padding:48px 64px; display:flex; flex-direction:column; justify-content:center; font-family:'Schibsted Grotesk',sans-serif;">
+          <h2 style="margin:0 0 6px; font-size:27px; font-weight:700; color:#20231f; letter-spacing:-.02em;">Your details</h2>
+          <p style="margin:0 0 24px; font-size:15px; color:#8c857a;">So family can reach you and place you on the tree.</p>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px 18px;">
+            <div><label style="display:block; font-size:13px; font-weight:600; color:#6b6760; margin-bottom:6px;">First name</label><input value="Sarah" style="width:100%; height:48px; border-radius:10px; border:1px solid #e2ddd3; background:#faf8f3; padding:0 14px; font-size:15px; font-family:inherit; color:#20231f; outline:none;" /></div>
+            <div><label style="display:block; font-size:13px; font-weight:600; color:#6b6760; margin-bottom:6px;">Last name</label><input value="Bender" style="width:100%; height:48px; border-radius:10px; border:1px solid #e2ddd3; background:#faf8f3; padding:0 14px; font-size:15px; font-family:inherit; color:#20231f; outline:none;" /></div>
+            <div><label style="display:block; font-size:13px; font-weight:600; color:#6b6760; margin-bottom:6px;">Email</label><input value="sarah@email.com" style="width:100%; height:48px; border-radius:10px; border:1px solid #e2ddd3; background:#faf8f3; padding:0 14px; font-size:15px; font-family:inherit; color:#20231f; outline:none;" /></div>
+            <div><label style="display:block; font-size:13px; font-weight:600; color:#6b6760; margin-bottom:6px;">Phone</label><input placeholder="(555) 000-0000" style="width:100%; height:48px; border-radius:10px; border:1px solid #e2ddd3; background:#faf8f3; padding:0 14px; font-size:15px; font-family:inherit; color:#20231f; outline:none;" /></div>
+            <div style="grid-column:1 / -1;"><label style="display:block; font-size:13px; font-weight:600; color:#6b6760; margin-bottom:6px;">Home address</label><input placeholder="Street, city, state, ZIP" style="width:100%; height:48px; border-radius:10px; border:1px solid #e2ddd3; background:#faf8f3; padding:0 14px; font-size:15px; font-family:inherit; color:#20231f; outline:none;" /></div>
+          </div>
+          <button style="margin-top:26px; height:52px; border-radius:10px; border:none; background:#1f2d27; color:#f4f1ea; font-size:15px; font-weight:700; font-family:inherit; cursor:pointer;">Create account</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ DIRECTION C — BRANCH ============ -->
+  <div style="margin-top:64px; margin-bottom:14px;">
+    <div style="font-family:'Hanken Grotesk',sans-serif; font-size:13px; letter-spacing:.16em; text-transform:uppercase; color:#6b6760; font-weight:600;">C · Branch</div>
+  </div>
+  <div style="display:flex; gap:48px; align-items:flex-start;">
+
+    <!-- C · Welcome / branch picker -->
+    <div style="flex:none; width:440px;">
+      <div style="font-size:12px; color:#8c857a; margin-bottom:12px; font-weight:500;">Welcome &amp; branch</div>
+      <div style="width:440px; height:760px; border-radius:26px; box-shadow:0 12px 34px rgba(0,0,0,.12); overflow:hidden; background:#f3f6f8; display:flex; flex-direction:column; padding:40px 32px; font-family:'Figtree',sans-serif;">
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:30px;">
+          <div style="width:34px; height:34px; border-radius:11px; background:#2f6f7d; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:16px;">F</div>
+          <div style="font-weight:800; font-size:15px; color:#16282c; letter-spacing:-.01em;">Family Roots</div>
+        </div>
+        <h2 style="margin:0 0 6px; font-size:30px; line-height:1.12; font-weight:800; color:#16282c; letter-spacing:-.025em;">Find your branch</h2>
+        <p style="margin:0 0 22px; font-size:15px; line-height:1.5; color:#6f8086;">Pick the family you're joining. You can connect to others later.</p>
+        <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:24px;">
+          <div style="display:flex; align-items:center; gap:13px; padding:15px 16px; border-radius:15px; border:2px solid #2f6f7d; background:#fff;">
+            <div style="width:40px; height:40px; border-radius:12px; background:#2f6f7d; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800;">B</div>
+            <div style="flex:1;"><div style="font-weight:700; color:#16282c; font-size:15px;">Bender</div><div style="font-size:12px; color:#8a9aa0;">142 members</div></div>
+            <div style="width:22px; height:22px; border-radius:50%; background:#2f6f7d; color:#fff; display:flex; align-items:center; justify-content:center; font-size:13px;">✓</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:13px; padding:15px 16px; border-radius:15px; border:1.5px solid #e3eaec; background:#fff;">
+            <div style="width:40px; height:40px; border-radius:12px; background:#eef3f4; color:#6f8086; display:flex; align-items:center; justify-content:center; font-weight:800;">K</div>
+            <div style="flex:1;"><div style="font-weight:700; color:#16282c; font-size:15px;">Kelsall</div><div style="font-size:12px; color:#8a9aa0;">98 members</div></div>
+          </div>
+          <div style="display:flex; align-items:center; gap:13px; padding:15px 16px; border-radius:15px; border:1.5px solid #e3eaec; background:#fff;">
+            <div style="width:40px; height:40px; border-radius:12px; background:#eef3f4; color:#6f8086; display:flex; align-items:center; justify-content:center; font-weight:800;">W</div>
+            <div style="flex:1;"><div style="font-weight:700; color:#16282c; font-size:15px;">Warfel</div><div style="font-size:12px; color:#8a9aa0;">76 members</div></div>
+          </div>
+          <div style="display:flex; gap:10px;">
+            <div style="flex:1; display:flex; align-items:center; gap:10px; padding:13px 14px; border-radius:15px; border:1.5px solid #e3eaec; background:#fff;"><div style="width:30px; height:30px; border-radius:9px; background:#eef3f4; color:#6f8086; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:13px;">F</div><span style="font-weight:700; color:#16282c; font-size:13px;">Flannigan</span></div>
+            <div style="flex:1; display:flex; align-items:center; gap:10px; padding:13px 14px; border-radius:15px; border:1.5px solid #e3eaec; background:#fff;"><div style="width:30px; height:30px; border-radius:9px; background:#eef3f4; color:#6f8086; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:13px;">H</div><span style="font-weight:700; color:#16282c; font-size:13px;">Hubber</span></div>
+          </div>
+        </div>
+        <div style="margin-top:auto; display:flex; flex-direction:column; gap:11px;">
+          <button style="display:flex; align-items:center; justify-content:center; gap:10px; height:52px; border-radius:14px; border:1.5px solid #dde6e8; background:#fff; color:#16282c; font-size:15px; font-weight:700; font-family:inherit; cursor:pointer;"><span style="width:20px;height:20px;border-radius:6px;background:#eef3f4;font-size:11px;color:#6f8086;font-weight:800;display:flex;align-items:center;justify-content:center;">G</span>Continue with Google</button>
+          <div style="display:flex; gap:11px;">
+            <button style="flex:1; height:50px; border-radius:14px; border:1.5px solid #16282c; background:#16282c; color:#fff; font-size:14px; font-weight:700; font-family:inherit; cursor:pointer;">Apple</button>
+            <button style="flex:1; height:50px; border-radius:14px; border:1.5px solid #dde6e8; background:#fff; color:#16282c; font-size:14px; font-weight:700; font-family:inherit; cursor:pointer;">Email</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- C · Details -->
+    <div style="flex:none; width:440px;">
+      <div style="font-size:12px; color:#8c857a; margin-bottom:12px; font-weight:500;">Your details</div>
+      <div style="width:440px; height:760px; border-radius:26px; box-shadow:0 12px 34px rgba(0,0,0,.12); overflow:hidden; background:#f3f6f8; display:flex; flex-direction:column; padding:40px 32px; font-family:'Figtree',sans-serif;">
+        <div style="display:flex; align-items:center; gap:12px; margin-bottom:8px;">
+          <div style="width:36px; height:36px; border-radius:12px; background:#fff; border:1.5px solid #e3eaec; display:flex; align-items:center; justify-content:center; color:#6f8086; font-size:18px;">‹</div>
+          <div style="display:flex; align-items:center; gap:7px; padding:5px 12px; border-radius:999px; background:#e3f0ee; color:#2f6f7d; font-size:12px; font-weight:700;"><span style="width:7px;height:7px;border-radius:50%;background:#2f6f7d;"></span>Bender branch</div>
+        </div>
+        <h2 style="margin:22px 0 6px; font-size:28px; line-height:1.12; font-weight:800; color:#16282c; letter-spacing:-.02em;">Tell us about you</h2>
+        <p style="margin:0 0 24px; font-size:15px; line-height:1.5; color:#6f8086;">Family can find you, and we'll place you on the tree.</p>
+        <div style="display:flex; flex-direction:column; gap:15px;">
+          <div><label style="display:block; font-size:13px; font-weight:700; color:#16282c; margin-bottom:7px;">Full name</label><input value="Sarah Bender" style="width:100%; height:50px; border-radius:14px; border:1.5px solid #e3eaec; background:#fff; padding:0 16px; font-size:15px; font-family:inherit; color:#16282c; outline:none;" /></div>
+          <div><label style="display:block; font-size:13px; font-weight:700; color:#16282c; margin-bottom:7px;">Email</label><input value="sarah@email.com" style="width:100%; height:50px; border-radius:14px; border:1.5px solid #e3eaec; background:#fff; padding:0 16px; font-size:15px; font-family:inherit; color:#16282c; outline:none;" /></div>
+          <div><label style="display:block; font-size:13px; font-weight:700; color:#16282c; margin-bottom:7px;">Phone</label><input placeholder="(555) 000-0000" style="width:100%; height:50px; border-radius:14px; border:1.5px solid #e3eaec; background:#fff; padding:0 16px; font-size:15px; font-family:inherit; color:#16282c; outline:none;" /></div>
+          <div><label style="display:block; font-size:13px; font-weight:700; color:#16282c; margin-bottom:7px;">Home address</label><input placeholder="Street, city, state" style="width:100%; height:50px; border-radius:14px; border:1.5px solid #e3eaec; background:#fff; padding:0 16px; font-size:15px; font-family:inherit; color:#16282c; outline:none;" /></div>
+        </div>
+        <button style="margin-top:auto; height:54px; border-radius:16px; border:none; background:#2f6f7d; color:#fff; font-size:15px; font-weight:800; font-family:inherit; cursor:pointer;">Join the Bender family →</button>
+        <p style="margin:13px 0 0; text-align:center; font-size:12px; color:#8a9aa0;">Only verified family members can see your info.</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { idx: 0, animate: true };
+
+  // registered surnames; first is duplicated at the end for a seamless loop
+  baseNames = ["Bender", "Kelsall", "Warfel", "Flannigan", "Hubber"];
+  H = 64; // line height in px, matches the roller window
+
+  componentDidMount() {
+    this.timer = setInterval(() => this.advance(), 2400);
+  }
+  componentWillUnmount() {
+    clearInterval(this.timer);
+    clearTimeout(this.resetTimer);
+  }
+
+  advance() {
+    const next = this.state.idx + 1;
+    this.setState({ idx: next, animate: true });
+    if (next === this.baseNames.length) {
+      // we've scrolled onto the cloned first name — after the slide finishes,
+      // jump back to the real first name with no animation
+      this.resetTimer = setTimeout(() => {
+        this.setState({ idx: 0, animate: false });
+        requestAnimationFrame(() => this.setState({ animate: true }));
+      }, 850);
+    }
+  }
+
+  renderVals() {
+    return {
+      surnames: [...this.baseNames, this.baseNames[0]],
+      rollerY: `-${this.state.idx * this.H}px`,
+      rollerTransition: this.state.animate
+        ? "transform 0.85s cubic-bezier(0.7, 0, 0.2, 1)"
+        : "none",
+    };
+  }
+}
+</script>
+</body>
+</html>
