@@ -1353,6 +1353,160 @@ function applyRecentSearch(q){
   if (inp) { inp.value = q; runSearch(); }
 }
 
+// ── Settings ─────────────────────────────────────────────────────────────────
+let _settingsTab = 'profile';
+
+SCREENS.settings = function(params){
+  _settingsTab = (params && params.tab) || 'profile';
+  renderSettings();
+};
+
+function renderSettings(){
+  const tabs = [
+    { id:'profile',       label:'Profile' },
+    { id:'privacy',       label:'Privacy' },
+    { id:'notifications', label:'Notifications' },
+    { id:'account',       label:'Account' },
+  ];
+  const nav = tabs.map(t =>
+    `<button class="sn-item${t.id === _settingsTab ? ' active' : ''}" onclick="switchSettingsTab('${t.id}')">${t.label}</button>`
+  ).join('');
+
+  const u = currentUser || {};
+  const priv = Object.assign(defaultPrivacy(), u.privacy_settings || {});
+  const notif = Object.assign(defaultNotifPrefs(), u.notification_prefs || {});
+
+  let panel = '';
+  if (_settingsTab === 'profile'){
+    panel = `<div class="settings-panel">
+      <div class="card">
+        <div class="section-label" style="margin-bottom:1rem">Personal info</div>
+        <div id="prof-error" class="alert alert-error" style="display:none"></div>
+        <div class="form-group"><label>Name</label><input id="s-name" value="${esc(u.name || '')}" /></div>
+        <div class="form-group"><label>Phone</label><input id="s-phone" value="${esc(u.phone || '')}" placeholder="+1 555 000 0000" /></div>
+        <div class="form-group"><label>Birthday</label><input id="s-bday" value="${esc(u.birthday || '')}" placeholder="1990-06-15" /></div>
+        <div class="form-group"><label>Profile photo</label><input id="s-photo" type="file" accept="image/*" /></div>
+        <button class="btn btn-primary btn-sm" onclick="saveProfile()">Save changes</button>
+      </div>
+    </div>`;
+  } else if (_settingsTab === 'privacy'){
+    const privOpt = (id, label, sub, field, val) => `<div class="toggle-row">
+      <div><div class="toggle-label">${label}</div><div class="toggle-sub">${sub}</div></div>
+      <select style="width:auto;padding:.25rem .5rem;font-size:.82rem" onchange="updatePrivacy('${field}',this.value)">
+        ${['family','admins','only_me'].map(o =>
+          `<option value="${o}" ${val === o ? 'selected' : ''}>${o === 'family' ? 'All family' : o === 'admins' ? 'Admins only' : 'Only me'}</option>`
+        ).join('')}
+      </select>
+    </div>`;
+    panel = `<div class="settings-panel"><div class="card">
+      <div class="section-label" style="margin-bottom:1rem">Who can see your info</div>
+      ${privOpt('phone','Phone number','Visible to…','phone',priv.phone)}
+      ${privOpt('address','Home address','Visible to…','address',priv.address)}
+      ${privOpt('directory','Directory listing','Visible to…','directory',priv.directory)}
+    </div></div>`;
+  } else if (_settingsTab === 'notifications'){
+    const tog = (id, label, sub, checked) => `<div class="toggle-row">
+      <div><div class="toggle-label">${label}</div><div class="toggle-sub">${sub}</div></div>
+      <label class="toggle-switch">
+        <input type="checkbox" ${checked ? 'checked' : ''} onchange="updateNotifPref('${id}',this.checked)" />
+        <div class="toggle-track"></div>
+      </label>
+    </div>`;
+    panel = `<div class="settings-panel"><div class="card">
+      <div class="section-label" style="margin-bottom:1rem">Notify me about</div>
+      ${tog('birthdays','Birthdays','Upcoming family birthdays',notif.birthdays)}
+      ${tog('new_members','New members','When someone joins the family site',notif.new_members)}
+      ${tog('photos','Photos','New photos added to the gallery',notif.photos)}
+      ${tog('reunion','Reunion updates','Announcements about the reunion',notif.reunion)}
+    </div></div>`;
+  } else if (_settingsTab === 'account'){
+    panel = `<div class="settings-panel">
+      <div class="card">
+        <div class="section-label" style="margin-bottom:1rem">Account</div>
+        <div class="toggle-row" style="border:none;padding:0">
+          <div><div class="toggle-label">Email</div><div class="toggle-sub">${esc(u.email || '')}</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="section-label" style="margin-bottom:1rem">Change password</div>
+        <div id="pw-error" class="alert alert-error" style="display:none"></div>
+        <div class="form-group"><label>Old password</label><input id="s-pw-old" type="password" /></div>
+        <div class="form-group"><label>New password</label><input id="s-pw-new" type="password" /></div>
+        <div class="form-group"><label>Confirm new</label><input id="s-pw-conf" type="password" /></div>
+        <button class="btn btn-primary btn-sm" onclick="changePassword()">Update password</button>
+      </div>
+      <div class="card">
+        <button class="btn btn-outline btn-full" onclick="logout()">Sign out</button>
+      </div>
+    </div>`;
+  }
+
+  mountMain(`<div class="screen-pad" style="max-width:900px">
+    <h1 class="card-title" style="margin-bottom:1.25rem">Settings</h1>
+    <div class="settings-layout">
+      <nav class="settings-nav">${nav}</nav>
+      <main>${panel}</main>
+    </div>
+  </div>`);
+}
+
+function switchSettingsTab(tab){
+  _settingsTab = tab;
+  renderSettings();
+}
+
+async function saveProfile(){
+  const fd = new FormData();
+  fd.append('name', val('s-name'));
+  const ph = val('s-phone'); if (ph) fd.append('phone', ph);
+  const bd = val('s-bday'); if (bd) fd.append('birthday', bd);
+  const photo = el('s-photo').files[0]; if (photo) fd.append('avatar', photo);
+  try {
+    const res = await apiFetch(`/api/collections/users/records/${userId}`, { method:'PATCH', body: fd });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Save failed'); }
+    currentUser = await res.json();
+    renderSidebar();
+    toast('Profile saved.', 'success');
+    renderSettings();
+  } catch (e) { formErr('prof-error', e.message); }
+}
+
+async function updatePrivacy(field, value){
+  const priv = Object.assign(defaultPrivacy(), (currentUser && currentUser.privacy_settings) || {});
+  priv[field] = value;
+  try {
+    const res = await apiFetch(`/api/collections/users/records/${userId}`, {
+      method:'PATCH', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ privacy_settings: priv }) });
+    if (res.ok) currentUser = await res.json();
+  } catch { /* ignore */ }
+}
+
+async function updateNotifPref(field, value){
+  const prefs = Object.assign(defaultNotifPrefs(), (currentUser && currentUser.notification_prefs) || {});
+  prefs[field] = value;
+  try {
+    const res = await apiFetch(`/api/collections/users/records/${userId}`, {
+      method:'PATCH', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ notification_prefs: prefs }) });
+    if (res.ok) currentUser = await res.json();
+  } catch { /* ignore */ }
+}
+
+async function changePassword(){
+  const oldPw = val('s-pw-old'), newPw = val('s-pw-new'), conf = val('s-pw-conf');
+  if (!oldPw || !newPw) return formErr('pw-error', 'All fields required.');
+  if (newPw !== conf) return formErr('pw-error', 'New passwords do not match.');
+  try {
+    const res = await apiFetch(`/api/collections/users/records/${userId}`, {
+      method:'PATCH', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ oldPassword: oldPw, password: newPw, passwordConfirm: conf }) });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Update failed'); }
+    toast('Password updated. Please sign in again.', 'success');
+    setTimeout(logout, 1500);
+  } catch (e) { formErr('pw-error', e.message); }
+}
+
 // ── Placeholder screens (replaced by screen modules appended below) ──────────
 for (const n of NAV) if (!SCREENS[n.tab]) SCREENS[n.tab] = () =>
   mountMain(`<div class="screen-pad"><h1 class="card-title">${esc(n.label)}</h1>
