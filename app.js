@@ -6,7 +6,6 @@
    =========================================================================== */
 
 const API = 'https://reunion-api.klsll.com';
-const REUNION_DATE = '2026-08-15';
 
 let token = localStorage.getItem('pb_token') || '';
 let userId = localStorage.getItem('pb_user_id') || '';
@@ -17,7 +16,7 @@ let pendingCount = 0;
 const NAV = [
   { tab:'home',          label:'Home',           ico:'⌂' },
   { tab:'tree',          label:'Family Tree',    ico:'⧉' },
-  { tab:'reunion',       label:'Reunion',        ico:'◆' },
+  { tab:'events',        label:'Events',         ico:'◆' },
   { tab:'directory',     label:'Directory',      ico:'☰' },
   { tab:'gallery',       label:'Photo Gallery',  ico:'⬡' },
   { tab:'notifications', label:'Notifications',  ico:'◉', badge:() => unreadCount },
@@ -845,56 +844,213 @@ async function runMerge(ids){
   } catch (e) { formErr('merge-error', e.message); }
 }
 
-// ── Reunion RSVP ─────────────────────────────────────────────────────────────
-const REUNION_SCHEDULE = [
-  { day:'Friday',   title:'Welcome & campfire',   detail:'6:00 PM · Lakeside lawn' },
-  { day:'Saturday', title:'Family photo & picnic', detail:'11:00 AM · Main pavilion' },
-  { day:'Saturday', title:'Games & talent show',   detail:'2:00 PM · Field' },
-  { day:'Sunday',   title:'Farewell brunch',       detail:'10:00 AM · Dining hall' },
-];
+// ── Events ───────────────────────────────────────────────────────────────────
+const EVENT_TYPE_ICONS = { reunion:'🏕', birthday:'🎂', wedding:'💍', holiday:'🎉', other:'📅' };
 
-SCREENS.reunion = async function(){
-  mountMain('<div class="screen-pad" style="max-width:920px"><div class="spinner"></div></div>');
-  const when = new Date(REUNION_DATE + 'T00:00:00').toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
-  let going = 0;
-  try {
-    const res = await apiFetch(`/api/collections/users/records?filter=${encodeURIComponent('(rsvp="going")')}&perPage=1`);
-    if (res.ok) going = (await res.json()).totalItems || 0;
-  } catch { /* ignore */ }
-  const cur = (currentUser && currentUser.rsvp) || '';
-  const opt = (key, label) => `<button class="rsvp-opt${cur === key ? ' active' : ''}" onclick="setRsvp('${key}')">${label}</button>`;
-
-  mountMain(`<div class="screen-pad" style="max-width:920px">
-    <div class="venue-hero"></div>
-    <div class="venue-bar card">
-      <div><div class="vb-label">When</div><div class="vb-val">${when}</div></div>
-      <div><div class="vb-label">Where</div><div class="vb-val">Kelsall Family Camp</div></div>
-      <div><div class="vb-label">Headcount</div><div class="vb-val">${going} going</div></div>
-    </div>
-
-    <div class="card" style="margin-top:24px">
-      <div class="section-label" style="margin-bottom:1rem">Will you be there?</div>
-      <div class="rsvp-row">${opt('going', "I'm going")}${opt('maybe', 'Maybe')}${opt('no', "Can't make it")}</div>
-    </div>
-
-    <div class="card" style="margin-top:24px">
-      <div class="section-label" style="margin-bottom:1rem">Schedule</div>
-      ${REUNION_SCHEDULE.map(s => `<div class="sched-row">
-        <div class="sched-day">${s.day}</div>
-        <div><div class="sched-title">${esc(s.title)}</div><div class="sched-detail">${esc(s.detail)}</div></div>
-      </div>`).join('')}
-    </div>
-  </div>`);
+SCREENS.events = async function(params){
+  if (params && params.event) { await renderEventDetail(params.event); return; }
+  await renderEventsList();
 };
 
-async function setRsvp(value){
+async function renderEventsList(){
+  mountMain('<div class="screen-pad" style="max-width:1100px"><div class="spinner"></div></div>');
+  let events = [];
   try {
-    const res = await apiFetch(`/api/collections/users/records/${userId}`, {
-      method:'PATCH', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ rsvp: value }) });
+    const res = await apiFetch('/api/collections/events/records?sort=start_date&perPage=200');
+    if (res.ok) events = (await res.json()).items || [];
+  } catch { /* ignore */ }
+
+  const now = new Date();
+  const upcoming = events.filter(e => e.start_date && new Date(e.start_date) >= now);
+  const past     = events.filter(e => e.start_date && new Date(e.start_date) <  now);
+
+  function fmtDate(iso){
+    if (!iso) return '';
+    return new Date(iso).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric', year:'numeric' });
+  }
+
+  function eventCard(e){
+    const thumb = fileUrl('events', e, 'cover_photo');
+    const icon  = EVENT_TYPE_ICONS[e.type] || '📅';
+    return `<div class="event-card" onclick="navigate('events',{event:'${e.id}'})">
+      <div class="ec-thumb">
+        ${thumb ? `<img src="${esc(thumb)}" alt="">` : `<div style="width:100%;height:100%;background:var(--bg-hover);display:flex;align-items:center;justify-content:center;font-size:2.5rem">${icon}</div>`}
+        <div class="ec-type-badge">${esc(e.type || 'event')}</div>
+      </div>
+      <div class="ec-meta">
+        <div class="ec-name">${esc(e.name)}</div>
+        <div class="ec-date">${esc(fmtDate(e.start_date))}</div>
+        ${e.location ? `<div class="ec-loc">📍 ${esc(e.location)}</div>` : ''}
+      </div>
+    </div>`;
+  }
+
+  mountMain(`<div class="screen-pad" style="max-width:1100px">
+    <div class="events-header">
+      <h1 class="card-title" style="margin:0">Events</h1>
+      <button class="btn btn-primary btn-sm" onclick="openEventForm()">+ Add event</button>
+    </div>
+    ${upcoming.length
+      ? `<div class="events-section-label">Upcoming</div><div class="events-grid">${upcoming.map(eventCard).join('')}</div>`
+      : '<div class="events-empty"><p>No upcoming events yet.</p></div>'}
+    ${past.length ? `
+      <details>
+        <summary class="events-section-label" style="cursor:pointer;list-style:none">Past events (${past.length})</summary>
+        <div class="events-grid" style="margin-top:.75rem">${past.map(eventCard).join('')}</div>
+      </details>` : ''}
+  </div>`);
+}
+
+async function renderEventDetail(eventId){
+  mountMain('<div class="screen-pad" style="max-width:860px"><div class="spinner"></div></div>');
+  let event = null, myRsvp = null, goingCount = 0, maybeCount = 0;
+  try {
+    const [eRes, rRes, cRes] = await Promise.all([
+      apiFetch(`/api/collections/events/records/${eventId}?expand=organizers`),
+      apiFetch(`/api/collections/event_rsvps/records?filter=${encodeURIComponent(`(event="${eventId}" && user="${userId}")`)}` + `&perPage=1`),
+      apiFetch(`/api/collections/event_rsvps/records?filter=${encodeURIComponent(`(event="${eventId}")`)}` + `&perPage=200`)
+    ]);
+    if (eRes.ok) event = await eRes.json();
+    if (rRes.ok) { const d = await rRes.json(); myRsvp = d.items && d.items[0]; }
+    if (cRes.ok) {
+      const items = (await cRes.json()).items || [];
+      goingCount = items.filter(r => r.status === 'going').length;
+      maybeCount = items.filter(r => r.status === 'maybe').length;
+    }
+  } catch { /* ignore */ }
+  if (!event) { mountMain('<div class="screen-pad"><div class="empty-state"><p>Event not found.</p></div></div>'); return; }
+
+  const thumb = fileUrl('events', event, 'cover_photo');
+  const icon  = EVENT_TYPE_ICONS[event.type] || '📅';
+  const organizers = (event.expand && event.expand.organizers) || [];
+  const isOrganizer = organizers.some(o => o.id === userId) || (currentUser && currentUser.family_admin);
+
+  function fmtDate(iso){ return iso ? new Date(iso).toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit' }) : ''; }
+
+  const curStatus = myRsvp ? myRsvp.status : '';
+  const rsvpOpt = (key, label) => `<button class="ev-rsvp-opt${curStatus === key ? ' active' : ''}" onclick="setEventRsvp('${eventId}','${key}')">${label}</button>`;
+
+  mountMain(`<div class="screen-pad" style="max-width:860px">
+    <div class="breadcrumb"><span class="link" onclick="navigate('events')">Events</span> › ${esc(event.name)}</div>
+    <div class="event-detail-hero" style="margin-top:.75rem">
+      ${thumb ? `<img src="${esc(thumb)}" alt="">` : `<div class="event-detail-hero-placeholder">${icon}</div>`}
+    </div>
+    <div class="event-info-bar">
+      <div><div class="eib-label">When</div><div class="eib-val">${esc(fmtDate(event.start_date))}</div></div>
+      ${event.location ? `<div><div class="eib-label">Where</div><div class="eib-val">${esc(event.location)}</div></div>` : ''}
+      <div><div class="eib-label">Headcount</div><div class="eib-val">${goingCount} going · ${maybeCount} maybe</div></div>
+    </div>
+    <div style="margin-top:1.5rem;display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+      <div>
+        <h1 style="font-family:var(--font-display);font-size:2rem;font-weight:500">${esc(event.name)}</h1>
+        <span class="pill" style="margin-top:.35rem">${esc(event.type || 'event')}</span>
+        ${organizers.length ? `<div style="font-size:.82rem;color:var(--text-muted);margin-top:.4rem">Organised by ${organizers.map(o => esc(o.name || o.email)).join(', ')}</div>` : ''}
+      </div>
+      ${isOrganizer ? `<button class="btn btn-outline btn-sm" onclick="openEventForm('${event.id}')">Edit event</button>` : ''}
+    </div>
+    ${event.description ? `<div class="card" style="margin-top:1.25rem"><p style="line-height:1.6">${esc(event.description)}</p></div>` : ''}
+    <div class="card" style="margin-top:1.25rem">
+      <div class="section-label" style="margin-bottom:1rem">Will you be there?</div>
+      <div class="ev-rsvp-row">
+        ${rsvpOpt('going', "I'm going")}${rsvpOpt('maybe', 'Maybe')}${rsvpOpt('no', "Can't make it")}
+      </div>
+    </div>
+  </div>`);
+}
+
+async function setEventRsvp(eventId, status){
+  try {
+    const chkRes = await apiFetch(`/api/collections/event_rsvps/records?filter=${encodeURIComponent(`(event="${eventId}" && user="${userId}")`)}` + `&perPage=1`);
+    const existing = chkRes.ok ? ((await chkRes.json()).items || [])[0] : null;
+    let res;
+    if (existing) {
+      res = await apiFetch(`/api/collections/event_rsvps/records/${existing.id}`, {
+        method:'PATCH', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ status }) });
+    } else {
+      res = await apiFetch('/api/collections/event_rsvps/records', {
+        method:'POST', headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ event: eventId, user: userId, status }) });
+    }
     if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not save RSVP'); }
-    currentUser = await res.json();
     toast('RSVP saved.', 'success');
-    SCREENS.reunion();
+    await renderEventDetail(eventId);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function openEventForm(eventId){
+  const isEdit = !!eventId;
+  openModal(`<h2 class="card-title">${isEdit ? 'Edit event' : 'New event'}</h2>
+    <div id="evf-error" class="alert alert-error" style="display:none"></div>
+    <div class="form-group"><label>Name</label><input id="evf-name" /></div>
+    <div class="row-2">
+      <div class="form-group"><label>Type</label>
+        <select id="evf-type">
+          ${['reunion','birthday','wedding','holiday','other'].map(t =>
+            `<option value="${t}">${t[0].toUpperCase()+t.slice(1)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group"><label>Location</label><input id="evf-loc" /></div>
+    </div>
+    <div class="row-2">
+      <div class="form-group"><label>Start date/time</label><input id="evf-start" type="datetime-local" /></div>
+      <div class="form-group"><label>End date/time</label><input id="evf-end" type="datetime-local" /></div>
+    </div>
+    <div class="form-group"><label>Description</label><textarea id="evf-desc"></textarea></div>
+    <div class="form-group"><label>Cover photo</label><input id="evf-photo" type="file" accept="image/*" /></div>
+    <div style="display:flex;gap:.6rem;margin-top:.75rem">
+      <button class="btn btn-primary" onclick="saveEvent('${eventId || ''}')">Save</button>
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      ${isEdit ? `<button class="btn btn-danger" style="margin-left:auto" onclick="deleteEvent('${eventId}')">Delete</button>` : ''}
+    </div>`);
+  if (isEdit) {
+    apiFetch(`/api/collections/events/records/${eventId}`).then(async r => {
+      if (!r.ok) return;
+      const e = await r.json();
+      const n = el('evf-name'); if (n) n.value = e.name || '';
+      const t = el('evf-type'); if (t) t.value = e.type || 'other';
+      const l = el('evf-loc');  if (l) l.value = e.location || '';
+      const s = el('evf-start');if (s) s.value = (e.start_date || '').slice(0,16);
+      const en= el('evf-end');  if (en) en.value = (e.end_date || '').slice(0,16);
+      const d = el('evf-desc'); if (d) d.value = e.description || '';
+    });
+  }
+}
+
+async function saveEvent(eventId){
+  const name = val('evf-name');
+  const start = val('evf-start');
+  if (!name) return formErr('evf-error', 'Name is required.');
+  if (!start) return formErr('evf-error', 'Start date is required.');
+  const fd = new FormData();
+  fd.append('name', name);
+  fd.append('type', el('evf-type').value);
+  fd.append('start_date', new Date(start).toISOString());
+  const end = val('evf-end'); if (end) fd.append('end_date', new Date(end).toISOString());
+  const loc = val('evf-loc'); if (loc) fd.append('location', loc);
+  const desc = val('evf-desc'); if (desc) fd.append('description', desc);
+  const photo = el('evf-photo').files[0]; if (photo) fd.append('cover_photo', photo);
+  if (!eventId) {
+    fd.append('created_by', userId);
+    fd.append('organizers', userId);
+  }
+  try {
+    const res = eventId
+      ? await apiFetch(`/api/collections/events/records/${eventId}`, { method:'PATCH', body: fd })
+      : await apiFetch('/api/collections/events/records', { method:'POST', body: fd });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Save failed'); }
+    const saved = await res.json();
+    closeModal();
+    navigate('events', { event: saved.id });
+  } catch (e) { formErr('evf-error', e.message); }
+}
+
+async function deleteEvent(eventId){
+  if (!confirm('Delete this event? This cannot be undone.')) return;
+  try {
+    const res = await apiFetch(`/api/collections/events/records/${eventId}`, { method:'DELETE' });
+    if (!res.ok) throw new Error('Delete failed');
+    closeModal();
+    navigate('events');
   } catch (e) { toast(e.message, 'error'); }
 }
 
