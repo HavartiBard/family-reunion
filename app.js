@@ -1795,20 +1795,28 @@ SCREENS.admin = async function(){
   if (!(currentUser && currentUser.family_admin)) { navigate('home'); return; }
   mountMain('<div class="screen-pad" style="max-width:1100px"><div class="spinner"></div></div>');
 
-  let pending = [], members = [], albumCount = 0, newsCount = 0, claims = [];
+  let pending = [], members = [], albumCount = 0, newsCount = 0, claims = [],
+      branchAdminRecords = [], distinctBranches = [];
   try {
-    const [pRes, mRes, aRes, nRes, cRes] = await Promise.all([
+    const [pRes, mRes, aRes, nRes, cRes, baRes, bnRes] = await Promise.all([
       apiFetch('/api/collections/users/records?filter=(approved=false)&perPage=100&sort=created'),
       apiFetch('/api/collections/users/records?filter=(approved=true)&perPage=200&sort=name'),
       apiFetch('/api/collections/albums/records?perPage=1'),
       apiFetch('/api/collections/news/records?perPage=1'),
-      apiFetch('/api/collections/person_claims/records?filter=(status="pending")&perPage=100&expand=person,user&sort=created')
+      apiFetch('/api/collections/person_claims/records?filter=(status="pending")&perPage=100&expand=person,user&sort=created'),
+      apiFetch('/api/collections/branch_admins/records?perPage=200&expand=user'),
+      apiFetch('/api/collections/persons/records?perPage=500&fields=family_name')
     ]);
     if (pRes.ok) pending = (await pRes.json()).items || [];
     if (mRes.ok) { const d = await mRes.json(); members = d.items || []; }
     if (aRes.ok) albumCount = (await aRes.json()).totalItems || 0;
     if (nRes.ok) newsCount  = (await nRes.json()).totalItems || 0;
     if (cRes.ok) claims = (await cRes.json()).items || [];
+    if (baRes.ok) branchAdminRecords = (await baRes.json()).items || [];
+    if (bnRes.ok) {
+      const ps = (await bnRes.json()).items || [];
+      distinctBranches = [...new Set(ps.map(p => (p.family_name || '').trim()).filter(Boolean))].sort();
+    }
   } catch { /* ignore */ }
 
   const stat = (v, l) => `<div class="stat-card"><div class="stat-val">${v}</div><div class="stat-label">${l}</div></div>`;
@@ -1879,6 +1887,27 @@ SCREENS.admin = async function(){
         <tbody>${memberRows}</tbody>
       </table>
     </div>
+
+    <div class="admin-section">Branches</div>
+    <div class="admin-table-wrap">
+      <table class="admin-table">
+        <thead><tr><th>Branch</th><th>Branch admin</th><th></th></tr></thead>
+        <tbody>${distinctBranches.map(branch => {
+          const rec = branchAdminRecords.find(r => r.branch === branch);
+          const u = rec && rec.expand && rec.expand.user;
+          return `<tr>
+            <td>${esc(branch)}</td>
+            <td>${u ? esc(u.name || u.email) : '<span style="color:var(--text-muted)">Unassigned</span>'}</td>
+            <td>${rec
+              ? `<button class="btn btn-danger btn-sm" onclick="removeBranchAdmin('${rec.id}')">Remove</button>`
+              : `<button class="btn btn-outline btn-sm" onclick="openAssignBranchAdmin('${esc(branch)}')">Assign</button>`
+            }</td>
+          </tr>`;
+        }).join('')}
+        ${distinctBranches.length === 0 ? '<tr><td colspan="3" style="color:var(--text-muted);text-align:center;padding:1rem">No family branches in the tree yet.</td></tr>' : ''}
+        </tbody>
+      </table>
+    </div>
   </div>`);
 };
 
@@ -1913,6 +1942,70 @@ async function adminToggleAdmin(id, makeAdmin){
       body: JSON.stringify(makeAdmin ? { family_admin: true, approved: true } : { family_admin: false }) });
     if (!res.ok) throw new Error('Could not update');
     toast(makeAdmin ? 'Made admin.' : 'Admin removed.', 'success');
+    SCREENS.admin();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function openAssignBranchAdmin(branch){
+  openModal(`<h2 class="card-title">Assign branch admin — ${esc(branch)}</h2>
+    <div id="ba-error" class="alert alert-error" style="display:none"></div>
+    <p style="font-size:.86rem;color:var(--text-secondary);margin-bottom:1rem">
+      Choose an approved member to manage the ${esc(branch)} branch.
+    </p>
+    <div class="form-group"><label>Member email or name</label>
+      <input id="ba-search" placeholder="Search…" oninput="searchBranchAdminUser()" />
+    </div>
+    <div id="ba-results"></div>
+    <input type="hidden" id="ba-user-id" />
+    <div style="display:flex;gap:.6rem;margin-top:.75rem">
+      <button class="btn btn-primary" onclick="saveBranchAdmin('${esc(branch)}')">Assign</button>
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    </div>`);
+}
+
+let _baSearchTimer = null;
+function searchBranchAdminUser(){
+  clearTimeout(_baSearchTimer);
+  _baSearchTimer = setTimeout(async () => {
+    const q = val('ba-search');
+    if (!q) return;
+    const res = await apiFetch(`/api/collections/users/records?filter=${encodeURIComponent(`(approved=true && (name~"${q}" || email~"${q}"))`)}&perPage=8`);
+    const items = res.ok ? (await res.json()).items || [] : [];
+    const container = el('ba-results');
+    if (!container) return;
+    container.innerHTML = items.map(u => `
+      <div class="claim-result" onclick="selectBranchAdminUser('${u.id}','${esc(u.name || u.email)}')">
+        <div><div class="cr-name">${esc(u.name || '—')}</div><div class="cr-sub">${esc(u.email)}</div></div>
+      </div>`).join('') || '<p style="font-size:.82rem;color:var(--text-muted)">No matches.</p>';
+  }, 200);
+}
+
+function selectBranchAdminUser(uid, label){
+  const inp = el('ba-user-id'); if (inp) inp.value = uid;
+  const s = el('ba-search'); if (s) s.value = label;
+  const r = el('ba-results'); if (r) r.innerHTML = '';
+}
+
+async function saveBranchAdmin(branch){
+  const uid = val('ba-user-id');
+  if (!uid) return formErr('ba-error', 'Please select a member first.');
+  try {
+    const res = await apiFetch('/api/collections/branch_admins/records', {
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ user: uid, branch })
+    });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not assign'); }
+    closeModal();
+    toast('Branch admin assigned.', 'success');
+    SCREENS.admin();
+  } catch (e) { formErr('ba-error', e.message); }
+}
+
+async function removeBranchAdmin(recordId){
+  try {
+    const res = await apiFetch(`/api/collections/branch_admins/records/${recordId}`, { method:'DELETE' });
+    if (!res.ok) throw new Error('Could not remove');
+    toast('Branch admin removed.', 'success');
     SCREENS.admin();
   } catch (e) { toast(e.message, 'error'); }
 }
