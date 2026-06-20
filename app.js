@@ -1771,18 +1771,20 @@ SCREENS.admin = async function(){
   if (!(currentUser && currentUser.family_admin)) { navigate('home'); return; }
   mountMain('<div class="screen-pad" style="max-width:1100px"><div class="spinner"></div></div>');
 
-  let pending = [], members = [], albumCount = 0, newsCount = 0;
+  let pending = [], members = [], albumCount = 0, newsCount = 0, claims = [];
   try {
-    const [pRes, mRes, aRes, nRes] = await Promise.all([
+    const [pRes, mRes, aRes, nRes, cRes] = await Promise.all([
       apiFetch('/api/collections/users/records?filter=(approved=false)&perPage=100&sort=created'),
       apiFetch('/api/collections/users/records?filter=(approved=true)&perPage=200&sort=name'),
       apiFetch('/api/collections/albums/records?perPage=1'),
-      apiFetch('/api/collections/news/records?perPage=1')
+      apiFetch('/api/collections/news/records?perPage=1'),
+      apiFetch('/api/collections/person_claims/records?filter=(status="pending")&perPage=100&expand=person,user&sort=created')
     ]);
     if (pRes.ok) pending = (await pRes.json()).items || [];
     if (mRes.ok) { const d = await mRes.json(); members = d.items || []; }
     if (aRes.ok) albumCount = (await aRes.json()).totalItems || 0;
     if (nRes.ok) newsCount  = (await nRes.json()).totalItems || 0;
+    if (cRes.ok) claims = (await cRes.json()).items || [];
   } catch { /* ignore */ }
 
   const stat = (v, l) => `<div class="stat-card"><div class="stat-val">${v}</div><div class="stat-label">${l}</div></div>`;
@@ -1823,6 +1825,26 @@ SCREENS.admin = async function(){
       <table class="admin-table">
         <thead><tr><th>Name</th><th>Email</th><th>Signed up</th><th>Actions</th></tr></thead>
         <tbody>${pendingRows}</tbody>
+      </table>
+    </div>` : ''}
+
+    ${claims.length ? `<div class="admin-section">Tree claims (${claims.length} pending)</div>
+    <div class="admin-table-wrap">
+      <table class="admin-table">
+        <thead><tr><th>Claimant</th><th>Person in tree</th><th>Submitted</th><th>Actions</th></tr></thead>
+        <tbody>${claims.map(c => {
+          const p = (c.expand && c.expand.person) || {};
+          const u = (c.expand && c.expand.user)   || {};
+          return `<tr>
+            <td>${esc(u.name || u.email || '—')}</td>
+            <td>${esc(p.display_name || '—')}${p.birth_date ? ' · ' + p.birth_date.slice(0,4) : ''}</td>
+            <td>${c.created ? new Date(c.created).toLocaleDateString() : '—'}</td>
+            <td>
+              <button class="btn btn-primary btn-sm" onclick="adminApproveClaim('${c.id}','${p.id}','${u.id}')">Approve</button>
+              <button class="btn btn-danger btn-sm" style="margin-left:.3rem" onclick="adminDenyClaim('${c.id}','${u.id}')">Deny</button>
+            </td>
+          </tr>`;
+        }).join('')}</tbody>
       </table>
     </div>` : ''}
 
@@ -1867,6 +1889,40 @@ async function adminToggleAdmin(id, makeAdmin){
       body: JSON.stringify(makeAdmin ? { family_admin: true, approved: true } : { family_admin: false }) });
     if (!res.ok) throw new Error('Could not update');
     toast(makeAdmin ? 'Made admin.' : 'Admin removed.', 'success');
+    SCREENS.admin();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function adminApproveClaim(claimId, personId, claimUserId){
+  try {
+    await apiFetch(`/api/collections/persons/records/${personId}`, {
+      method:'PATCH', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ linked_user: claimUserId })
+    });
+    await apiFetch(`/api/collections/person_claims/records/${claimId}`, {
+      method:'PATCH', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ status: 'approved' })
+    });
+    await apiFetch('/api/collections/notifications/records', {
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ user: claimUserId, type: 'admin', title: 'Your tree claim was approved', read: false })
+    });
+    toast('Claim approved.', 'success');
+    SCREENS.admin();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function adminDenyClaim(claimId, claimUserId){
+  try {
+    await apiFetch(`/api/collections/person_claims/records/${claimId}`, {
+      method:'PATCH', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ status: 'denied' })
+    });
+    await apiFetch('/api/collections/notifications/records', {
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ user: claimUserId, type: 'admin', title: 'Your tree claim was not approved', read: false })
+    });
+    toast('Claim denied.', 'success');
     SCREENS.admin();
   } catch (e) { toast(e.message, 'error'); }
 }
