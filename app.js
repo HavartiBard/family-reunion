@@ -81,9 +81,14 @@ async function init(){
 
   if (!token) return showAuth();
   try {
-    const res = await apiFetch(`/api/collections/users/records/${userId}`);
+    // Refresh the token on every load — extends session and validates in one step.
+    // PocketBase issues a fresh JWT; Google/Apple tokens are never involved (they're server-side only).
+    const res = await apiFetch('/api/collections/users/auth-refresh', { method: 'POST' });
     if (!res.ok) throw new Error('session expired');
-    currentUser = await res.json();
+    const data = await res.json();
+    token = data.token;
+    localStorage.setItem('pb_token', token);
+    currentUser = data.record;
     if (!currentUser.approved && !currentUser.family_admin) return showPending();
     enterApp();
   } catch {
@@ -242,8 +247,14 @@ function signInForm(){
     <h1>Welcome back</h1>
     <p class="sub">Sign in to the family portal.</p>
     <div id="auth-error" class="alert alert-error" style="display:none"></div>
-    <button class="btn btn-outline btn-full" style="height:52px;margin-bottom:.6rem" onclick="doGoogleAuth()">Continue with Google</button>
-    <button class="btn btn-primary btn-full" style="height:52px" onclick="doAppleAuth()">Continue with Apple</button>
+    <button class="btn-google" onclick="doGoogleAuth()">
+      <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+      Sign in with Google
+    </button>
+    <button class="btn-apple" onclick="doAppleAuth()">
+      <svg width="17" height="20" viewBox="0 0 814 1000" fill="white"><path d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76 0-103.7 40.8-165.9 40.8s-105-37.5-150.2-104.5C34.1 752.3 0 665.7 0 582.3c0-165.1 108.9-252.6 214.1-252.6 55.7 0 102.1 36.5 138.2 36.5 34.2 0 87.5-38.8 153.2-38.8 24.7 0 108.2 2.6 168.6 81.2zm-174.5-97.2c31.1-36.9 53.1-88.1 53.1-139.3 0-7.1-.6-14.3-1.9-20.1-50.6 1.9-110.8 33.7-147.1 75.8-28.5 32.4-55.1 83.6-55.1 135.5 0 7.8 1.3 15.6 1.9 18.1 3.2.6 8.4 1.3 13.6 1.3 45.4 0 102.5-30.4 135.5-71.3z"/></svg>
+      Sign in with Apple
+    </button>
     <div class="auth-divider">or with email</div>
     <div class="form-group"><label>Email</label><input id="login-email" type="email" style="height:52px" /></div>
     <div class="form-group"><label>Password</label><input id="login-password" type="password" style="height:52px" /></div>
