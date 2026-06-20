@@ -388,16 +388,14 @@ function logout(){ clearSession(); showAuth(); }
 // ── Home / news feed ─────────────────────────────────────────────────────────
 SCREENS.home = async function(){
   mountMain('<div class="screen-pad"><div class="spinner"></div></div>');
-  const days = daysUntil(REUNION_DATE, new Date());
-  const reunionDate = new Date(REUNION_DATE + 'T00:00:00')
-    .toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
-
-  let news = [], members = [], memberTotal = 0, branches = 0;
+  let news = [], members = [], memberTotal = 0, branches = 0, nextEvent = null;
   try {
-    const [nRes, uRes, pRes] = await Promise.all([
+    const today = new Date().toISOString();
+    const [nRes, uRes, pRes, eRes] = await Promise.all([
       apiFetch('/api/collections/news/records?sort=-created&perPage=50&expand=author'),
       apiFetch('/api/collections/users/records?filter=(approved=true)&perPage=200'),
       apiFetch('/api/collections/persons/records?perPage=500&fields=family_name'),
+      apiFetch(`/api/collections/events/records?sort=start_date&perPage=1&filter=${encodeURIComponent(`(start_date>="${today}")`)}`)
     ]);
     if (nRes.ok) news = (await nRes.json()).items || [];
     if (uRes.ok) { const u = await uRes.json(); members = u.items || []; memberTotal = u.totalItems || members.length; }
@@ -405,22 +403,39 @@ SCREENS.home = async function(){
       const persons = (await pRes.json()).items || [];
       branches = new Set(persons.map(p => (p.family_name || '').trim()).filter(Boolean)).size;
     }
+    if (eRes.ok) { const ev = (await eRes.json()).items || []; nextEvent = ev[0] || null; }
   } catch { /* render with whatever loaded */ }
 
-  mountMain(`<div class="screen-pad">
-    <div class="reunion-hero">
-      <div class="texture"></div>
-      <div class="rh-left">
-        <div class="rh-label">Next gathering</div>
-        <div class="rh-name">Kelsall Family Reunion</div>
-        <div class="rh-detail">${reunionDate}</div>
-        <button class="btn btn-gold" style="margin-top:18px" onclick="navigate('reunion')">RSVP now</button>
-      </div>
-      <div class="rh-count">
-        <div class="rh-num">${days}</div><div class="rh-days">days to go</div>
-      </div>
-    </div>
+  const heroHtml = nextEvent
+    ? (() => {
+        const evDate = new Date(nextEvent.start_date).toLocaleDateString('en-US',
+          { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+        const days = daysUntil(nextEvent.start_date.slice(0,10), new Date());
+        return `<div class="reunion-hero">
+          <div class="texture"></div>
+          <div class="rh-left">
+            <div class="rh-label">Next event</div>
+            <div class="rh-name">${esc(nextEvent.name)}</div>
+            <div class="rh-detail">${evDate}</div>
+            <button class="btn btn-gold" style="margin-top:18px" onclick="navigate('events',{event:'${nextEvent.id}'})">View event</button>
+          </div>
+          <div class="rh-count">
+            <div class="rh-num">${days}</div><div class="rh-days">days to go</div>
+          </div>
+        </div>`;
+      })()
+    : `<div class="reunion-hero">
+        <div class="texture"></div>
+        <div class="rh-left">
+          <div class="rh-label">Welcome</div>
+          <div class="rh-name">Kelsall Family</div>
+          <div class="rh-detail">Explore the tree, photos, and more.</div>
+          <button class="btn btn-gold" style="margin-top:18px" onclick="navigate('events')">See events</button>
+        </div>
+      </div>`;
 
+  mountMain(`<div class="screen-pad">
+    ${heroHtml}
     <div class="home-grid">
       <div>
         <div class="home-head">
