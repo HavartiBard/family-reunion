@@ -6,24 +6,26 @@
    =========================================================================== */
 
 const API = 'https://reunion-api.klsll.com';
-const REUNION_DATE = '2026-08-15';
 
 let token = localStorage.getItem('pb_token') || '';
 let userId = localStorage.getItem('pb_user_id') || '';
 let currentUser = null;
 let unreadCount = 0;
 let pendingCount = 0;
+let currentBranches = null;  // null = not loaded; [] = not branch admin; ['Kelsall'] = branch admin
+let branchPendingCount = 0;
 
 const NAV = [
   { tab:'home',          label:'Home',           ico:'⌂' },
   { tab:'tree',          label:'Family Tree',    ico:'⧉' },
-  { tab:'reunion',       label:'Reunion',        ico:'◆' },
+  { tab:'events',        label:'Events',         ico:'◆' },
   { tab:'directory',     label:'Directory',      ico:'☰' },
   { tab:'gallery',       label:'Photo Gallery',  ico:'⬡' },
   { tab:'notifications', label:'Notifications',  ico:'◉', badge:() => unreadCount },
   { tab:'search',        label:'Search',         ico:'⌕' },
   { tab:'settings',      label:'Settings',       ico:'⚙' },
   { tab:'admin',         label:'Admin Panel',    ico:'⚑', adminOnly:true, badge:() => pendingCount },
+  { tab:'branchadmin',   label:'Branch Admin',   ico:'⚐', branchAdminOnly:true, badge:() => branchPendingCount },
 ];
 const MOBILE_NAV = [
   { tab:'home', label:'Home', ico:'⌂' },
@@ -98,7 +100,7 @@ async function enterApp(){
       <main id="main"></main>
     </div>
     <nav id="bottom-nav"></nav>`;
-  await Promise.all([refreshUnread(), refreshPending()]);
+  await Promise.all([refreshUnread(), refreshPending(), loadBranchAdminState()]);
   renderSidebar();
   const dl = new URLSearchParams(location.search).get('person');
   if (dl) navigate('tree', { person: dl });
@@ -124,12 +126,33 @@ async function refreshPending(){
   } catch { pendingCount = 0; }
 }
 
+function isBranchAdmin(){ return !!(currentBranches && currentBranches.length > 0); }
+
+async function loadBranchAdminState(){
+  if (!userId) { currentBranches = []; branchPendingCount = 0; return; }
+  try {
+    const res = await apiFetch(`/api/collections/branch_admins/records?filter=${encodeURIComponent(`(user="${userId}")`)}` + `&perPage=50`);
+    currentBranches = res.ok ? (await res.json()).items.map(r => r.branch) : [];
+  } catch { currentBranches = []; }
+
+  if (currentBranches.length === 0) { branchPendingCount = 0; return; }
+  try {
+    const branchFilter = currentBranches.map(b => `person.family_name="${b}"`).join('||');
+    const res = await apiFetch(`/api/collections/person_claims/records?filter=${encodeURIComponent(`(status="pending" && (${branchFilter}))`)}&perPage=1`);
+    branchPendingCount = res.ok ? (await res.json()).totalItems || 0 : 0;
+  } catch { branchPendingCount = 0; }
+}
+
 // ── Sidebar ─────────────────────────────────────────────────────────────────
 function renderSidebar(){
   const inner = el('sidebar-inner');
   if (!inner) return;
   const active = currentTab();
-  const items = NAV.filter(n => !n.adminOnly || (currentUser && currentUser.family_admin));
+  const items = NAV.filter(n => {
+    if (n.adminOnly) return currentUser && currentUser.family_admin;
+    if (n.branchAdminOnly) return isBranchAdmin() && !(currentUser && currentUser.family_admin);
+    return true;
+  });
   const navHtml = items.map(n => {
     const count = n.badge ? n.badge() : 0;
     const badge = count > 0 ? `<span class="sb-badge">${count}</span>` : '';
@@ -251,13 +274,13 @@ function signUpForm(){
     <p class="auth-foot" style="font-size:.75rem;color:var(--text-muted);margin-top:.6rem">Your details are visible only to verified family members.</p>`;
 }
 
-function showPending(){
+function showPending(msg){
   clearInterval(rollerTimer);
+  const text = msg || "Your account was created and is waiting for a family admin to approve it. You'll get access once approved.";
   el('app').innerHTML = `<div class="auth-wrap"><div class="auth-form"><div class="box" style="text-align:center">
     <div style="font-size:2.5rem">⏳</div>
     <h1 style="font-family:var(--font-display);font-size:1.8rem;margin:.5rem 0">Awaiting approval</h1>
-    <p class="sub">Your account was created and is waiting for a family admin to approve it.
-      You'll get access once approved.</p>
+    <p class="sub">${esc(text)}</p>
     <button class="btn btn-outline" onclick="logout()">Sign out</button>
   </div></div></div>`;
 }
@@ -307,8 +330,92 @@ async function doRegister(){
       body: JSON.stringify({ identity: email, password: pw })
     });
     if (authRes.ok) { const ad = await authRes.json(); setSession(ad.token, ad.record); }
-    showPending();
+    showTreeClaimStep(first, last);
   } catch (e) { authError(e.message); }
+}
+
+let _claimAllPersons = [];
+let _claimSearchTimer = null;
+
+async function showTreeClaimStep(first, last){
+  try {
+    const res = await apiFetch('/api/collections/persons/records?perPage=500&sort=family_name');
+    if (res.ok) _claimAllPersons = (await res.json()).items || [];
+  } catch { _claimAllPersons = []; }
+
+  el('app').innerHTML = `<div class="claim-step">
+    <div class="claim-box">
+      <h2>Are you in the family tree?</h2>
+      <p class="sub">Search for your name below. If you find yourself, click to claim that record.
+        If not, we'll add you as a new entry.</p>
+      <div class="form-group" style="margin-bottom:.75rem">
+        <input id="claim-search" placeholder="Search by name…"
+          value="${esc(first + ' ' + last)}"
+          oninput="runClaimSearch()" />
+      </div>
+      <div id="claim-results"></div>
+      <button class="btn btn-outline btn-full" style="margin-top:1rem"
+        onclick="skipClaim('${esc(first)}','${esc(last)}')">
+        I'm not in the tree yet — add me as new
+      </button>
+    </div>
+  </div>`;
+
+  runClaimSearch();
+}
+
+function runClaimSearch(){
+  clearTimeout(_claimSearchTimer);
+  _claimSearchTimer = setTimeout(() => {
+    const q = (document.getElementById('claim-search') || {}).value || '';
+    const results = filterPeople(_claimAllPersons, q).slice(0, 8);
+    const container = document.getElementById('claim-results');
+    if (!container) return;
+    container.innerHTML = results.length
+      ? results.map(p => {
+          const already = !!p.linked_user;
+          return `<div class="claim-result${already ? '" style="opacity:.5;cursor:default' : ''}" ${already ? '' : `onclick="submitClaim('${p.id}')"`}>
+            <div class="avatar" style="width:36px;height:36px;font-size:.8rem">${personInitials(p)}</div>
+            <div>
+              <div class="cr-name">${esc(p.display_name)}${already ? ' <span style="font-size:.76rem;color:var(--text-muted)">(already linked)</span>' : ''}</div>
+              <div class="cr-sub">${esc(personYears(p) || p.family_name || '')}</div>
+            </div>
+          </div>`;
+        }).join('')
+      : (q.trim() ? '<p style="font-size:.82rem;color:var(--text-muted)">No matches found.</p>' : '');
+  }, 200);
+}
+
+async function submitClaim(personId){
+  try {
+    const res = await apiFetch('/api/collections/person_claims/records', {
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ person: personId, user: userId, status: 'pending' })
+    });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not submit claim'); }
+    showPending('Your account is awaiting approval. An admin will also review your tree claim.');
+  } catch (e) {
+    const errEl = document.getElementById('claim-results');
+    if (errEl) errEl.insertAdjacentHTML('afterbegin',
+      `<div class="alert alert-error" style="margin-bottom:.5rem">${esc(e.message)}</div>`);
+  }
+}
+
+async function skipClaim(first, last){
+  try {
+    const res = await apiFetch('/api/collections/persons/records', {
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({
+        display_name: `${first} ${last}`.trim(),
+        given_name: first,
+        family_name: last,
+        living: true,
+        linked_user: userId
+      })
+    });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not create tree entry'); }
+  } catch { /* non-fatal */ }
+  showPending();
 }
 
 async function doGoogleAuth(){
@@ -389,16 +496,14 @@ function logout(){ clearSession(); showAuth(); }
 // ── Home / news feed ─────────────────────────────────────────────────────────
 SCREENS.home = async function(){
   mountMain('<div class="screen-pad"><div class="spinner"></div></div>');
-  const days = daysUntil(REUNION_DATE, new Date());
-  const reunionDate = new Date(REUNION_DATE + 'T00:00:00')
-    .toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
-
-  let news = [], members = [], memberTotal = 0, branches = 0;
+  let news = [], members = [], memberTotal = 0, branches = 0, nextEvent = null;
   try {
-    const [nRes, uRes, pRes] = await Promise.all([
+    const today = new Date().toISOString();
+    const [nRes, uRes, pRes, eRes] = await Promise.all([
       apiFetch('/api/collections/news/records?sort=-created&perPage=50&expand=author'),
       apiFetch('/api/collections/users/records?filter=(approved=true)&perPage=200'),
       apiFetch('/api/collections/persons/records?perPage=500&fields=family_name'),
+      apiFetch(`/api/collections/events/records?sort=start_date&perPage=1&filter=${encodeURIComponent(`(start_date>="${today}")`)}`)
     ]);
     if (nRes.ok) news = (await nRes.json()).items || [];
     if (uRes.ok) { const u = await uRes.json(); members = u.items || []; memberTotal = u.totalItems || members.length; }
@@ -406,22 +511,39 @@ SCREENS.home = async function(){
       const persons = (await pRes.json()).items || [];
       branches = new Set(persons.map(p => (p.family_name || '').trim()).filter(Boolean)).size;
     }
+    if (eRes.ok) { const ev = (await eRes.json()).items || []; nextEvent = ev[0] || null; }
   } catch { /* render with whatever loaded */ }
 
-  mountMain(`<div class="screen-pad">
-    <div class="reunion-hero">
-      <div class="texture"></div>
-      <div class="rh-left">
-        <div class="rh-label">Next gathering</div>
-        <div class="rh-name">Kelsall Family Reunion</div>
-        <div class="rh-detail">${reunionDate}</div>
-        <button class="btn btn-gold" style="margin-top:18px" onclick="navigate('reunion')">RSVP now</button>
-      </div>
-      <div class="rh-count">
-        <div class="rh-num">${days}</div><div class="rh-days">days to go</div>
-      </div>
-    </div>
+  const heroHtml = nextEvent
+    ? (() => {
+        const evDate = new Date(nextEvent.start_date).toLocaleDateString('en-US',
+          { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+        const days = daysUntil(nextEvent.start_date.slice(0,10), new Date());
+        return `<div class="reunion-hero">
+          <div class="texture"></div>
+          <div class="rh-left">
+            <div class="rh-label">Next event</div>
+            <div class="rh-name">${esc(nextEvent.name)}</div>
+            <div class="rh-detail">${evDate}</div>
+            <button class="btn btn-gold" style="margin-top:18px" onclick="navigate('events',{event:'${nextEvent.id}'})">View event</button>
+          </div>
+          <div class="rh-count">
+            <div class="rh-num">${days}</div><div class="rh-days">days to go</div>
+          </div>
+        </div>`;
+      })()
+    : `<div class="reunion-hero">
+        <div class="texture"></div>
+        <div class="rh-left">
+          <div class="rh-label">Welcome</div>
+          <div class="rh-name">Kelsall Family</div>
+          <div class="rh-detail">Explore the tree, photos, and more.</div>
+          <button class="btn btn-gold" style="margin-top:18px" onclick="navigate('events')">See events</button>
+        </div>
+      </div>`;
 
+  mountMain(`<div class="screen-pad">
+    ${heroHtml}
     <div class="home-grid">
       <div>
         <div class="home-head">
@@ -845,56 +967,213 @@ async function runMerge(ids){
   } catch (e) { formErr('merge-error', e.message); }
 }
 
-// ── Reunion RSVP ─────────────────────────────────────────────────────────────
-const REUNION_SCHEDULE = [
-  { day:'Friday',   title:'Welcome & campfire',   detail:'6:00 PM · Lakeside lawn' },
-  { day:'Saturday', title:'Family photo & picnic', detail:'11:00 AM · Main pavilion' },
-  { day:'Saturday', title:'Games & talent show',   detail:'2:00 PM · Field' },
-  { day:'Sunday',   title:'Farewell brunch',       detail:'10:00 AM · Dining hall' },
-];
+// ── Events ───────────────────────────────────────────────────────────────────
+const EVENT_TYPE_ICONS = { reunion:'🏕', birthday:'🎂', wedding:'💍', holiday:'🎉', other:'📅' };
 
-SCREENS.reunion = async function(){
-  mountMain('<div class="screen-pad" style="max-width:920px"><div class="spinner"></div></div>');
-  const when = new Date(REUNION_DATE + 'T00:00:00').toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
-  let going = 0;
-  try {
-    const res = await apiFetch(`/api/collections/users/records?filter=${encodeURIComponent('(rsvp="going")')}&perPage=1`);
-    if (res.ok) going = (await res.json()).totalItems || 0;
-  } catch { /* ignore */ }
-  const cur = (currentUser && currentUser.rsvp) || '';
-  const opt = (key, label) => `<button class="rsvp-opt${cur === key ? ' active' : ''}" onclick="setRsvp('${key}')">${label}</button>`;
-
-  mountMain(`<div class="screen-pad" style="max-width:920px">
-    <div class="venue-hero"></div>
-    <div class="venue-bar card">
-      <div><div class="vb-label">When</div><div class="vb-val">${when}</div></div>
-      <div><div class="vb-label">Where</div><div class="vb-val">Kelsall Family Camp</div></div>
-      <div><div class="vb-label">Headcount</div><div class="vb-val">${going} going</div></div>
-    </div>
-
-    <div class="card" style="margin-top:24px">
-      <div class="section-label" style="margin-bottom:1rem">Will you be there?</div>
-      <div class="rsvp-row">${opt('going', "I'm going")}${opt('maybe', 'Maybe')}${opt('no', "Can't make it")}</div>
-    </div>
-
-    <div class="card" style="margin-top:24px">
-      <div class="section-label" style="margin-bottom:1rem">Schedule</div>
-      ${REUNION_SCHEDULE.map(s => `<div class="sched-row">
-        <div class="sched-day">${s.day}</div>
-        <div><div class="sched-title">${esc(s.title)}</div><div class="sched-detail">${esc(s.detail)}</div></div>
-      </div>`).join('')}
-    </div>
-  </div>`);
+SCREENS.events = async function(params){
+  if (params && params.event) { await renderEventDetail(params.event); return; }
+  await renderEventsList();
 };
 
-async function setRsvp(value){
+async function renderEventsList(){
+  mountMain('<div class="screen-pad" style="max-width:1100px"><div class="spinner"></div></div>');
+  let events = [];
   try {
-    const res = await apiFetch(`/api/collections/users/records/${userId}`, {
-      method:'PATCH', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ rsvp: value }) });
+    const res = await apiFetch('/api/collections/events/records?sort=start_date&perPage=200');
+    if (res.ok) events = (await res.json()).items || [];
+  } catch { /* ignore */ }
+
+  const now = new Date();
+  const upcoming = events.filter(e => e.start_date && new Date(e.start_date) >= now);
+  const past     = events.filter(e => e.start_date && new Date(e.start_date) <  now);
+
+  function fmtDate(iso){
+    if (!iso) return '';
+    return new Date(iso).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric', year:'numeric' });
+  }
+
+  function eventCard(e){
+    const thumb = fileUrl('events', e, 'cover_photo');
+    const icon  = EVENT_TYPE_ICONS[e.type] || '📅';
+    return `<div class="event-card" onclick="navigate('events',{event:'${e.id}'})">
+      <div class="ec-thumb">
+        ${thumb ? `<img src="${esc(thumb)}" alt="">` : `<div style="width:100%;height:100%;background:var(--bg-hover);display:flex;align-items:center;justify-content:center;font-size:2.5rem">${icon}</div>`}
+        <div class="ec-type-badge">${esc(e.type || 'event')}</div>
+      </div>
+      <div class="ec-meta">
+        <div class="ec-name">${esc(e.name)}</div>
+        <div class="ec-date">${esc(fmtDate(e.start_date))}</div>
+        ${e.location ? `<div class="ec-loc">📍 ${esc(e.location)}</div>` : ''}
+      </div>
+    </div>`;
+  }
+
+  mountMain(`<div class="screen-pad" style="max-width:1100px">
+    <div class="events-header">
+      <h1 class="card-title" style="margin:0">Events</h1>
+      <button class="btn btn-primary btn-sm" onclick="openEventForm()">+ Add event</button>
+    </div>
+    ${upcoming.length
+      ? `<div class="events-section-label">Upcoming</div><div class="events-grid">${upcoming.map(eventCard).join('')}</div>`
+      : '<div class="events-empty"><p>No upcoming events yet.</p></div>'}
+    ${past.length ? `
+      <details>
+        <summary class="events-section-label" style="cursor:pointer;list-style:none">Past events (${past.length})</summary>
+        <div class="events-grid" style="margin-top:.75rem">${past.map(eventCard).join('')}</div>
+      </details>` : ''}
+  </div>`);
+}
+
+async function renderEventDetail(eventId){
+  mountMain('<div class="screen-pad" style="max-width:860px"><div class="spinner"></div></div>');
+  let event = null, myRsvp = null, goingCount = 0, maybeCount = 0;
+  try {
+    const [eRes, rRes, cRes] = await Promise.all([
+      apiFetch(`/api/collections/events/records/${eventId}?expand=organizers`),
+      apiFetch(`/api/collections/event_rsvps/records?filter=${encodeURIComponent(`(event="${eventId}" && user="${userId}")`)}` + `&perPage=1`),
+      apiFetch(`/api/collections/event_rsvps/records?filter=${encodeURIComponent(`(event="${eventId}")`)}` + `&perPage=200`)
+    ]);
+    if (eRes.ok) event = await eRes.json();
+    if (rRes.ok) { const d = await rRes.json(); myRsvp = d.items && d.items[0]; }
+    if (cRes.ok) {
+      const items = (await cRes.json()).items || [];
+      goingCount = items.filter(r => r.status === 'going').length;
+      maybeCount = items.filter(r => r.status === 'maybe').length;
+    }
+  } catch { /* ignore */ }
+  if (!event) { mountMain('<div class="screen-pad"><div class="empty-state"><p>Event not found.</p></div></div>'); return; }
+
+  const thumb = fileUrl('events', event, 'cover_photo');
+  const icon  = EVENT_TYPE_ICONS[event.type] || '📅';
+  const organizers = (event.expand && event.expand.organizers) || [];
+  const isOrganizer = organizers.some(o => o.id === userId) || (currentUser && currentUser.family_admin);
+
+  function fmtDate(iso){ return iso ? new Date(iso).toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit' }) : ''; }
+
+  const curStatus = myRsvp ? myRsvp.status : '';
+  const rsvpOpt = (key, label) => `<button class="ev-rsvp-opt${curStatus === key ? ' active' : ''}" onclick="setEventRsvp('${eventId}','${key}')">${label}</button>`;
+
+  mountMain(`<div class="screen-pad" style="max-width:860px">
+    <div class="breadcrumb"><span class="link" onclick="navigate('events')">Events</span> › ${esc(event.name)}</div>
+    <div class="event-detail-hero" style="margin-top:.75rem">
+      ${thumb ? `<img src="${esc(thumb)}" alt="">` : `<div class="event-detail-hero-placeholder">${icon}</div>`}
+    </div>
+    <div class="event-info-bar">
+      <div><div class="eib-label">When</div><div class="eib-val">${esc(fmtDate(event.start_date))}</div></div>
+      ${event.location ? `<div><div class="eib-label">Where</div><div class="eib-val">${esc(event.location)}</div></div>` : ''}
+      <div><div class="eib-label">Headcount</div><div class="eib-val">${goingCount} going · ${maybeCount} maybe</div></div>
+    </div>
+    <div style="margin-top:1.5rem;display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+      <div>
+        <h1 style="font-family:var(--font-display);font-size:2rem;font-weight:500">${esc(event.name)}</h1>
+        <span class="pill" style="margin-top:.35rem">${esc(event.type || 'event')}</span>
+        ${organizers.length ? `<div style="font-size:.82rem;color:var(--text-muted);margin-top:.4rem">Organised by ${organizers.map(o => esc(o.name || o.email)).join(', ')}</div>` : ''}
+      </div>
+      ${isOrganizer ? `<button class="btn btn-outline btn-sm" onclick="openEventForm('${event.id}')">Edit event</button>` : ''}
+    </div>
+    ${event.description ? `<div class="card" style="margin-top:1.25rem"><p style="line-height:1.6">${esc(event.description)}</p></div>` : ''}
+    <div class="card" style="margin-top:1.25rem">
+      <div class="section-label" style="margin-bottom:1rem">Will you be there?</div>
+      <div class="ev-rsvp-row">
+        ${rsvpOpt('going', "I'm going")}${rsvpOpt('maybe', 'Maybe')}${rsvpOpt('no', "Can't make it")}
+      </div>
+    </div>
+  </div>`);
+}
+
+async function setEventRsvp(eventId, status){
+  try {
+    const chkRes = await apiFetch(`/api/collections/event_rsvps/records?filter=${encodeURIComponent(`(event="${eventId}" && user="${userId}")`)}` + `&perPage=1`);
+    const existing = chkRes.ok ? ((await chkRes.json()).items || [])[0] : null;
+    let res;
+    if (existing) {
+      res = await apiFetch(`/api/collections/event_rsvps/records/${existing.id}`, {
+        method:'PATCH', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ status }) });
+    } else {
+      res = await apiFetch('/api/collections/event_rsvps/records', {
+        method:'POST', headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ event: eventId, user: userId, status }) });
+    }
     if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not save RSVP'); }
-    currentUser = await res.json();
     toast('RSVP saved.', 'success');
-    SCREENS.reunion();
+    await renderEventDetail(eventId);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function openEventForm(eventId){
+  const isEdit = !!eventId;
+  openModal(`<h2 class="card-title">${isEdit ? 'Edit event' : 'New event'}</h2>
+    <div id="evf-error" class="alert alert-error" style="display:none"></div>
+    <div class="form-group"><label>Name</label><input id="evf-name" /></div>
+    <div class="row-2">
+      <div class="form-group"><label>Type</label>
+        <select id="evf-type">
+          ${['reunion','birthday','wedding','holiday','other'].map(t =>
+            `<option value="${t}">${t[0].toUpperCase()+t.slice(1)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group"><label>Location</label><input id="evf-loc" /></div>
+    </div>
+    <div class="row-2">
+      <div class="form-group"><label>Start date/time</label><input id="evf-start" type="datetime-local" /></div>
+      <div class="form-group"><label>End date/time</label><input id="evf-end" type="datetime-local" /></div>
+    </div>
+    <div class="form-group"><label>Description</label><textarea id="evf-desc"></textarea></div>
+    <div class="form-group"><label>Cover photo</label><input id="evf-photo" type="file" accept="image/*" /></div>
+    <div style="display:flex;gap:.6rem;margin-top:.75rem">
+      <button class="btn btn-primary" onclick="saveEvent('${eventId || ''}')">Save</button>
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      ${isEdit ? `<button class="btn btn-danger" style="margin-left:auto" onclick="deleteEvent('${eventId}')">Delete</button>` : ''}
+    </div>`);
+  if (isEdit) {
+    apiFetch(`/api/collections/events/records/${eventId}`).then(async r => {
+      if (!r.ok) return;
+      const e = await r.json();
+      const n = el('evf-name'); if (n) n.value = e.name || '';
+      const t = el('evf-type'); if (t) t.value = e.type || 'other';
+      const l = el('evf-loc');  if (l) l.value = e.location || '';
+      const s = el('evf-start');if (s) s.value = (e.start_date || '').slice(0,16);
+      const en= el('evf-end');  if (en) en.value = (e.end_date || '').slice(0,16);
+      const d = el('evf-desc'); if (d) d.value = e.description || '';
+    });
+  }
+}
+
+async function saveEvent(eventId){
+  const name = val('evf-name');
+  const start = val('evf-start');
+  if (!name) return formErr('evf-error', 'Name is required.');
+  if (!start) return formErr('evf-error', 'Start date is required.');
+  const fd = new FormData();
+  fd.append('name', name);
+  fd.append('type', el('evf-type').value);
+  fd.append('start_date', new Date(start).toISOString());
+  const end = val('evf-end'); if (end) fd.append('end_date', new Date(end).toISOString());
+  const loc = val('evf-loc'); if (loc) fd.append('location', loc);
+  const desc = val('evf-desc'); if (desc) fd.append('description', desc);
+  const photo = el('evf-photo').files[0]; if (photo) fd.append('cover_photo', photo);
+  if (!eventId) {
+    fd.append('created_by', userId);
+    fd.append('organizers', userId);
+  }
+  try {
+    const res = eventId
+      ? await apiFetch(`/api/collections/events/records/${eventId}`, { method:'PATCH', body: fd })
+      : await apiFetch('/api/collections/events/records', { method:'POST', body: fd });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Save failed'); }
+    const saved = await res.json();
+    closeModal();
+    navigate('events', { event: saved.id });
+  } catch (e) { formErr('evf-error', e.message); }
+}
+
+async function deleteEvent(eventId){
+  if (!confirm('Delete this event? This cannot be undone.')) return;
+  try {
+    const res = await apiFetch(`/api/collections/events/records/${eventId}`, { method:'DELETE' });
+    if (!res.ok) throw new Error('Delete failed');
+    closeModal();
+    navigate('events');
   } catch (e) { toast(e.message, 'error'); }
 }
 
@@ -1516,18 +1795,28 @@ SCREENS.admin = async function(){
   if (!(currentUser && currentUser.family_admin)) { navigate('home'); return; }
   mountMain('<div class="screen-pad" style="max-width:1100px"><div class="spinner"></div></div>');
 
-  let pending = [], members = [], albumCount = 0, newsCount = 0;
+  let pending = [], members = [], albumCount = 0, newsCount = 0, claims = [],
+      branchAdminRecords = [], distinctBranches = [];
   try {
-    const [pRes, mRes, aRes, nRes] = await Promise.all([
+    const [pRes, mRes, aRes, nRes, cRes, baRes, bnRes] = await Promise.all([
       apiFetch('/api/collections/users/records?filter=(approved=false)&perPage=100&sort=created'),
       apiFetch('/api/collections/users/records?filter=(approved=true)&perPage=200&sort=name'),
       apiFetch('/api/collections/albums/records?perPage=1'),
-      apiFetch('/api/collections/news/records?perPage=1')
+      apiFetch('/api/collections/news/records?perPage=1'),
+      apiFetch('/api/collections/person_claims/records?filter=(status="pending")&perPage=100&expand=person,user&sort=created'),
+      apiFetch('/api/collections/branch_admins/records?perPage=200&expand=user'),
+      apiFetch('/api/collections/persons/records?perPage=500&fields=family_name')
     ]);
     if (pRes.ok) pending = (await pRes.json()).items || [];
     if (mRes.ok) { const d = await mRes.json(); members = d.items || []; }
     if (aRes.ok) albumCount = (await aRes.json()).totalItems || 0;
     if (nRes.ok) newsCount  = (await nRes.json()).totalItems || 0;
+    if (cRes.ok) claims = (await cRes.json()).items || [];
+    if (baRes.ok) branchAdminRecords = (await baRes.json()).items || [];
+    if (bnRes.ok) {
+      const ps = (await bnRes.json()).items || [];
+      distinctBranches = [...new Set(ps.map(p => (p.family_name || '').trim()).filter(Boolean))].sort();
+    }
   } catch { /* ignore */ }
 
   const stat = (v, l) => `<div class="stat-card"><div class="stat-val">${v}</div><div class="stat-label">${l}</div></div>`;
@@ -1571,11 +1860,52 @@ SCREENS.admin = async function(){
       </table>
     </div>` : ''}
 
+    ${claims.length ? `<div class="admin-section">Tree claims (${claims.length} pending)</div>
+    <div class="admin-table-wrap">
+      <table class="admin-table">
+        <thead><tr><th>Claimant</th><th>Person in tree</th><th>Submitted</th><th>Actions</th></tr></thead>
+        <tbody>${claims.map(c => {
+          const p = (c.expand && c.expand.person) || {};
+          const u = (c.expand && c.expand.user)   || {};
+          return `<tr>
+            <td>${esc(u.name || u.email || '—')}</td>
+            <td>${esc(p.display_name || '—')}${p.birth_date ? ' · ' + p.birth_date.slice(0,4) : ''}</td>
+            <td>${c.created ? new Date(c.created).toLocaleDateString() : '—'}</td>
+            <td>
+              <button class="btn btn-primary btn-sm" onclick="adminApproveClaim('${c.id}','${p.id}','${u.id}')">Approve</button>
+              <button class="btn btn-danger btn-sm" style="margin-left:.3rem" onclick="adminDenyClaim('${c.id}','${u.id}')">Deny</button>
+            </td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>
+    </div>` : ''}
+
     <div class="admin-section">All members</div>
     <div class="admin-table-wrap">
       <table class="admin-table">
         <thead><tr><th>Name</th><th>Email</th><th>Joined</th><th>Role</th><th></th></tr></thead>
         <tbody>${memberRows}</tbody>
+      </table>
+    </div>
+
+    <div class="admin-section">Branches</div>
+    <div class="admin-table-wrap">
+      <table class="admin-table">
+        <thead><tr><th>Branch</th><th>Branch admin</th><th></th></tr></thead>
+        <tbody>${distinctBranches.map(branch => {
+          const rec = branchAdminRecords.find(r => r.branch === branch);
+          const u = rec && rec.expand && rec.expand.user;
+          return `<tr>
+            <td>${esc(branch)}</td>
+            <td>${u ? esc(u.name || u.email) : '<span style="color:var(--text-muted)">Unassigned</span>'}</td>
+            <td>${rec
+              ? `<button class="btn btn-danger btn-sm" onclick="removeBranchAdmin('${rec.id}')">Remove</button>`
+              : `<button class="btn btn-outline btn-sm" onclick="openAssignBranchAdmin('${esc(branch)}')">Assign</button>`
+            }</td>
+          </tr>`;
+        }).join('')}
+        ${distinctBranches.length === 0 ? '<tr><td colspan="3" style="color:var(--text-muted);text-align:center;padding:1rem">No family branches in the tree yet.</td></tr>' : ''}
+        </tbody>
       </table>
     </div>
   </div>`);
@@ -1615,6 +1945,171 @@ async function adminToggleAdmin(id, makeAdmin){
     SCREENS.admin();
   } catch (e) { toast(e.message, 'error'); }
 }
+
+function openAssignBranchAdmin(branch){
+  openModal(`<h2 class="card-title">Assign branch admin — ${esc(branch)}</h2>
+    <div id="ba-error" class="alert alert-error" style="display:none"></div>
+    <p style="font-size:.86rem;color:var(--text-secondary);margin-bottom:1rem">
+      Choose an approved member to manage the ${esc(branch)} branch.
+    </p>
+    <div class="form-group"><label>Member email or name</label>
+      <input id="ba-search" placeholder="Search…" oninput="searchBranchAdminUser()" />
+    </div>
+    <div id="ba-results"></div>
+    <input type="hidden" id="ba-user-id" />
+    <div style="display:flex;gap:.6rem;margin-top:.75rem">
+      <button class="btn btn-primary" onclick="saveBranchAdmin('${esc(branch)}')">Assign</button>
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    </div>`);
+}
+
+let _baSearchTimer = null;
+function searchBranchAdminUser(){
+  clearTimeout(_baSearchTimer);
+  _baSearchTimer = setTimeout(async () => {
+    const q = val('ba-search');
+    if (!q) return;
+    const res = await apiFetch(`/api/collections/users/records?filter=${encodeURIComponent(`(approved=true && (name~"${q}" || email~"${q}"))`)}&perPage=8`);
+    const items = res.ok ? (await res.json()).items || [] : [];
+    const container = el('ba-results');
+    if (!container) return;
+    container.innerHTML = items.map(u => `
+      <div class="claim-result" onclick="selectBranchAdminUser('${u.id}','${esc(u.name || u.email)}')">
+        <div><div class="cr-name">${esc(u.name || '—')}</div><div class="cr-sub">${esc(u.email)}</div></div>
+      </div>`).join('') || '<p style="font-size:.82rem;color:var(--text-muted)">No matches.</p>';
+  }, 200);
+}
+
+function selectBranchAdminUser(uid, label){
+  const inp = el('ba-user-id'); if (inp) inp.value = uid;
+  const s = el('ba-search'); if (s) s.value = label;
+  const r = el('ba-results'); if (r) r.innerHTML = '';
+}
+
+async function saveBranchAdmin(branch){
+  const uid = val('ba-user-id');
+  if (!uid) return formErr('ba-error', 'Please select a member first.');
+  try {
+    const res = await apiFetch('/api/collections/branch_admins/records', {
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ user: uid, branch })
+    });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not assign'); }
+    closeModal();
+    toast('Branch admin assigned.', 'success');
+    SCREENS.admin();
+  } catch (e) { formErr('ba-error', e.message); }
+}
+
+async function removeBranchAdmin(recordId){
+  try {
+    const res = await apiFetch(`/api/collections/branch_admins/records/${recordId}`, { method:'DELETE' });
+    if (!res.ok) throw new Error('Could not remove');
+    toast('Branch admin removed.', 'success');
+    SCREENS.admin();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function adminApproveClaim(claimId, personId, claimUserId){
+  try {
+    await apiFetch(`/api/collections/persons/records/${personId}`, {
+      method:'PATCH', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ linked_user: claimUserId })
+    });
+    await apiFetch(`/api/collections/person_claims/records/${claimId}`, {
+      method:'PATCH', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ status: 'approved' })
+    });
+    await apiFetch('/api/collections/notifications/records', {
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ user: claimUserId, type: 'admin', title: 'Your tree claim was approved', read: false })
+    });
+    toast('Claim approved.', 'success');
+    await loadBranchAdminState(); renderSidebar();
+    const caller = (currentUser && currentUser.family_admin) ? SCREENS.admin : SCREENS.branchadmin;
+    caller();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function adminDenyClaim(claimId, claimUserId){
+  try {
+    await apiFetch(`/api/collections/person_claims/records/${claimId}`, {
+      method:'PATCH', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ status: 'denied' })
+    });
+    await apiFetch('/api/collections/notifications/records', {
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ user: claimUserId, type: 'admin', title: 'Your tree claim was not approved', read: false })
+    });
+    toast('Claim denied.', 'success');
+    await loadBranchAdminState(); renderSidebar();
+    const caller = (currentUser && currentUser.family_admin) ? SCREENS.admin : SCREENS.branchadmin;
+    caller();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// ── Branch Admin ──────────────────────────────────────────────────────────────
+SCREENS.branchadmin = async function(){
+  if (!isBranchAdmin()) { navigate('home'); return; }
+  mountMain('<div class="screen-pad" style="max-width:1100px"><div class="spinner"></div></div>');
+
+  let claims = [], persons = [];
+  const branchFilter = currentBranches.map(b => `person.family_name="${b}"`).join('||');
+  const personFilter = currentBranches.map(b => `family_name="${b}"`).join('||');
+
+  try {
+    const [cRes, pRes] = await Promise.all([
+      apiFetch(`/api/collections/person_claims/records?filter=${encodeURIComponent(`(status="pending" && (${branchFilter}))`)}&perPage=100&expand=person,user&sort=created`),
+      apiFetch(`/api/collections/persons/records?filter=${encodeURIComponent(`(${personFilter})`)}&perPage=500&sort=family_name`)
+    ]);
+    if (cRes.ok) claims = (await cRes.json()).items || [];
+    if (pRes.ok) persons = (await pRes.json()).items || [];
+  } catch { /* ignore */ }
+
+  const claimsHtml = claims.length
+    ? `<div class="admin-section">Pending tree claims</div>
+       <div class="admin-table-wrap"><table class="admin-table">
+         <thead><tr><th>Claimant</th><th>Person in tree</th><th>Submitted</th><th>Actions</th></tr></thead>
+         <tbody>${claims.map(c => {
+           const p = (c.expand && c.expand.person) || {};
+           const u = (c.expand && c.expand.user)   || {};
+           return `<tr>
+             <td>${esc(u.name || u.email || '—')}</td>
+             <td>${esc(p.display_name || '—')}${p.birth_date ? ' · ' + p.birth_date.slice(0,4) : ''}</td>
+             <td>${c.created ? new Date(c.created).toLocaleDateString() : '—'}</td>
+             <td>
+               <button class="btn btn-primary btn-sm" onclick="adminApproveClaim('${c.id}','${p.id}','${u.id}')">Approve</button>
+               <button class="btn btn-danger btn-sm" style="margin-left:.3rem" onclick="adminDenyClaim('${c.id}','${u.id}')">Deny</button>
+             </td>
+           </tr>`;
+         }).join('')}</tbody>
+       </table></div>`
+    : '<div class="empty-state" style="padding:2rem 0"><p>No pending claims for your branch.</p></div>';
+
+  const personsHtml = persons.length
+    ? `<div class="admin-section">Persons — ${currentBranches.map(esc).join(', ')} branch${currentBranches.length > 1 ? 'es' : ''}</div>
+       <div class="admin-table-wrap"><table class="admin-table">
+         <thead><tr><th>Name</th><th>Branch</th><th>Born</th><th>Account</th><th></th></tr></thead>
+         <tbody>${persons.map(p => `<tr>
+           <td>${esc(p.display_name)}</td>
+           <td>${esc(p.family_name || '—')}</td>
+           <td>${esc((p.birth_date || '').slice(0,4) || '—')}</td>
+           <td>${p.linked_user ? '<span class="pill" style="font-size:.72rem">Linked</span>' : '<span style="color:var(--text-muted);font-size:.82rem">—</span>'}</td>
+           <td><button class="btn btn-outline btn-sm" onclick="openPersonForm('${p.id}')">Edit</button></td>
+         </tr>`).join('')}</tbody>
+       </table></div>`
+    : '';
+
+  mountMain(`<div class="screen-pad" style="max-width:1100px">
+    <h1 class="card-title" style="margin-bottom:1.25rem">Branch Admin
+      <span style="font-family:var(--font-ui);font-size:1rem;font-weight:400;color:var(--text-muted);margin-left:.5rem">
+        ${currentBranches.map(esc).join(', ')}
+      </span>
+    </h1>
+    ${claimsHtml}
+    ${personsHtml}
+  </div>`);
+};
 
 // ── Placeholder screens (replaced by screen modules appended below) ──────────
 for (const n of NAV) if (!SCREENS[n.tab]) SCREENS[n.tab] = () =>
