@@ -250,13 +250,13 @@ function signUpForm(){
     <p class="auth-foot" style="font-size:.75rem;color:var(--text-muted);margin-top:.6rem">Your details are visible only to verified family members.</p>`;
 }
 
-function showPending(){
+function showPending(msg){
   clearInterval(rollerTimer);
+  const text = msg || "Your account was created and is waiting for a family admin to approve it. You'll get access once approved.";
   el('app').innerHTML = `<div class="auth-wrap"><div class="auth-form"><div class="box" style="text-align:center">
     <div style="font-size:2.5rem">⏳</div>
     <h1 style="font-family:var(--font-display);font-size:1.8rem;margin:.5rem 0">Awaiting approval</h1>
-    <p class="sub">Your account was created and is waiting for a family admin to approve it.
-      You'll get access once approved.</p>
+    <p class="sub">${esc(text)}</p>
     <button class="btn btn-outline" onclick="logout()">Sign out</button>
   </div></div></div>`;
 }
@@ -306,8 +306,92 @@ async function doRegister(){
       body: JSON.stringify({ identity: email, password: pw })
     });
     if (authRes.ok) { const ad = await authRes.json(); setSession(ad.token, ad.record); }
-    showPending();
+    showTreeClaimStep(first, last);
   } catch (e) { authError(e.message); }
+}
+
+let _claimAllPersons = [];
+let _claimSearchTimer = null;
+
+async function showTreeClaimStep(first, last){
+  try {
+    const res = await apiFetch('/api/collections/persons/records?perPage=500&sort=family_name');
+    if (res.ok) _claimAllPersons = (await res.json()).items || [];
+  } catch { _claimAllPersons = []; }
+
+  el('app').innerHTML = `<div class="claim-step">
+    <div class="claim-box">
+      <h2>Are you in the family tree?</h2>
+      <p class="sub">Search for your name below. If you find yourself, click to claim that record.
+        If not, we'll add you as a new entry.</p>
+      <div class="form-group" style="margin-bottom:.75rem">
+        <input id="claim-search" placeholder="Search by name…"
+          value="${esc(first + ' ' + last)}"
+          oninput="runClaimSearch()" />
+      </div>
+      <div id="claim-results"></div>
+      <button class="btn btn-outline btn-full" style="margin-top:1rem"
+        onclick="skipClaim('${esc(first)}','${esc(last)}')">
+        I'm not in the tree yet — add me as new
+      </button>
+    </div>
+  </div>`;
+
+  runClaimSearch();
+}
+
+function runClaimSearch(){
+  clearTimeout(_claimSearchTimer);
+  _claimSearchTimer = setTimeout(() => {
+    const q = (document.getElementById('claim-search') || {}).value || '';
+    const results = filterPeople(_claimAllPersons, q).slice(0, 8);
+    const container = document.getElementById('claim-results');
+    if (!container) return;
+    container.innerHTML = results.length
+      ? results.map(p => {
+          const already = !!p.linked_user;
+          return `<div class="claim-result${already ? '" style="opacity:.5;cursor:default' : ''}" ${already ? '' : `onclick="submitClaim('${p.id}')"`}>
+            <div class="avatar" style="width:36px;height:36px;font-size:.8rem">${personInitials(p)}</div>
+            <div>
+              <div class="cr-name">${esc(p.display_name)}${already ? ' <span style="font-size:.76rem;color:var(--text-muted)">(already linked)</span>' : ''}</div>
+              <div class="cr-sub">${esc(personYears(p) || p.family_name || '')}</div>
+            </div>
+          </div>`;
+        }).join('')
+      : (q.trim() ? '<p style="font-size:.82rem;color:var(--text-muted)">No matches found.</p>' : '');
+  }, 200);
+}
+
+async function submitClaim(personId){
+  try {
+    const res = await apiFetch('/api/collections/person_claims/records', {
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ person: personId, user: userId, status: 'pending' })
+    });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not submit claim'); }
+    showPending('Your account is awaiting approval. An admin will also review your tree claim.');
+  } catch (e) {
+    const errEl = document.getElementById('claim-results');
+    if (errEl) errEl.insertAdjacentHTML('afterbegin',
+      `<div class="alert alert-error" style="margin-bottom:.5rem">${esc(e.message)}</div>`);
+  }
+}
+
+async function skipClaim(first, last){
+  try {
+    const res = await apiFetch('/api/collections/persons/records', {
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({
+        display_name: `${first} ${last}`.trim(),
+        given_name: first,
+        family_name: last,
+        living: true,
+        linked_user: userId
+      })
+    });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not create tree entry'); }
+  } catch { /* non-fatal */ }
+  showPending();
 }
 
 async function doGoogleAuth(){
