@@ -82,7 +82,7 @@ async function init(){
     const res = await apiFetch(`/api/collections/users/records/${userId}`);
     if (!res.ok) throw new Error('session expired');
     currentUser = await res.json();
-    if (!currentUser.approved) return showPending();
+    if (!currentUser.approved && !currentUser.family_admin) return showPending();
     enterApp();
   } catch {
     clearSession();
@@ -280,7 +280,7 @@ async function doLogin(){
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Login failed');
     setSession(data.token, data.record);
-    if (!currentUser.approved) return showPending();
+    if (!currentUser.approved && !currentUser.family_admin) return showPending();
     enterApp();
   } catch (e) { authError(e.message); }
 }
@@ -293,7 +293,8 @@ async function doRegister(){
   if (pw !== pw2) return authError('Passwords do not match.');
   if (pw.length < 8) return authError('Password must be at least 8 characters.');
   try {
-    const body = { name: `${first} ${last}`, email, phone, password: pw, passwordConfirm: pw2, approved: false };
+    const username = email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_') + '_' + Math.random().toString(36).slice(2, 6);
+    const body = { username, name: `${first} ${last}`, email, phone, password: pw, passwordConfirm: pw2, approved: false };
     if (birthday) body.birthday = birthday;
     const res = await fetch(`${API}/api/collections/users/records`, {
       method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body)
@@ -340,7 +341,7 @@ async function handleAppleAuthCallback(){
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Apple sign-in failed');
     setSession(data.token, data.record);
-    if (!currentUser.approved) return showPending();
+    if (!currentUser.approved && !currentUser.family_admin) return showPending();
     enterApp();
   } catch (e) { showAuth(); authError(e.message); }
 }
@@ -364,7 +365,7 @@ async function handleOAuthCallback(){
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'OAuth failed');
     setSession(data.token, data.record);
-    if (!currentUser.approved) return showPending();
+    if (!currentUser.approved && !currentUser.family_admin) return showPending();
     enterApp();
   } catch (e) { showAuth(); authError(e.message); }
 }
@@ -1607,7 +1608,8 @@ async function adminDeny(id){
 async function adminToggleAdmin(id, makeAdmin){
   try {
     const res = await apiFetch(`/api/collections/users/records/${id}`, {
-      method:'PATCH', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ family_admin: makeAdmin }) });
+      method:'PATCH', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify(makeAdmin ? { family_admin: true, approved: true } : { family_admin: false }) });
     if (!res.ok) throw new Error('Could not update');
     toast(makeAdmin ? 'Made admin.' : 'Admin removed.', 'success');
     SCREENS.admin();
