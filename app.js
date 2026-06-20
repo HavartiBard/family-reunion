@@ -12,6 +12,8 @@ let userId = localStorage.getItem('pb_user_id') || '';
 let currentUser = null;
 let unreadCount = 0;
 let pendingCount = 0;
+let currentBranches = null;  // null = not loaded; [] = not branch admin; ['Kelsall'] = branch admin
+let branchPendingCount = 0;
 
 const NAV = [
   { tab:'home',          label:'Home',           ico:'⌂' },
@@ -23,6 +25,7 @@ const NAV = [
   { tab:'search',        label:'Search',         ico:'⌕' },
   { tab:'settings',      label:'Settings',       ico:'⚙' },
   { tab:'admin',         label:'Admin Panel',    ico:'⚑', adminOnly:true, badge:() => pendingCount },
+  { tab:'branchadmin',   label:'Branch Admin',   ico:'⚐', branchAdminOnly:true, badge:() => branchPendingCount },
 ];
 const MOBILE_NAV = [
   { tab:'home', label:'Home', ico:'⌂' },
@@ -97,7 +100,7 @@ async function enterApp(){
       <main id="main"></main>
     </div>
     <nav id="bottom-nav"></nav>`;
-  await Promise.all([refreshUnread(), refreshPending()]);
+  await Promise.all([refreshUnread(), refreshPending(), loadBranchAdminState()]);
   renderSidebar();
   const dl = new URLSearchParams(location.search).get('person');
   if (dl) navigate('tree', { person: dl });
@@ -123,12 +126,33 @@ async function refreshPending(){
   } catch { pendingCount = 0; }
 }
 
+function isBranchAdmin(){ return !!(currentBranches && currentBranches.length > 0); }
+
+async function loadBranchAdminState(){
+  if (!userId) { currentBranches = []; branchPendingCount = 0; return; }
+  try {
+    const res = await apiFetch(`/api/collections/branch_admins/records?filter=${encodeURIComponent(`(user="${userId}")`)}` + `&perPage=50`);
+    currentBranches = res.ok ? (await res.json()).items.map(r => r.branch) : [];
+  } catch { currentBranches = []; }
+
+  if (currentBranches.length === 0) { branchPendingCount = 0; return; }
+  try {
+    const branchFilter = currentBranches.map(b => `person.family_name="${b}"`).join('||');
+    const res = await apiFetch(`/api/collections/person_claims/records?filter=${encodeURIComponent(`(status="pending" && (${branchFilter}))`)}&perPage=1`);
+    branchPendingCount = res.ok ? (await res.json()).totalItems || 0 : 0;
+  } catch { branchPendingCount = 0; }
+}
+
 // ── Sidebar ─────────────────────────────────────────────────────────────────
 function renderSidebar(){
   const inner = el('sidebar-inner');
   if (!inner) return;
   const active = currentTab();
-  const items = NAV.filter(n => !n.adminOnly || (currentUser && currentUser.family_admin));
+  const items = NAV.filter(n => {
+    if (n.adminOnly) return currentUser && currentUser.family_admin;
+    if (n.branchAdminOnly) return isBranchAdmin() && !(currentUser && currentUser.family_admin);
+    return true;
+  });
   const navHtml = items.map(n => {
     const count = n.badge ? n.badge() : 0;
     const badge = count > 0 ? `<span class="sb-badge">${count}</span>` : '';
