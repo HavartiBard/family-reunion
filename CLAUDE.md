@@ -4,7 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Architecture
 
-**Frontend:** Single-file SPA (`index.html` + `merge.js`) served by GitHub Pages at `reunion.klsll.com`. No build step, no bundler — raw HTML/CSS/JS. All API calls go to the `API` constant (`https://reunion-api.klsll.com`).
+**Frontend:** SPA served by GitHub Pages at `reunion.klsll.com`. No build step, no bundler — raw HTML/CSS/JS split across:
+- `index.html` — shell (head, `#app`, toast/modal anchors, script tags)
+- `app.css` — all styles (design tokens, primitives, screen-specific)
+- `app.js` — routing, auth, all screen renderers (`SCREENS.*`)
+- `helpers.js` — pure, side-effect-free utilities (also importable in Node for tests)
+- `merge.js` — merge logic (pure, no DOM, no network)
+
+All API calls go to the `API` constant in `app.js` (`https://reunion-api.klsll.com`).
 
 **Backend:** PocketBase, deployable two ways:
 - **Fly.io (primary):** `backend/Dockerfile` + `backend/fly.toml`. Migrations are baked into the image at build time (`COPY pb_migrations /pb_migrations`). `pb_data` persists on a Fly Volume. Cloudflare DNS (grey cloud) points `reunion-api.klsll.com` → `family-reunion-api.fly.dev`; Fly handles TLS.
@@ -16,12 +23,15 @@ Schema is defined entirely in `backend/pb_migrations/`; migrations auto-apply on
 
 ## Data model
 
-Three PocketBase collections, all gated behind `approved=true` user auth:
+All collections gated behind `@request.auth.id != "" && @request.auth.approved = true` unless noted.
 
-- **`users`** — built-in PocketBase auth collection; has `approved` (bool), `family_admin` (bool), `phone`, `birthday` fields; new registrants start `approved=false`.
+- **`users`** — built-in PocketBase auth collection; `approved` (bool), `family_admin` (bool), `phone`, `birthday`, `rsvp` (select: going/maybe/no), `privacy_settings` (json), `notification_prefs` (json). New registrants start `approved=false`.
 - **`persons`** — tree nodes: `display_name`, `given_name`, `family_name`, `gender`, `birth_date`, `death_date`, `living`, `bio`, `photo`, `linked_user` (→users), `father`/`mother` (self-referential → persons), `gedcom_id` (Webtrees xref).
 - **`couples`** — `partner_a`/`partner_b` (→persons), `status` (married/divorced/partners/unknown), `married_date`.
 - **`news`** — `title`, `body`, `author` (→users).
+- **`albums`** — `name`, `description`, `year`, `cover_photo` (file). Create/update/delete restricted to `family_admin`.
+- **`photos`** — `album` (→albums, cascade delete), `image` (file), `caption`, `taken_date`, `uploader` (→users), `tagged_persons` (→persons, multi). Update/delete by uploader or admin.
+- **`notifications`** — `user` (→users), `type` (select), `title`, `body`, `read` (bool), `related_id`, `related_type`. All rules scoped to `user = @request.auth.id`.
 
 ## Merge logic
 
@@ -30,7 +40,10 @@ Three PocketBase collections, all gated behind `approved=true` user auth:
 ## Running tests
 
 ```bash
-# merge.js unit tests (Node built-in test runner, no install required)
+# helpers.js unit tests (Node built-in test runner, no install required)
+node --test helpers.test.js
+
+# merge.js unit tests
 node --test merge.test.js
 
 # gedcom_sync Python tests
@@ -73,7 +86,7 @@ After adding a migration to a running Docker instance, restart: `docker compose 
 
 ## Key behaviors
 
-- **Access control:** App collections require `@request.auth.id != "" && @request.auth.approved = true`. Users register with `approved=false`; users with `family_admin=true` can approve pending accounts from the SPA Admin tab.
+- **Access control:** App collections require `@request.auth.id != "" && @request.auth.approved = true`. Users register with `approved=false`; users with `family_admin=true` can approve pending accounts from the Admin tab in the SPA.
 - **OAuth:** Google and Apple sign-in use PocketBase's OAuth2 flow with PKCE; state/verifier round-trip through `sessionStorage`. The redirect URL must match what's configured in PocketBase's auth providers.
 - **Tree navigation:** The tree view is neighborhood-based (focus person ± 2 generations). `treeFocusId` persists in the URL as `?person=<id>` for deep linking. `personCache` (session-scoped `Map`) avoids redundant fetches.
 - **gedcom_sync:** Idempotent (keyed on `gedcom_id`), fill-blanks-only (never overwrites SPA edits), redacts living people. Must run on Unraid where the `webtrees` Docker network exists; see `tools/gedcom_sync/README.md` for exact commands.

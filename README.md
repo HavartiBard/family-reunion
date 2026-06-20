@@ -1,11 +1,15 @@
-# Family Reunion Portal
+# Kelsall Family Portal
 
-Private family portal: directory, news, and an interactive family tree.
-Frontend is a single-page app on GitHub Pages (`reunion.klsll.com`); backend is
-PocketBase. Portable — deploy on the homelab or any cloud host.
+Private family portal: directory, news, family tree, photo gallery, and reunion RSVP.
+Frontend is a no-build SPA on GitHub Pages (`reunion.klsll.com`); backend is PocketBase.
+Portable — deploy on the homelab or any cloud host.
 
 ## Layout
-- `index.html`, `merge.js` — the SPA (served by GitHub Pages from repo root)
+- `index.html` — shell (head, app anchor, script tags)
+- `app.css` — all styles
+- `app.js` — routing, auth, all screen renderers
+- `helpers.js` + `helpers.test.js` — pure utility functions + tests
+- `merge.js` + `merge.test.js` — duplicate-merge logic + tests
 - `backend/` — PocketBase compose + schema migrations (+ optional cloudflared overlay)
 - `tools/gedcom_sync/` — admin tool: sync a Webtrees DB into PocketBase
 
@@ -26,7 +30,7 @@ migration to a running instance, restart the container to apply it.
 
 ## Frontend
 GitHub Pages serves the repo root. The SPA targets the API at the `API`
-constant in `index.html` (`https://reunion-api.klsll.com`). Change it if the
+constant in `app.js` (`https://reunion-api.klsll.com`). Change it if the
 backend moves.
 
 Apple sign-in is started and completed on the backend now:
