@@ -1932,7 +1932,9 @@ async function adminApproveClaim(claimId, personId, claimUserId){
       body: JSON.stringify({ user: claimUserId, type: 'admin', title: 'Your tree claim was approved', read: false })
     });
     toast('Claim approved.', 'success');
-    SCREENS.admin();
+    await loadBranchAdminState(); renderSidebar();
+    const caller = (currentUser && currentUser.family_admin) ? SCREENS.admin : SCREENS.branchadmin;
+    caller();
   } catch (e) { toast(e.message, 'error'); }
 }
 
@@ -1947,9 +1949,74 @@ async function adminDenyClaim(claimId, claimUserId){
       body: JSON.stringify({ user: claimUserId, type: 'admin', title: 'Your tree claim was not approved', read: false })
     });
     toast('Claim denied.', 'success');
-    SCREENS.admin();
+    await loadBranchAdminState(); renderSidebar();
+    const caller = (currentUser && currentUser.family_admin) ? SCREENS.admin : SCREENS.branchadmin;
+    caller();
   } catch (e) { toast(e.message, 'error'); }
 }
+
+// ── Branch Admin ──────────────────────────────────────────────────────────────
+SCREENS.branchadmin = async function(){
+  if (!isBranchAdmin()) { navigate('home'); return; }
+  mountMain('<div class="screen-pad" style="max-width:1100px"><div class="spinner"></div></div>');
+
+  let claims = [], persons = [];
+  const branchFilter = currentBranches.map(b => `person.family_name="${b}"`).join('||');
+  const personFilter = currentBranches.map(b => `family_name="${b}"`).join('||');
+
+  try {
+    const [cRes, pRes] = await Promise.all([
+      apiFetch(`/api/collections/person_claims/records?filter=${encodeURIComponent(`(status="pending" && (${branchFilter}))`)}&perPage=100&expand=person,user&sort=created`),
+      apiFetch(`/api/collections/persons/records?filter=${encodeURIComponent(`(${personFilter})`)}&perPage=500&sort=family_name`)
+    ]);
+    if (cRes.ok) claims = (await cRes.json()).items || [];
+    if (pRes.ok) persons = (await pRes.json()).items || [];
+  } catch { /* ignore */ }
+
+  const claimsHtml = claims.length
+    ? `<div class="admin-section">Pending tree claims</div>
+       <div class="admin-table-wrap"><table class="admin-table">
+         <thead><tr><th>Claimant</th><th>Person in tree</th><th>Submitted</th><th>Actions</th></tr></thead>
+         <tbody>${claims.map(c => {
+           const p = (c.expand && c.expand.person) || {};
+           const u = (c.expand && c.expand.user)   || {};
+           return `<tr>
+             <td>${esc(u.name || u.email || '—')}</td>
+             <td>${esc(p.display_name || '—')}${p.birth_date ? ' · ' + p.birth_date.slice(0,4) : ''}</td>
+             <td>${c.created ? new Date(c.created).toLocaleDateString() : '—'}</td>
+             <td>
+               <button class="btn btn-primary btn-sm" onclick="adminApproveClaim('${c.id}','${p.id}','${u.id}')">Approve</button>
+               <button class="btn btn-danger btn-sm" style="margin-left:.3rem" onclick="adminDenyClaim('${c.id}','${u.id}')">Deny</button>
+             </td>
+           </tr>`;
+         }).join('')}</tbody>
+       </table></div>`
+    : '<div class="empty-state" style="padding:2rem 0"><p>No pending claims for your branch.</p></div>';
+
+  const personsHtml = persons.length
+    ? `<div class="admin-section">Persons — ${currentBranches.map(esc).join(', ')} branch${currentBranches.length > 1 ? 'es' : ''}</div>
+       <div class="admin-table-wrap"><table class="admin-table">
+         <thead><tr><th>Name</th><th>Branch</th><th>Born</th><th>Account</th><th></th></tr></thead>
+         <tbody>${persons.map(p => `<tr>
+           <td>${esc(p.display_name)}</td>
+           <td>${esc(p.family_name || '—')}</td>
+           <td>${esc((p.birth_date || '').slice(0,4) || '—')}</td>
+           <td>${p.linked_user ? '<span class="pill" style="font-size:.72rem">Linked</span>' : '<span style="color:var(--text-muted);font-size:.82rem">—</span>'}</td>
+           <td><button class="btn btn-outline btn-sm" onclick="openPersonForm('${p.id}')">Edit</button></td>
+         </tr>`).join('')}</tbody>
+       </table></div>`
+    : '';
+
+  mountMain(`<div class="screen-pad" style="max-width:1100px">
+    <h1 class="card-title" style="margin-bottom:1.25rem">Branch Admin
+      <span style="font-family:var(--font-ui);font-size:1rem;font-weight:400;color:var(--text-muted);margin-left:.5rem">
+        ${currentBranches.map(esc).join(', ')}
+      </span>
+    </h1>
+    ${claimsHtml}
+    ${personsHtml}
+  </div>`);
+};
 
 // ── Placeholder screens (replaced by screen modules appended below) ──────────
 for (const n of NAV) if (!SCREENS[n.tab]) SCREENS[n.tab] = () =>
