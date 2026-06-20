@@ -1060,7 +1060,7 @@ async function renderAlbum(albumId){
   try {
     const [aRes, pRes] = await Promise.all([
       apiFetch(`/api/collections/albums/records/${albumId}`),
-      apiFetch(`/api/collections/photos/records?filter=${encodeURIComponent(`(album="${albumId}"`)}&sort=-created&perPage=200`)
+      apiFetch(`/api/collections/photos/records?filter=${encodeURIComponent(`(album="${albumId}")`)}` + `&sort=-created&perPage=200`)
     ]);
     if (aRes.ok) album = await aRes.json();
     if (pRes.ok) photos = (await pRes.json()).items || [];
@@ -1174,7 +1174,7 @@ SCREENS.notifications = async function(){
   mountMain('<div class="screen-pad" style="max-width:720px"><div class="spinner"></div></div>');
   let notes = [];
   try {
-    const res = await apiFetch(`/api/collections/notifications/records?sort=-created&perPage=100&filter=${encodeURIComponent(`(user="${userId}"`)}`);
+    const res = await apiFetch(`/api/collections/notifications/records?sort=-created&perPage=100&filter=${encodeURIComponent(`(user="${userId}")`)}` );
     if (res.ok) notes = (await res.json()).items || [];
   } catch { /* ignore */ }
 
@@ -1586,7 +1586,7 @@ async function adminApprove(id){
       method:'PATCH', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ approved: true }) });
     if (!res.ok) throw new Error('Could not approve');
     toast('Member approved.', 'success');
-    await fetchPendingCount();
+    await refreshPending();
     renderSidebar();
     SCREENS.admin();
   } catch (e) { toast(e.message, 'error'); }
@@ -1598,7 +1598,7 @@ async function adminDeny(id){
     const res = await apiFetch(`/api/collections/users/records/${id}`, { method:'DELETE' });
     if (!res.ok) throw new Error('Could not delete');
     toast('Account removed.', 'success');
-    await fetchPendingCount();
+    await refreshPending();
     renderSidebar();
     SCREENS.admin();
   } catch (e) { toast(e.message, 'error'); }

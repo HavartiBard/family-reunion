@@ -4,7 +4,7 @@
    =========================================================================== */
 
 :root{
-  --bg-app:#f4f1ea; --bg-card:#fff; --bg-sidebar:#1f2d27; --bg-subtle:#faf8f3;
+  --bg-app:#f4f1ea; --bg-card:#fff; --bg-sidebar:#1f2d27; --bg-subtle:#faf8f3; --bg-hover:#f0ece3;
   --accent-gold:#c8952a; --accent-gold-hover:#a87a22; --accent-green:#2d4a38;
   --text-primary:#20231f; --text-secondary:#8c857a; --text-muted:#a99f8c;
   --text-sidebar:rgba(244,241,234,.62); --text-sidebar-active:#f4f1ea;
