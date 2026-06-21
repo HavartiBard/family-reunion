@@ -412,6 +412,18 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
 .lb-img-wrap{text-align:center}
 .lb-img-wrap img{max-width:100%;max-height:60vh;object-fit:contain;border-radius:8px}
 .lb-nav{display:flex;align-items:center;justify-content:space-between;gap:.5rem}
+.upload-zone{border:2px dashed var(--border-input);border-radius:12px;padding:2rem;
+  text-align:center;color:var(--text-muted);cursor:pointer;transition:border-color .15s,background .15s}
+.upload-zone:hover,.upload-zone.drag-over{border-color:var(--accent-gold);background:var(--bg-hover)}
+.upload-zone input[type=file]{display:none}
+.upload-file-list{margin-top:1rem;display:flex;flex-direction:column;gap:.4rem;max-height:200px;overflow-y:auto}
+.upload-file-row{display:flex;align-items:center;gap:.6rem;font-size:.85rem}
+.upload-file-row .ufl-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.upload-file-row .ufl-status{font-size:.75rem;color:var(--text-muted);flex-shrink:0}
+.upload-file-row .ufl-status.done{color:#4a7c59}
+.upload-file-row .ufl-status.error{color:#c0392b}
+.upload-progress{margin-top:1rem;font-size:.85rem;color:var(--text-secondary)}
+.upload-error-list{margin-top:.5rem;font-size:.82rem;color:#c0392b}
 
 /* ── Notifications ───────────────────────────────────────────────────────── */
 .notif-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem}
