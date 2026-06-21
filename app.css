@@ -344,6 +344,7 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
 .modal-backdrop[hidden]{display:none}
 .modal-box{background:var(--bg-card);border-radius:16px;box-shadow:var(--shadow-hover);
   padding:1.75rem;max-width:480px;width:100%;margin-top:2rem}
+.modal-box .row-2{grid-template-columns:1fr}
 
 /* ── Auth (minimal; enhanced in auth task) ─────────────────────────────── */
 .auth-wrap{display:flex;min-height:100vh}
