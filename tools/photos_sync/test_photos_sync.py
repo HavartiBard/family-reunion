@@ -1,7 +1,7 @@
 import os
 import tempfile
 import pytest
-from photos_sync import scan_source_dir, caption_from_path, extract_exif_date
+from photos_sync import scan_source_dir, caption_from_path, extract_exif_date, r2_key, public_url
 
 
 # ── caption_from_path ────────────────────────────────────────────────────────
@@ -77,3 +77,27 @@ def test_extract_exif_date_no_exif(tmp_path):
 
 def test_extract_exif_date_nonexistent_file():
     assert extract_exif_date("/nonexistent/path.jpg") is None
+
+
+# ── r2_key ───────────────────────────────────────────────────────────────────
+
+def test_r2_key_basic():
+    assert r2_key("sync", "Summer 2024", "IMG_0001.jpg") == "photos/sync/Summer 2024/IMG_0001.jpg"
+
+def test_r2_key_sanitizes_slashes_in_album():
+    assert r2_key("uid123", "2024/Summer", "photo.jpg") == "photos/uid123/2024_Summer/photo.jpg"
+
+def test_r2_key_prefix():
+    key = r2_key("abc", "Album", "file.png")
+    assert key.startswith("photos/abc/")
+
+
+# ── public_url ───────────────────────────────────────────────────────────────
+
+def test_public_url_combines_base_and_key():
+    url = public_url("https://photos.reunion.klsll.com", "photos/sync/Album/img.jpg")
+    assert url == "https://photos.reunion.klsll.com/photos/sync/Album/img.jpg"
+
+def test_public_url_strips_trailing_slash():
+    url = public_url("https://photos.reunion.klsll.com/", "photos/uid/Album/img.jpg")
+    assert url == "https://photos.reunion.klsll.com/photos/uid/Album/img.jpg"

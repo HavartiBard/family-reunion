@@ -1,4 +1,4 @@
-"""Sync an exported Apple Photos folder into PocketBase albums + photos.
+"""Sync an exported Apple Photos folder into Cloudflare R2 + PocketBase.
 
 Directory convention:
   <export-root>/
@@ -12,10 +12,15 @@ Run:
   PB_URL=https://reunion-api.klsll.com \\
   PB_ADMIN_EMAIL=admin@example.com \\
   PB_ADMIN_PASSWORD=secret \\
+  R2_ACCOUNT_ID=abc123 \\
+  R2_ACCESS_KEY_ID=key \\
+  R2_SECRET_ACCESS_KEY=secret \\
+  R2_BUCKET=family-reunion-photos \\
+  R2_PUBLIC_URL=https://photos.reunion.klsll.com \\
   python3 photos_sync.py ~/Pictures/FamilyExport/
 
-Pure helper functions (scan_source_dir, caption_from_path, extract_exif_date)
-have no I/O and are tested independently in test_photos_sync.py.
+Pure helper functions (scan_source_dir, caption_from_path, extract_exif_date,
+r2_key, public_url) have no I/O and are tested independently in test_photos_sync.py.
 """
 
 import argparse
@@ -23,6 +28,23 @@ import os
 import sys
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".gif", ".webp", ".tiff", ".bmp"}
+
+MIME_MAP = {
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+    ".heic": "image/heic", ".gif": "image/gif", ".webp": "image/webp",
+    ".tiff": "image/tiff", ".bmp": "image/bmp",
+}
+
+
+def r2_key(user_id: str, album_name: str, filename: str) -> str:
+    """Return the R2 object key for a photo: photos/<user_id>/<album>/<filename>."""
+    safe_album = album_name.replace("/", "_")
+    return f"photos/{user_id}/{safe_album}/{filename}"
+
+
+def public_url(base_url: str, key: str) -> str:
+    """Combine R2 public domain with object key into a full URL."""
+    return f"{base_url.rstrip('/')}/{key}"
 
 
 def caption_from_path(path: str) -> str:
@@ -138,23 +160,50 @@ class PB:
         items = r.json().get("items", [])
         return items[0] if items else None
 
-    def create_photo(self, album_id: str, entry: dict) -> dict:
+    def create_photo(self, album_id: str, entry: dict, image_url: str) -> dict:
         import requests
-        with open(entry["path"], "rb") as f:
-            files = {"image": (os.path.basename(entry["path"]), f)}
-            data = {
-                "album": album_id,
-                "source_path": entry["source_path"],
-                "caption": entry["caption"],
-            }
-            if entry["taken_date"]:
-                data["taken_date"] = entry["taken_date"]
-            r = requests.post(
-                f"{self.base}/api/collections/photos/records",
-                data=data, files=files, headers=self.h, timeout=60,
-            )
+        body = {
+            "album": album_id,
+            "image": image_url,
+            "source_path": entry["source_path"],
+            "caption": entry["caption"],
+        }
+        if entry["taken_date"]:
+            body["taken_date"] = entry["taken_date"]
+        h = {**self.h, "Content-Type": "application/json"}
+        r = requests.post(
+            f"{self.base}/api/collections/photos/records",
+            json=body, headers=h, timeout=30,
+        )
         r.raise_for_status()
         return r.json()
+
+
+# ── I/O: R2 client ───────────────────────────────────────────────────────────
+
+class R2Client:
+    def __init__(self, account_id: str, access_key: str, secret_key: str, bucket: str):
+        import boto3
+        endpoint = f"https://{account_id}.r2.cloudflarestorage.com"
+        self.s3 = boto3.client(
+            "s3",
+            endpoint_url=endpoint,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            region_name="auto",
+        )
+        self.bucket = bucket
+
+    def upload(self, key: str, path: str) -> None:
+        ext = os.path.splitext(path)[1].lower()
+        content_type = MIME_MAP.get(ext, "application/octet-stream")
+        with open(path, "rb") as f:
+            self.s3.put_object(
+                Bucket=self.bucket,
+                Key=key,
+                Body=f,
+                ContentType=content_type,
+            )
 
 
 # ── Orchestration ─────────────────────────────────────────────────────────────
@@ -164,6 +213,8 @@ def run(args):
     pb = PB.login(args.pb_url, args.pb_email, args.pb_password)
     print("Authenticated.")
 
+    r2 = R2Client(args.r2_account_id, args.r2_access_key, args.r2_secret_key, args.r2_bucket)
+
     entries = scan_source_dir(args.source_dir)
     if not entries:
         print("No images found. Check that subdirectories contain image files.")
@@ -171,6 +222,9 @@ def run(args):
 
     album_cache: dict = {}
     created = skipped = errors = 0
+
+    # Use a fixed sync-user key prefix for admin-uploaded photos
+    uploader_prefix = "sync"
 
     for entry in entries:
         album_name = entry["album"]
@@ -194,13 +248,17 @@ def run(args):
             skipped += 1
             continue
 
+        key = r2_key(uploader_prefix, album_name, os.path.basename(entry["path"]))
+        url = public_url(args.r2_public_url, key)
+
         if args.dry_run:
-            print(f"  [dry-run] Would upload: {entry['source_path']}")
+            print(f"  [dry-run] Would upload: {entry['source_path']} → {url}")
             created += 1
             continue
 
         try:
-            pb.create_photo(album_id, entry)
+            r2.upload(key, entry["path"])
+            pb.create_photo(album_id, entry, url)
             print(f"  Uploaded: {entry['source_path']}")
             created += 1
         except Exception as e:
@@ -211,16 +269,23 @@ def run(args):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Sync Apple Photos export to PocketBase")
+    ap = argparse.ArgumentParser(description="Sync Apple Photos export to R2 + PocketBase")
     ap.add_argument("source_dir", help="Root export directory (subdirs = albums)")
     ap.add_argument("--pb-url", default=os.environ.get("PB_URL", "https://reunion-api.klsll.com"))
     ap.add_argument("--pb-email", default=os.environ.get("PB_ADMIN_EMAIL", ""))
     ap.add_argument("--pb-password", default=os.environ.get("PB_ADMIN_PASSWORD", ""))
+    ap.add_argument("--r2-account-id", default=os.environ.get("R2_ACCOUNT_ID", ""))
+    ap.add_argument("--r2-access-key", default=os.environ.get("R2_ACCESS_KEY_ID", ""))
+    ap.add_argument("--r2-secret-key", default=os.environ.get("R2_SECRET_ACCESS_KEY", ""))
+    ap.add_argument("--r2-bucket", default=os.environ.get("R2_BUCKET", "family-reunion-photos"))
+    ap.add_argument("--r2-public-url", default=os.environ.get("R2_PUBLIC_URL", "https://photos.reunion.klsll.com"))
     ap.add_argument("--dry-run", action="store_true", help="Print what would happen without uploading")
     args = ap.parse_args()
 
     if not args.pb_email or not args.pb_password:
         ap.error("PB_ADMIN_EMAIL and PB_ADMIN_PASSWORD must be set (env vars or flags)")
+    if not args.dry_run and not (args.r2_account_id and args.r2_access_key and args.r2_secret_key):
+        ap.error("R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY must be set for live runs")
 
     run(args)
 
