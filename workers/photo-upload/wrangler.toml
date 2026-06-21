@@ -1,0 +1,10 @@
+name = "photo-upload"
+main = "index.js"
+compatibility_date = "2024-01-01"
+
+[[r2_buckets]]
+binding = "PHOTOS_BUCKET"
+bucket_name = "family-reunion-photos"
+
+[env.production]
+routes = [{ pattern = "photo-upload.reunion.klsll.com/*", zone_name = "reunion.klsll.com" }]
