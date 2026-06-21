@@ -1411,32 +1411,91 @@ async function saveAlbum(){
 }
 
 function openUploadPhoto(albumId){
-  openModal(`<h2 class="card-title">Upload photo</h2>
+  openModal(`<h2 class="card-title">Upload photos</h2>
     <div id="upl-error" class="alert alert-error" style="display:none"></div>
-    <div class="form-group"><label>Photo</label><input id="upl-file" type="file" accept="image/*" /></div>
-    <div class="form-group"><label>Caption</label><input id="upl-caption" placeholder="Optional" /></div>
-    <div class="form-group"><label>Date taken</label><input id="upl-date" placeholder="2026-08-15" /></div>
-    <div style="display:flex;gap:.6rem;margin-top:.5rem">
-      <button class="btn btn-primary" onclick="doUploadPhoto('${albumId}')">Upload</button>
+    <div class="upload-zone" id="upl-zone" onclick="el('upl-file').click()"
+         ondragover="event.preventDefault();this.classList.add('drag-over')"
+         ondragleave="this.classList.remove('drag-over')"
+         ondrop="event.preventDefault();this.classList.remove('drag-over');handleDroppedFiles(event.dataTransfer.files,'${albumId}')">
+      <input id="upl-file" type="file" accept="image/*" multiple onchange="handlePickedFiles(this.files,'${albumId}')">
+      <div style="font-size:2rem;margin-bottom:.4rem">📷</div>
+      <div>Drop photos here or <span style="color:var(--accent-gold);font-weight:600">browse</span></div>
+      <div style="font-size:.78rem;margin-top:.3rem">Supports JPG, PNG, HEIC, WebP — multiple files OK</div>
+    </div>
+    <div id="upl-file-list" class="upload-file-list"></div>
+    <div id="upl-progress" class="upload-progress" style="display:none"></div>
+    <div id="upl-errors" class="upload-error-list" style="display:none"></div>
+    <div style="display:flex;gap:.6rem;margin-top:1rem">
+      <button id="upl-btn" class="btn btn-primary" onclick="doUploadMulti('${albumId}')" disabled>Upload</button>
       <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
     </div>`);
 }
 
-async function doUploadPhoto(albumId){
-  const file = el('upl-file').files[0];
-  if (!file) { formErr('upl-error', 'Please select a photo.'); return; }
-  const fd = new FormData();
-  fd.append('album', albumId);
-  fd.append('image', file);
-  fd.append('uploader', userId);
-  const cap = val('upl-caption'); if (cap) fd.append('caption', cap);
-  const dt = val('upl-date'); if (dt) fd.append('taken_date', dt);
-  try {
-    const res = await apiFetch('/api/collections/photos/records', { method:'POST', body: fd });
-    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Upload failed'); }
-    closeModal();
-    await renderAlbum(albumId);
-  } catch (e) { formErr('upl-error', e.message); }
+let _uplFiles = [];
+
+function handlePickedFiles(fileList){
+  _uplFiles = Array.from(fileList);
+  renderUploadFileList();
+}
+
+function handleDroppedFiles(fileList){
+  _uplFiles = Array.from(fileList).filter(f => f.type.startsWith('image/'));
+  renderUploadFileList();
+}
+
+function renderUploadFileList(){
+  const listEl = el('upl-file-list');
+  const btn = el('upl-btn');
+  if (!listEl) return;
+  if (!_uplFiles.length) { listEl.innerHTML = ''; if (btn) btn.disabled = true; return; }
+  listEl.innerHTML = _uplFiles.map((f, i) =>
+    `<div class="upload-file-row" id="ufl-${i}">
+      <span class="ufl-name">${esc(f.name)}</span>
+      <span class="ufl-status" id="ufl-st-${i}">ready</span>
+    </div>`).join('');
+  if (btn) btn.disabled = false;
+}
+
+async function doUploadMulti(albumId){
+  if (!_uplFiles.length) return;
+  const btn = el('upl-btn');
+  if (btn) btn.disabled = true;
+  const progressEl = el('upl-progress');
+  const errorsEl = el('upl-errors');
+  if (progressEl) progressEl.style.display = '';
+  if (errorsEl) errorsEl.style.display = 'none';
+
+  let done = 0, errors = [];
+  const total = _uplFiles.length;
+
+  for (let i = 0; i < total; i++){
+    const f = _uplFiles[i];
+    const stEl = el(`ufl-st-${i}`);
+    if (progressEl) progressEl.textContent = `Uploading ${i + 1} of ${total}…`;
+    if (stEl) { stEl.textContent = 'uploading…'; stEl.className = 'ufl-status'; }
+    try {
+      const fd = new FormData();
+      fd.append('album', albumId);
+      fd.append('image', f);
+      fd.append('uploader', userId);
+      fd.append('caption', f.name.replace(/\.[^.]+$/, ''));
+      const res = await apiFetch('/api/collections/photos/records', { method:'POST', body: fd });
+      if (!res.ok){ const d = await res.json(); throw new Error(d.message || 'Upload failed'); }
+      done++;
+      if (stEl) { stEl.textContent = '✓'; stEl.className = 'ufl-status done'; }
+    } catch(e){
+      errors.push(f.name + ': ' + e.message);
+      if (stEl) { stEl.textContent = '✗'; stEl.className = 'ufl-status error'; }
+    }
+  }
+
+  if (progressEl) progressEl.textContent = `Done — ${done} of ${total} uploaded.${errors.length ? ` ${errors.length} failed.` : ''}`;
+  if (errors.length && errorsEl){
+    errorsEl.style.display = '';
+    errorsEl.innerHTML = errors.map(e => `<div>${esc(e)}</div>`).join('');
+  }
+  _uplFiles = [];
+  setTimeout(() => { closeModal(); renderAlbum(albumId); }, errors.length ? 3000 : 1200);
 }
 
 let _lbPhotos = [];
