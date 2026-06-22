@@ -1,22 +1,22 @@
 /// <reference path="../pb_data/types.d.ts" />
 migrate((db) => {
   const dao = new Dao(db);
-  const collection = dao.findCollectionByNameOrId("photos");
-  // Remove the file field
-  collection.schema.removeField("image");
-  // Add a text field with the same name to store the R2 URL
-  collection.schema.addField(new SchemaField({
-    name: "image",
+  const col = dao.findCollectionByNameOrId("photos");
+  // Remove the file field; add a differently-named text field to avoid SQLite
+  // duplicate-column errors when PocketBase rebuilds the table.
+  col.schema.removeField("image");
+  col.schema.addField(new SchemaField({
+    name: "image_url",
     type: "text",
     required: true,
     options: { max: 2048 }
   }));
-  dao.saveCollection(collection);
+  dao.saveCollection(col);
 }, (db) => {
   const dao = new Dao(db);
-  const collection = dao.findCollectionByNameOrId("photos");
-  collection.schema.removeField("image");
-  collection.schema.addField(new SchemaField({
+  const col = dao.findCollectionByNameOrId("photos");
+  col.schema.removeField("image_url");
+  col.schema.addField(new SchemaField({
     name: "image",
     type: "file",
     required: true,
@@ -26,5 +26,5 @@ migrate((db) => {
       mimeTypes: ["image/jpeg","image/png","image/webp","image/gif"]
     }
   }));
-  dao.saveCollection(collection);
+  dao.saveCollection(col);
 });

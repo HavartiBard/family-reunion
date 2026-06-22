@@ -1302,7 +1302,7 @@ SCREENS.profile = async function(params){
             : '<p style="color:var(--text-muted);font-size:.86rem">No dated events.</p>'}</div>
         <div class="card"><div class="section-label" style="margin-bottom:.9rem">Photos</div>
           ${photos.length ? `<div class="photo-mini">${photos.slice(0, 6).map(ph =>
-            `<img src="${fileUrl('photos', ph, 'image')}" alt="">`).join('')}</div>
+            `<img src="${fileUrl('photos', ph, 'image_url')}" alt="">`).join('')}</div>
             <div class="link" style="margin-top:.6rem;font-size:.82rem" onclick="navigate('gallery')">See all →</div>`
             : '<p style="color:var(--text-muted);font-size:.86rem">No tagged photos.</p>'}</div>
       </aside>
@@ -1363,7 +1363,7 @@ async function renderAlbum(albumId){
   if (!album) { mountMain('<div class="screen-pad"><div class="empty-state"><p>Album not found.</p></div></div>'); return; }
 
   const photoItems = photos.map((ph, i) => {
-    const url = fileUrl('photos', ph, 'image');
+    const url = fileUrl('photos', ph, 'image_url');
     const span = (i + 1) % 5 === 0 ? ' pg-span' : '';
     return `<div class="pg-item${span}" onclick="openLightbox(${i})" data-src="${esc(url)}">
       ${url ? `<img src="${esc(url)}" alt="${esc(ph.caption || '')}">` : '<div class="pg-placeholder"></div>'}
@@ -1498,7 +1498,7 @@ async function doUploadMulti(albumId){
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           album: albumId,
-          image: url,
+          image_url: url,
           caption: f.name.replace(/\.[^.]+$/, ''),
           uploader: userId,
         }),
