@@ -18,9 +18,14 @@
   function userInitials(u) { return initialsFrom((u && (u.name || u.email)) || ''); }
   function personInitials(p) { return initialsFrom((p && p.display_name) || ''); }
 
+  function _extractYear(s) {
+    const m = (s || '').match(/\b(1[0-9]{3}|20[0-2][0-9])\b/);
+    return m ? m[1] : '';
+  }
+
   function personYears(p) {
-    const b = (p.birth_date || '').slice(0, 4);
-    const d = (p.death_date || '').slice(0, 4);
+    const b = _extractYear(p.birth_date);
+    const d = _extractYear(p.death_date);
     if (!b && !d) return '';
     return `${b || '?'}–${d || (p.living === false ? '?' : '')}`.replace(/–$/, '');
   }
@@ -38,7 +43,7 @@
   }
 
   function _hay(p) {
-    return [p.display_name, p.given_name, p.family_name, p.bio, (p.birth_date || '').slice(0, 4)]
+    return [p.display_name, p.given_name, p.family_name, p.bio, _extractYear(p.birth_date)]
       .filter(Boolean).join(' ').toLowerCase();
   }
   function filterPeople(people, query) {

@@ -696,7 +696,7 @@ async function _wizRunSearch(q, role){
 
     const rows = matches.map(p => {
       const name = p.display_name || `${p.given_name} ${p.family_name}`.trim();
-      const yr = p.birth_date ? p.birth_date.slice(0, 4) : '';
+      const yr = p.birth_date ? (_parseYearFromDate(p.birth_date) || '') : '';
       return `<div class="claim-result" onclick="_wizSelectPerson('${p.id}','${esc(name)}','${role}')">
         <div class="avatar" style="width:36px;height:36px;font-size:.8rem">${(name[0]||'?').toUpperCase()}</div>
         <div><div class="cr-name">${esc(name)}</div><div class="cr-sub">${yr ? 'b. ' + yr : ''}</div></div>
@@ -1289,13 +1289,13 @@ async function openDuplicates(){
   const items = res.ok ? (await res.json()).items : [];
   const groups = {};
   for (const p of items) {
-    const key = normName(p.display_name) + '|' + (p.birth_date || '').slice(0, 4);
+    const key = normName(p.display_name) + '|' + (_parseYearFromDate(p.birth_date) || '');
     (groups[key] = groups[key] || []).push(p);
   }
   const dupes = Object.values(groups).filter(g => g.length > 1);
   const body = dupes.length ? dupes.map(g => `
     <div class="card" style="margin-bottom:.6rem;padding:1rem"><div class="rc-name">${esc(g[0].display_name)}
-      ${g[0].birth_date ? '· ' + g[0].birth_date.slice(0, 4) : ''}</div>
+      ${g[0].birth_date ? '· ' + (_parseYearFromDate(g[0].birth_date) || '') : ''}</div>
       <div class="rc-sub">${g.length} records</div>
       <button class="btn btn-outline btn-sm" style="margin-top:.5rem" onclick='openMerge(${JSON.stringify(g.map(p => p.id))})'>Merge these</button>
     </div>`).join('') : '<p style="color:var(--text-muted)">No duplicates found 🎉</p>';
@@ -1697,7 +1697,7 @@ async function _reloadFactsSection(personId){
   if (!container) return;
   container.innerHTML = '<div class="spinner" style="margin:1rem auto"></div>';
   try {
-    const r = await apiFetch(`/api/collections/person_facts/records?filter=${encodeURIComponent(`(person="${personId}"`)}&perPage=200&sort=sort_year`);
+    const r = await apiFetch(`/api/collections/person_facts/records?filter=${encodeURIComponent(`(person="${personId}")`)}&perPage=200&sort=sort_year`);
     const facts = r.ok ? (await r.json()).items || [] : [];
     const myPersonIdVal = await myPersonId().catch(()=>null);
     const canEdit = !!(currentUser && (currentUser.family_admin || myPersonIdVal === personId));
@@ -1746,7 +1746,7 @@ SCREENS.profile = async function(params){
   try {
     const [personRes, factsRes, phRes] = await Promise.all([
       apiFetch(`/api/collections/persons/records/${id}?expand=father,mother,linked_user`),
-      apiFetch(`/api/collections/person_facts/records?filter=${encodeURIComponent(`(person="${id}"`)}&perPage=200&sort=sort_year`),
+      apiFetch(`/api/collections/person_facts/records?filter=${encodeURIComponent(`(person="${id}")`)}&perPage=200&sort=sort_year`),
       apiFetch(`/api/collections/photos/records?perPage=12&filter=` + encodeURIComponent(`(tagged_persons~"${id}")`)),
     ]);
     if (!personRes.ok) throw new Error('not found');
@@ -1781,8 +1781,8 @@ SCREENS.profile = async function(params){
         <h1 class="ph-name">${esc(p.display_name)}</h1>
         <div class="ph-sub">${esc(sub)}</div>
         <div class="ph-pills">${branch ? `<span class="pill">${esc(branch)}</span>` : ''}
-          ${p.birth_date ? `<span class="pill">b. ${esc(p.birth_date.slice(0, 4))}</span>` : ''}
-          ${p.death_date ? `<span class="pill">d. ${esc(p.death_date.slice(0, 4))}</span>` : ''}
+          ${p.birth_date ? `<span class="pill">b. ${esc(_parseYearFromDate(p.birth_date) || p.birth_date)}</span>` : ''}
+          ${p.death_date ? `<span class="pill">d. ${esc(_parseYearFromDate(p.death_date) || p.death_date)}</span>` : ''}
           ${linked ? '<span class="pill">Has account</span>' : ''}</div>
       </div>
       <div class="ph-actions">
@@ -2831,7 +2831,7 @@ SCREENS.admin = async function(){
           const u = (c.expand && c.expand.user)   || {};
           return `<tr>
             <td>${esc(u.name || u.email || '—')}</td>
-            <td>${esc(p.display_name || '—')}${p.birth_date ? ' · ' + p.birth_date.slice(0,4) : ''}</td>
+            <td>${esc(p.display_name || '—')}${p.birth_date ? ' · ' + (_parseYearFromDate(p.birth_date) || '') : ''}</td>
             <td>${c.created ? new Date(c.created).toLocaleDateString() : '—'}</td>
             <td>
               <button class="btn btn-primary btn-sm" onclick="adminApproveClaim('${c.id}','${p.id}','${u.id}')">Approve</button>
@@ -3037,7 +3037,7 @@ SCREENS.branchadmin = async function(){
            const u = (c.expand && c.expand.user)   || {};
            return `<tr>
              <td>${esc(u.name || u.email || '—')}</td>
-             <td>${esc(p.display_name || '—')}${p.birth_date ? ' · ' + p.birth_date.slice(0,4) : ''}</td>
+             <td>${esc(p.display_name || '—')}${p.birth_date ? ' · ' + (_parseYearFromDate(p.birth_date) || '') : ''}</td>
              <td>${c.created ? new Date(c.created).toLocaleDateString() : '—'}</td>
              <td>
                <button class="btn btn-primary btn-sm" onclick="adminApproveClaim('${c.id}','${p.id}','${u.id}')">Approve</button>
@@ -3055,7 +3055,7 @@ SCREENS.branchadmin = async function(){
          <tbody>${persons.map(p => `<tr>
            <td>${esc(p.display_name)}</td>
            <td>${esc(p.family_name || '—')}</td>
-           <td>${esc((p.birth_date || '').slice(0,4) || '—')}</td>
+           <td>${esc(_parseYearFromDate(p.birth_date) || '—')}</td>
            <td>${p.linked_user ? '<span class="pill" style="font-size:.72rem">Linked</span>' : '<span style="color:var(--text-muted);font-size:.82rem">—</span>'}</td>
            <td><button class="btn btn-outline btn-sm" onclick="openPersonForm('${p.id}')">Edit</button></td>
          </tr>`).join('')}</tbody>
