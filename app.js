@@ -8,6 +8,88 @@
 const API = 'https://reunion-api.klsll.com';
 const UPLOAD_URL = 'https://photo-upload.klsll.com/upload';
 
+// ── Fact system definitions (GEDCOM-aligned) ─────────────────────────────────
+const FACT_DEFS = {
+  birth:             { label:'Birth',                cat:'vital',     icon:'◎' },
+  death:             { label:'Death',                cat:'vital',     icon:'✦' },
+  burial:            { label:'Burial',               cat:'vital',     icon:'▽' },
+  cremation:         { label:'Cremation',            cat:'vital',     icon:'▽' },
+  baptism:           { label:'Baptism',              cat:'religious', icon:'✝' },
+  christening:       { label:'Christening',          cat:'religious', icon:'✝' },
+  christening_adult: { label:'Adult Christening',    cat:'religious', icon:'✝' },
+  bar_mitzvah:       { label:'Bar Mitzvah',          cat:'religious', icon:'✡' },
+  bat_mitzvah:       { label:'Bat Mitzvah',          cat:'religious', icon:'✡' },
+  confirmation:      { label:'Confirmation',         cat:'religious', icon:'✝' },
+  first_communion:   { label:'First Communion',      cat:'religious', icon:'✝' },
+  blessing:          { label:'Blessing',             cat:'religious', icon:'✝' },
+  ordination:        { label:'Ordination',           cat:'religious', icon:'✝' },
+  adoption:          { label:'Adoption',             cat:'life',      icon:'◇' },
+  immigration:       { label:'Immigration',          cat:'life',      icon:'→' },
+  emigration:        { label:'Emigration',           cat:'life',      icon:'←' },
+  naturalization:    { label:'Naturalization',       cat:'life',      icon:'◇' },
+  military:          { label:'Military Service',     cat:'life',      icon:'★' },
+  graduation:        { label:'Graduation',           cat:'life',      icon:'◈' },
+  retirement:        { label:'Retirement',           cat:'life',      icon:'◇' },
+  census:            { label:'Census',               cat:'life',      icon:'◇' },
+  will:              { label:'Will',                 cat:'life',      icon:'◇' },
+  probate:           { label:'Probate',              cat:'life',      icon:'◇' },
+  residence:         { label:'Residence',            cat:'life',      icon:'⌂', hasValue:true },
+  property:          { label:'Property',             cat:'life',      icon:'⌂', hasValue:true },
+  marriage:          { label:'Marriage',             cat:'family',    icon:'♥' },
+  divorce:           { label:'Divorce',              cat:'family',    icon:'◇' },
+  engagement:        { label:'Engagement',           cat:'family',    icon:'♦' },
+  annulment:         { label:'Annulment',            cat:'family',    icon:'◇' },
+  occupation:        { label:'Occupation',           cat:'attribute', icon:'◈', hasValue:true },
+  education:         { label:'Education',            cat:'attribute', icon:'◈', hasValue:true },
+  religion:          { label:'Religion',             cat:'attribute', icon:'◇', hasValue:true },
+  nationality:       { label:'Nationality',          cat:'attribute', icon:'◇', hasValue:true },
+  title:             { label:'Title / Nobility',     cat:'attribute', icon:'◇', hasValue:true },
+  physical_description:{ label:'Physical Description',cat:'attribute',icon:'◇', hasValue:true },
+  medical:           { label:'Medical Condition',    cat:'attribute', icon:'◇', hasValue:true },
+  ssn:               { label:'Social Security #',   cat:'attribute', icon:'#', hasValue:true },
+  national_id:       { label:'National ID',          cat:'attribute', icon:'#', hasValue:true },
+  address:           { label:'Address',              cat:'attribute', icon:'⌂', hasValue:true },
+  website:           { label:'Website',              cat:'attribute', icon:'◇', hasValue:true },
+  email:             { label:'Email',                cat:'attribute', icon:'◇', hasValue:true },
+  phone:             { label:'Phone',                cat:'attribute', icon:'◇', hasValue:true },
+  note:              { label:'Note',                 cat:'attribute', icon:'◇', hasValue:true },
+  other:             { label:'Other',                cat:'attribute', icon:'◇', hasValue:true },
+};
+
+const FACT_GROUPS = [
+  { label:'Vital Events',       types:['birth','death','burial','cremation'] },
+  { label:'Religious',          types:['baptism','christening','christening_adult','bar_mitzvah','bat_mitzvah','confirmation','first_communion','blessing','ordination'] },
+  { label:'Life Events',        types:['adoption','immigration','emigration','naturalization','military','graduation','retirement','census','will','probate','residence','property'] },
+  { label:'Family',             types:['marriage','divorce','engagement','annulment'] },
+  { label:'Attributes & Details',types:['occupation','education','religion','nationality','title','physical_description','medical','ssn','national_id','address','website','email','phone','note','other'] },
+];
+
+function _factDef(type){ return FACT_DEFS[type] || { label: type, cat:'other', icon:'◇' }; }
+
+function _parseYearFromDate(s){
+  if (!s) return null;
+  const m = (s+'').match(/\b(1[0-9]{3}|20[0-2][0-9])\b/);
+  return m ? parseInt(m[1]) : null;
+}
+
+function _sortFacts(facts){
+  const catPri = { vital:0, religious:1, life:2, family:3, attribute:4, other:5 };
+  // Within vital, birth always first, then burial/cremation after death
+  const vitalOrder = { birth:0, baptism:1, christening:1, christening_adult:1, death:8, burial:9, cremation:9 };
+  return [...facts].sort((a,b) => {
+    const ac = catPri[_factDef(a.fact_type).cat] ?? 5;
+    const bc = catPri[_factDef(b.fact_type).cat] ?? 5;
+    if (ac !== bc) return ac - bc;
+    if (ac === 0) { // vital — use fixed order within category
+      const ao = vitalOrder[a.fact_type] ?? 5;
+      const bo = vitalOrder[b.fact_type] ?? 5;
+      if (ao !== bo) return ao - bo;
+    }
+    const ay = a.sort_year || 9999, by = b.sort_year || 9999;
+    return ay - by;
+  });
+}
+
 let token = localStorage.getItem('pb_token') || '';
 let userId = localStorage.getItem('pb_user_id') || '';
 let currentUser = null;
@@ -1452,23 +1534,178 @@ function fileUrl(collection, rec, field){
   return `${API}/api/files/${collection}/${rec.id}/${v}`;
 }
 
+// ── Person facts (CRUD) ───────────────────────────────────────────────────────
+
+function _factTypeOptions(selected){
+  return FACT_GROUPS.map(g =>
+    `<optgroup label="${esc(g.label)}">${g.types.map(t =>
+      `<option value="${t}"${t === selected ? ' selected' : ''}>${esc(_factDef(t).label)}</option>`
+    ).join('')}</optgroup>`
+  ).join('');
+}
+
+function _factFormHtml(personId, f){
+  const isEdit = !!(f && f.id);
+  const type = (f && f.fact_type) || 'birth';
+  return `
+    <h2 class="card-title">${isEdit ? 'Edit' : 'Add'} Fact</h2>
+    <div id="ff-error" class="alert alert-error" style="display:none"></div>
+    <div class="form-group">
+      <label>Fact type</label>
+      <select id="ff-type">${_factTypeOptions(type)}</select>
+    </div>
+    <div class="row-2">
+      <div class="form-group">
+        <label>Date</label>
+        <input id="ff-date" value="${esc((f && f.date_text) || '')}" placeholder="e.g. 15 Mar 1942 or Abt 1920" />
+      </div>
+      <div class="form-group">
+        <label>Place / Location</label>
+        <input id="ff-place" value="${esc((f && f.place) || '')}" placeholder="City, State, Country" />
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Value <span style="font-weight:400;text-transform:none;color:var(--text-muted)">(occupation name, address, website URL, etc.)</span></label>
+      <input id="ff-value" value="${esc((f && f.value) || '')}" placeholder="e.g. Farmer, 123 Main St, https://…" />
+    </div>
+    <div class="form-group">
+      <label>Description / Notes</label>
+      <textarea id="ff-desc">${esc((f && f.description) || '')}</textarea>
+    </div>
+    <div class="form-group">
+      <label>Source / Citation</label>
+      <input id="ff-source" value="${esc((f && f.source) || '')}" placeholder="e.g. 1940 US Census, ancestry.com/…" />
+    </div>
+    <div style="display:flex;gap:.6rem;margin-top:.5rem">
+      <button class="btn btn-primary" onclick="saveFact('${personId}','${isEdit ? f.id : ''}')">Save</button>
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      ${isEdit ? `<button class="btn btn-danger" style="margin-left:auto" onclick="deleteFact('${f.id}','${personId}')">Delete</button>` : ''}
+    </div>`;
+}
+
+async function openFactForm(personId, factId){
+  let f = null;
+  if (factId) {
+    try {
+      const r = await apiFetch(`/api/collections/person_facts/records/${factId}`);
+      if (r.ok) f = await r.json();
+    } catch { /* use null */ }
+  }
+  openModal(_factFormHtml(personId, f));
+}
+
+async function saveFact(personId, factId){
+  const fact_type = el('ff-type').value;
+  const date_text = val('ff-date');
+  const place = val('ff-place');
+  const value = val('ff-value');
+  const description = (el('ff-desc') || {}).value || '';
+  const source = val('ff-source');
+  const sort_year = _parseYearFromDate(date_text) || null;
+
+  const body = { person: personId, fact_type, date_text, sort_year, place, value, description, source };
+
+  try {
+    let r;
+    if (factId) {
+      r = await apiFetch(`/api/collections/person_facts/records/${factId}`,
+        { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    } else {
+      r = await apiFetch('/api/collections/person_facts/records',
+        { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    }
+    if (!r.ok) { const d = await r.json(); throw new Error(d.message || 'Save failed'); }
+
+    // Sync birth_date / death_date on the person record for tree compatibility
+    if (date_text && (fact_type === 'birth' || fact_type === 'death')) {
+      const field = fact_type === 'birth' ? 'birth_date' : 'death_date';
+      const patch = { [field]: date_text };
+      if (fact_type === 'death') patch.living = false;
+      await apiFetch(`/api/collections/persons/records/${personId}`,
+        { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(patch) });
+      personCache.delete(personId);
+    }
+
+    closeModal();
+    await _reloadFactsSection(personId);
+  } catch(e){ formErr('ff-error', e.message); }
+}
+
+async function deleteFact(factId, personId){
+  if (!confirm('Delete this fact?')) return;
+  try {
+    const r = await apiFetch(`/api/collections/person_facts/records/${factId}`, { method:'DELETE' });
+    if (!r.ok) { const d = await r.json().catch(()=>({})); throw new Error(d.message || 'Delete failed'); }
+    closeModal();
+    await _reloadFactsSection(personId);
+  } catch(e){ toast(e.message, 'error'); }
+}
+
+async function _reloadFactsSection(personId){
+  const container = el('facts-section');
+  if (!container) return;
+  container.innerHTML = '<div class="spinner" style="margin:1rem auto"></div>';
+  try {
+    const r = await apiFetch(`/api/collections/person_facts/records?filter=${encodeURIComponent(`(person="${personId}"`)}&perPage=200&sort=sort_year`);
+    const facts = r.ok ? (await r.json()).items || [] : [];
+    const myPersonIdVal = await myPersonId().catch(()=>null);
+    const canEdit = !!(currentUser && (currentUser.family_admin || myPersonIdVal === personId));
+    container.innerHTML = _renderFactsHTML(personId, facts, canEdit);
+  } catch { container.innerHTML = '<p style="color:var(--text-muted);font-size:.86rem;padding:.5rem 0">Could not load facts.</p>'; }
+}
+
+function _renderFactsHTML(personId, facts, canEdit){
+  const sorted = _sortFacts(facts);
+  const rows = sorted.map(f => {
+    const def = _factDef(f.fact_type);
+    const catClass = `fact-cat-${def.cat}`;
+    const meta = [f.date_text, f.place].filter(Boolean).join(' · ');
+    return `<div class="fact-item ${catClass}">
+      <div class="fact-icon">${def.icon}</div>
+      <div class="fact-body">
+        <div class="fact-label">${esc(def.label)}</div>
+        ${f.value ? `<div class="fact-value">${esc(f.value)}</div>` : ''}
+        ${meta ? `<div class="fact-meta">${esc(meta)}</div>` : ''}
+        ${f.description ? `<div class="fact-desc">${esc(f.description)}</div>` : ''}
+        ${f.source ? `<div class="fact-source">Source: ${esc(f.source)}</div>` : ''}
+      </div>
+      ${canEdit ? `<button class="btn btn-outline btn-sm fact-edit-btn" onclick="openFactForm('${personId}','${f.id}')">Edit</button>` : ''}
+    </div>`;
+  }).join('');
+
+  const empty = !facts.length ? '<p style="color:var(--text-muted);font-size:.86rem;padding:.25rem 0">No facts recorded yet.</p>' : '';
+
+  return `
+    <div class="facts-header">
+      <div class="section-label">Facts &amp; Events</div>
+      ${canEdit ? `<button class="btn btn-outline btn-sm" onclick="openFactForm('${personId}','')">+ Add fact</button>` : ''}
+    </div>
+    ${empty}
+    <div class="facts-list">${rows}</div>`;
+}
+
+// ── Profile screen ────────────────────────────────────────────────────────────
 SCREENS.profile = async function(params){
   mountMain('<div class="screen-pad" style="max-width:1100px"><div class="spinner"></div></div>');
   let id = (params && params.id) || null;
   if (!id) id = await myPersonId();
   if (!id) { mountMain('<div class="screen-pad"><div class="empty-state"><div class="emoji">👤</div><p>No profile linked yet. Open the tree and use "This is me".</p></div></div>'); return; }
 
-  let p, couples = [], partners = [], children = [], photos = [];
+  let p, couples = [], partners = [], children = [], photos = [], facts = [];
   try {
-    const res = await apiFetch(`/api/collections/persons/records/${id}?expand=father,mother,linked_user`);
-    if (!res.ok) throw new Error('not found');
-    p = await res.json();
+    const [personRes, factsRes, phRes] = await Promise.all([
+      apiFetch(`/api/collections/persons/records/${id}?expand=father,mother,linked_user`),
+      apiFetch(`/api/collections/person_facts/records?filter=${encodeURIComponent(`(person="${id}"`)}&perPage=200&sort=sort_year`),
+      apiFetch(`/api/collections/photos/records?perPage=12&filter=` + encodeURIComponent(`(tagged_persons~"${id}")`)),
+    ]);
+    if (!personRes.ok) throw new Error('not found');
+    p = await personRes.json();
+    if (factsRes.ok) facts = (await factsRes.json()).items || [];
+    if (phRes.ok) photos = (await phRes.json()).items || [];
     couples = await getCouplesFor(id);
     const partnerIds = couples.map(c => c.partner_a === id ? c.partner_b : c.partner_a);
     partners = (await Promise.all(partnerIds.map(getPerson))).filter(Boolean);
     children = await getChildren(id);
-    const phRes = await apiFetch(`/api/collections/photos/records?perPage=12&filter=` + encodeURIComponent(`(tagged_persons~"${id}")`));
-    if (phRes.ok) photos = (await phRes.json()).items || [];
   } catch { mountMain('<div class="screen-pad"><div class="empty-state"><p>Could not load this profile.</p></div></div>'); return; }
 
   const ex = p.expand || {};
@@ -1477,59 +1714,66 @@ SCREENS.profile = async function(params){
   const branch = p.family_name ? `${p.family_name} branch` : '';
   const parentNames = [ex.father, ex.mother].filter(Boolean).map(x => x.display_name).join(' & ');
   const sub = [parentNames && `Child of ${parentNames}`, personYears(p)].filter(Boolean).join(' · ');
+  const myPersonIdVal = await myPersonId().catch(()=>null);
+  const canEdit = !!(currentUser && (currentUser.family_admin || myPersonIdVal === id));
 
   const conn = (label, person) => person ? `<div class="conn-row" onclick="navigate('profile',{id:'${person.id}'})">
       <div class="avatar" style="width:34px;height:34px;font-size:.78rem">${personInitials(person)}</div>
       <div class="conn-meta"><div class="conn-name">${esc(person.display_name)}</div><div class="conn-rel">${esc(label)}</div></div>
       <span class="conn-chev">›</span></div>` : '';
 
-  const events = [];
-  if (p.birth_date) events.push({ year: p.birth_date.slice(0, 4), title: 'Born' });
-  if (p.death_date) events.push({ year: p.death_date.slice(0, 4), title: 'Passed away' });
-
   mountMain(`<div class="screen-pad" style="max-width:1100px">
     <div class="breadcrumb"><span class="link" onclick="navigate('directory')">Directory</span> › ${esc(p.display_name)}</div>
     <div class="profile-hero card">
-      <div class="ph-avatar">${avatar ? `<img src="${avatar}" alt="">` : personInitials(p)}</div>
+      <div class="ph-avatar">${avatar ? `<img src="${avatar}" alt="">` : `<div class="avatar" style="width:76px;height:76px;font-size:1.8rem">${personInitials(p)}</div>`}</div>
       <div class="ph-main">
         <h1 class="ph-name">${esc(p.display_name)}</h1>
         <div class="ph-sub">${esc(sub)}</div>
         <div class="ph-pills">${branch ? `<span class="pill">${esc(branch)}</span>` : ''}
-          ${p.birth_date ? `<span class="pill">Born ${esc(p.birth_date.slice(0, 4))}</span>` : ''}
+          ${p.birth_date ? `<span class="pill">b. ${esc(p.birth_date.slice(0, 4))}</span>` : ''}
+          ${p.death_date ? `<span class="pill">d. ${esc(p.death_date.slice(0, 4))}</span>` : ''}
           ${linked ? '<span class="pill">Has account</span>' : ''}</div>
       </div>
       <div class="ph-actions">
         ${linked && linked.email ? `<a class="btn btn-primary btn-sm" href="mailto:${esc(linked.email)}">Message</a>` : ''}
         ${linked && linked.phone ? `<a class="btn btn-outline btn-sm" href="tel:${esc(linked.phone)}">Call</a>` : ''}
-        <button class="btn btn-outline btn-sm" onclick="navigate('tree',{person:'${p.id}'})">View in tree →</button>
-        ${linked && linked.id === userId ? `<button class="btn btn-outline btn-sm" onclick="navigate('settings')">Edit profile</button>` : ''}
+        <button class="btn btn-outline btn-sm" onclick="navigate('tree',{person:'${p.id}'})">View in tree</button>
+        ${canEdit ? `<button class="btn btn-outline btn-sm" onclick="openPersonForm('${p.id}')">Edit details</button>` : ''}
       </div>
     </div>
 
-    <div class="profile-grid">
-      <div class="profile-col">
-        <div class="card"><div class="section-label" style="margin-bottom:.7rem">About</div>
-          <p class="about-text">${p.bio ? esc(p.bio) : '<span style="color:var(--text-muted)">No bio yet.</span>'}</p></div>
-        ${linked ? `<div class="card"><div class="section-label" style="margin-bottom:.7rem">Contact</div>
+    <div class="profile-grid-3col">
+      <div class="facts-card card" id="facts-section">
+        ${_renderFactsHTML(id, facts, canEdit)}
+      </div>
+
+      <aside class="profile-sidebar">
+        <div class="card">
+          <div class="section-label" style="margin-bottom:.7rem">About</div>
+          <p class="about-text">${p.bio ? esc(p.bio) : '<span style="color:var(--text-muted)">No bio yet.</span>'}</p>
+        </div>
+
+        ${linked ? `<div class="card">
+          <div class="section-label" style="margin-bottom:.7rem">Contact</div>
           ${linked.email ? `<div class="contact-row"><span>✉</span><span>${esc(linked.email)}</span></div>` : ''}
           ${linked.phone ? `<div class="contact-row"><span>☎</span><span>${esc(linked.phone)}</span></div>` : ''}
           ${!linked.email && !linked.phone ? '<p style="color:var(--text-muted);font-size:.86rem">No contact details shared.</p>' : ''}</div>` : ''}
-        <div class="card"><div class="section-label" style="margin-bottom:.7rem">Family connections</div>
+
+        <div class="card">
+          <div class="section-label" style="margin-bottom:.7rem">Family</div>
           ${conn('Father', ex.father)}${conn('Mother', ex.mother)}
           ${partners.map(pt => conn('Partner', pt)).join('')}
           ${children.map(ch => conn('Child', ch)).join('')}
-          ${!ex.father && !ex.mother && !partners.length && !children.length ? '<p style="color:var(--text-muted);font-size:.86rem">No connections linked yet.</p>' : ''}</div>
-      </div>
-      <aside class="profile-col">
-        <div class="card"><div class="section-label" style="margin-bottom:.9rem">Life events</div>
-          ${events.length ? `<div class="timeline">${events.map(e => `<div class="tl-item"><div class="tl-dot"></div>
-            <div><div class="tl-title">${esc(e.title)}</div><div class="tl-year">${esc(e.year)}</div></div></div>`).join('')}</div>`
-            : '<p style="color:var(--text-muted);font-size:.86rem">No dated events.</p>'}</div>
-        <div class="card"><div class="section-label" style="margin-bottom:.9rem">Photos</div>
+          ${!ex.father && !ex.mother && !partners.length && !children.length ? '<p style="color:var(--text-muted);font-size:.86rem">No connections linked yet.</p>' : ''}
+        </div>
+
+        <div class="card">
+          <div class="section-label" style="margin-bottom:.9rem">Photos</div>
           ${photos.length ? `<div class="photo-mini">${photos.slice(0, 6).map(ph =>
-            `<img src="${fileUrl('photos', ph, 'image_url')}" alt="">`).join('')}</div>
+            `<img src="${fileUrl('photos', ph, 'image_url')}" alt="" style="cursor:pointer">`).join('')}</div>
             <div class="link" style="margin-top:.6rem;font-size:.82rem" onclick="navigate('gallery')">See all →</div>`
-            : '<p style="color:var(--text-muted);font-size:.86rem">No tagged photos.</p>'}</div>
+            : '<p style="color:var(--text-muted);font-size:.86rem">No tagged photos.</p>'}
+        </div>
       </aside>
     </div>
   </div>`);
