@@ -71,6 +71,9 @@ input:focus,textarea:focus,select:focus{
 input::placeholder,textarea::placeholder{color:var(--text-muted)}
 .form-group{margin-bottom:1rem}
 .row-2{display:grid;grid-template-columns:1fr 1fr;gap:.85rem}
+.row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.85rem}
+.label-note{font-weight:400;text-transform:none;letter-spacing:0;font-size:.75rem;color:var(--text-muted)}
+.pill-muted{background:var(--bg-hover);color:var(--text-secondary);border:1px solid var(--border-default)}
 .date-picker-row{display:flex;gap:6px}
 .dp-qual{flex:0 0 96px;width:96px}
 .dp-day{flex:0 0 64px;width:64px;padding:0 8px;text-align:center}

@@ -1149,11 +1149,40 @@ async function viewUserInTree(uid){
 
 function formErr(id, msg){ const e = el(id); if (e) { e.textContent = msg; e.style.display = ''; } }
 
+let _pfNameManual = false;
+function pfAutoName(){
+  if (_pfNameManual) return;
+  const composed = [val('pf-first'), val('pf-mid'), val('pf-last')].filter(Boolean).join(' ');
+  const dn = el('pf-name'); if (dn) dn.value = composed;
+}
+
 async function openPersonForm(id){
   const p = id ? await getPerson(id) : {};
+  const first = p.given_name || '';
+  const mid   = p.middle_name || '';
+  const last  = p.family_name || '';
+  const autoName = [first, mid, last].filter(Boolean).join(' ');
+  const displayName = p.display_name || autoName;
+  _pfNameManual = !!(displayName && displayName !== autoName);
+
   openModal(`<h2 class="card-title">${id ? 'Edit person' : 'Add person'}</h2>
     <div id="pf-error" class="alert alert-error" style="display:none"></div>
-    <div class="form-group"><label>Name</label><input id="pf-name" value="${esc(p.display_name || '')}" /></div>
+    <div class="row-3">
+      <div class="form-group"><label>First name</label>
+        <input id="pf-first" value="${esc(first)}" oninput="pfAutoName()" autocomplete="off" /></div>
+      <div class="form-group"><label>Middle name</label>
+        <input id="pf-mid" value="${esc(mid)}" oninput="pfAutoName()" autocomplete="off" /></div>
+      <div class="form-group"><label>Last name</label>
+        <input id="pf-last" value="${esc(last)}" oninput="pfAutoName()" autocomplete="off" /></div>
+    </div>
+    <div class="form-group">
+      <label>Birth surname <span class="label-note">(if different from last name — maiden name, name before adoption, etc.)</span></label>
+      <input id="pf-birth-surname" value="${esc(p.birth_surname || '')}" placeholder="e.g. ${esc(last) || 'Smith'}" autocomplete="off" />
+    </div>
+    <div class="form-group">
+      <label>Display name <span class="label-note">auto-filled — override for nicknames, suffixes (Jr, III), etc.</span></label>
+      <input id="pf-name" value="${esc(displayName)}" oninput="_pfNameManual=true" autocomplete="off" />
+    </div>
     <div class="form-group"><label>Gender</label>
       <select id="pf-gender">${['unknown','male','female','other'].map(g =>
         `<option value="${g}" ${p.gender === g ? 'selected' : ''}>${g}</option>`).join('')}</select></div>
@@ -1167,13 +1196,18 @@ async function openPersonForm(id){
     </div>`);
 }
 async function savePerson(id){
-  const name = val('pf-name');
-  if (!name) return formErr('pf-error', 'Name is required.');
+  const first = val('pf-first');
+  const mid   = val('pf-mid');
+  const last  = val('pf-last');
+  if (!first && !last) return formErr('pf-error', 'First or last name is required.');
+  const autoName = [first, mid, last].filter(Boolean).join(' ');
+  const displayName = val('pf-name') || autoName;
   const fd = new FormData();
-  fd.append('display_name', name);
-  const parts = name.split(' ');
-  fd.append('given_name', parts[0] || '');
-  fd.append('family_name', parts.slice(1).join(' ') || '');
+  fd.append('display_name', displayName);
+  fd.append('given_name', first);
+  fd.append('middle_name', mid);
+  fd.append('family_name', last);
+  fd.append('birth_surname', val('pf-birth-surname'));
   fd.append('gender', el('pf-gender').value);
   fd.append('birth_date', _composeDateText('pf-birth'));
   fd.append('death_date', _composeDateText('pf-death'));
@@ -1975,6 +2009,7 @@ SCREENS.profile = async function(params){
           ${branch ? `<span class="pill">${esc(branch)}</span>` : ''}
           ${p.birth_date ? `<span class="pill">b. ${esc(_parseYearFromDate(p.birth_date) || p.birth_date)}</span>` : ''}
           ${p.death_date ? `<span class="pill">d. ${esc(_parseYearFromDate(p.death_date) || p.death_date)}</span>` : ''}
+          ${p.birth_surname && p.birth_surname !== p.family_name ? `<span class="pill pill-muted">born ${esc(p.birth_surname)}</span>` : ''}
           ${linked ? '<span class="pill">Has account</span>' : ''}
         </div>
       </div>
