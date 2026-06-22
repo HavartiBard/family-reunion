@@ -384,7 +384,7 @@ async function showTreeClaimStep(first, last){
       </div>
       <div id="claim-results"></div>
       <button class="btn btn-outline btn-full" style="margin-top:1rem"
-        onclick="skipClaim('${esc(first)}','${esc(last)}')">
+        onclick="skipClaim()">
         I'm not in the tree yet — add me as new
       </button>
     </div>
@@ -431,13 +431,26 @@ async function submitClaim(personId){
   }
 }
 
-async function skipClaim(first, last){
+async function skipClaim(){
+  // Use whatever is in the search box — could have been edited by user
+  const searchVal = (document.getElementById('claim-search') || {}).value || '';
+  const parts = searchVal.trim().split(/\s+/).filter(Boolean);
+  const first = parts[0] || '';
+  const last = parts.slice(1).join(' ') || '';
+  const displayName = `${first} ${last}`.trim();
+
+  if (!displayName) {
+    const errEl = document.getElementById('claim-results');
+    if (errEl) errEl.innerHTML = '<div class="alert alert-error" style="margin-bottom:.5rem">Please enter your name in the search box above first.</div>';
+    return;
+  }
+
   let personId = null;
   try {
     const res = await apiFetch('/api/collections/persons/records', {
       method:'POST', headers:{ 'Content-Type':'application/json' },
       body: JSON.stringify({
-        display_name: `${first} ${last}`.trim(),
+        display_name: displayName,
         given_name: first,
         family_name: last,
         living: true,
@@ -445,8 +458,9 @@ async function skipClaim(first, last){
       })
     });
     if (res.ok) { const p = await res.json(); personId = p.id; }
-  } catch { /* non-fatal */ }
-  showFamilyWizard(personId);
+    else { const d = await res.json(); toast(d.message || 'Could not create your profile', 'error'); }
+  } catch (e) { toast(e.message, 'error'); }
+  if (personId) showFamilyWizard(personId);
 }
 
 // ── Family onboarding wizard ─────────────────────────────────────────────────
@@ -575,8 +589,8 @@ async function _wizCreateAndSelect(name, role){
     family_name: parts.slice(1).join(' ') || '',
     living: true
   };
-  if (role === 'father') body.gender = 'm';
-  if (role === 'mother') body.gender = 'f';
+  if (role === 'father') body.gender = 'male';
+  if (role === 'mother') body.gender = 'female';
   try {
     const r = await apiFetch('/api/collections/persons/records', {
       method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
@@ -589,26 +603,30 @@ async function _wizCreateAndSelect(name, role){
 }
 
 async function _wizLinkRelation(relatedId, role){
-  if (!_wiz.personId) { _wizDoneStep(); return; }
+  if (!_wiz.personId) {
+    _wizDoneStep(); // no user person record yet — still advance the step
+    return;
+  }
   try {
     if (role === 'father' || role === 'mother') {
-      await apiFetch(`/api/collections/persons/records/${_wiz.personId}`, {
+      const r = await apiFetch(`/api/collections/persons/records/${_wiz.personId}`, {
         method:'PATCH', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ [role]: relatedId })
       });
+      if (!r.ok) { const d = await r.json(); throw new Error(d.message || 'Could not link relation'); }
       toast(`${role === 'father' ? 'Father' : 'Mother'} added to your profile.`, 'success');
       _wizDoneStep();
     } else if (role === 'child') {
-      // Determine whether to set child's father or mother based on gender
-      const field = _wiz.gender === 'f' ? 'mother' : 'father';
-      await apiFetch(`/api/collections/persons/records/${relatedId}`, {
+      const field = _wiz.gender === 'female' ? 'mother' : 'father';
+      const r = await apiFetch(`/api/collections/persons/records/${relatedId}`, {
         method:'PATCH', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ [field]: _wiz.personId })
       });
+      if (!r.ok) { const d = await r.json(); throw new Error(d.message || 'Could not link child'); }
       _wiz.childrenAdded++;
       _wizAllPersons = null;
       toast(`Child added.`, 'success');
-      _renderWizStep(); // stay on children step to add more
+      _renderWizStep();
     }
   } catch(e){ toast(e.message, 'error'); }
 }
