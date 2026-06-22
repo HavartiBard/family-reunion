@@ -225,6 +225,14 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
   transition:all .15s;white-space:nowrap}
 .ts-pill:hover{border-color:var(--tc, var(--accent-gold));color:var(--tc, var(--text-primary))}
 .ts-pill.active{background:var(--tc,var(--text-primary));color:#fff;border-color:var(--tc,var(--text-primary))}
+.ts-pill.ts-unsaved{border-style:dashed;opacity:.75}
+.ts-pill-wrap{display:inline-flex;align-items:center}
+.ts-edit-btn{width:20px;height:20px;padding:0;border:none;background:transparent;cursor:pointer;
+  font-size:11px;color:var(--text-muted);border-radius:4px;display:inline-flex;align-items:center;
+  justify-content:center;transition:background .1s,color .1s;margin-left:1px;flex-shrink:0}
+.ts-edit-btn:hover{background:var(--bg-hover);color:var(--text-primary)}
+.ts-add-btn{border-style:dashed;color:var(--text-muted)}
+.ts-add-btn:hover{border-color:var(--text-primary);color:var(--text-primary);border-style:solid}
 .tree-vp{flex:1;position:relative;overflow:hidden;cursor:grab;
   background:#ede8df;
   background-image:radial-gradient(#d8d0c2 1.2px,transparent 1.2px);background-size:24px 24px}

@@ -1040,7 +1040,7 @@ const _tS = {
   persons: new Map(), childrenOf: new Map(),
   focusId: null, focusPartners: [],
   collapsed: new Set(),
-  trees: [], activeTree: null,
+  trees: [], storedTrees: [], activeTree: null,
   pan: {x:0,y:0}, zoom: 1,
   dragging: false, dragLast: {x:0,y:0},
   ctxId: null, _offset: null, loading: false,
@@ -1057,9 +1057,24 @@ function _computeTrees(){
   for (const p of _tS.persons.values()){
     const s = (p.family_name||'').trim(); if (s) counts.set(s, (counts.get(s)||0)+1);
   }
-  // Sort by frequency descending so the most common surnames get top-palette colors
   const sorted = [...counts.entries()].sort((a,b)=>b[1]-a[1]);
-  _tS.trees = sorted.map(([name,count],i) => ({name, count, color:_TREE_COLORS[i%_TREE_COLORS.length]}));
+  _tS.trees = sorted.map(([name,count],i) => {
+    // Match stored tree by surname field, then by name
+    const stored = _tS.storedTrees.find(t => (t.surname||t.name) === name);
+    return {
+      name,
+      count,
+      color: (stored && stored.color) || _TREE_COLORS[i % _TREE_COLORS.length],
+      rootPersonId: (stored && stored.root_person) || null,
+      id: (stored && stored.id) || null,
+    };
+  });
+}
+async function tpLoadStoredTrees(){
+  try {
+    const res = await apiFetch('/api/collections/trees/records?perPage=100&sort=name');
+    _tS.storedTrees = res.ok ? (await res.json()).items : [];
+  } catch(e){ _tS.storedTrees = []; }
 }
 const _TW = 160, _TH = 88, _THG = 28, _TVG = 100; // node w/h, h-gap, v-gap
 
@@ -1086,7 +1101,7 @@ SCREENS.tree = function(params){
     </div>
   </div>`);
   _tS.persons.clear(); _tS.childrenOf.clear(); _tS.focusPartners = [];
-  _tS.collapsed.clear(); _tS.ctxId = null; _tS.trees = []; _tS.activeTree = null;
+  _tS.collapsed.clear(); _tS.ctxId = null; _tS.trees = []; _tS.storedTrees = []; _tS.activeTree = null;
   _tS.pan = {x:0,y:0}; _tS.zoom = 1;
   tpLoad((params && params.person) || treeFocusId || null);
 };
@@ -1121,6 +1136,7 @@ async function tpLoad(focusId){
         _tS.focusPartners.forEach(p => _tS.persons.set(p.id, p));
       }),
     ]);
+    await tpLoadStoredTrees();
     _computeTrees();
     tpRender(); tpCenterFocus();
   } finally { _tS.loading = false; }
@@ -1284,16 +1300,105 @@ function tpRender(){
 function tpRenderSelector(){
   const sel = el('tree-selector'); if (!sel) return;
   if (!_tS.trees.length){ sel.innerHTML = ''; return; }
+  const isAdmin = !!(currentUser && currentUser.family_admin);
   const all = `<button class="ts-pill${!_tS.activeTree?' active':''}" onclick="tpSelectTree(null)">All</button>`;
-  const pills = _tS.trees.map(t =>
-    `<button class="ts-pill${_tS.activeTree===t.name?' active':''}" style="--tc:${t.color}" onclick="tpSelectTree(${JSON.stringify(t.name)})" title="${esc(t.name)} lineage">${esc(t.name)}</button>`
-  ).join('');
-  sel.innerHTML = all + pills;
+  const pills = _tS.trees.map(t => {
+    const active = _tS.activeTree === t.name;
+    const saved = t.id ? '' : ' ts-unsaved';
+    const editBtn = isAdmin
+      ? `<button class="ts-edit-btn" onclick="tpOpenTreeEdit(${JSON.stringify(t.name)})" title="Configure ${esc(t.name)} tree">✎</button>`
+      : '';
+    return `<span class="ts-pill-wrap">` +
+      `<button class="ts-pill${active?' active':''}${saved}" style="--tc:${t.color}" onclick="tpSelectTree(${JSON.stringify(t.name)})" title="${esc(t.name)} lineage${t.id?'':' (unsaved)'}">${esc(t.name)}</button>` +
+      editBtn + `</span>`;
+  }).join('');
+  const addBtn = isAdmin
+    ? `<button class="ts-pill ts-add-btn" onclick="tpOpenTreeEdit(null)" title="Add a new tree">+ Tree</button>`
+    : '';
+  sel.innerHTML = all + pills + addBtn;
 }
+
+// Tree management (admin only)
+function tpOpenTreeEdit(surname){
+  if (!(currentUser && currentUser.family_admin)) return;
+  const tree = surname ? (_tS.trees.find(t=>t.name===surname)||{name:surname,color:'#7b5ea7',rootPersonId:null,id:null}) : {name:'',color:'#7b5ea7',rootPersonId:null,id:null};
+  const rootPerson = (tree.rootPersonId && _tS.persons.get(tree.rootPersonId)) || null;
+  const rootName = rootPerson ? rootPerson.display_name : '';
+  openModal(`<h2 class="card-title">${tree.id?'Edit':'Add'} Tree${surname?' — '+esc(surname):''}</h2>
+    <div id="te-error" class="alert alert-error" style="display:none"></div>
+    <div class="form-group"><label>Tree name</label>
+      <input id="te-name" value="${esc(tree.name)}" placeholder="e.g. Kelsall" autocomplete="off" /></div>
+    <div class="form-group"><label>Surname <span class="label-note">(matches persons by family name)</span></label>
+      <input id="te-surname" value="${esc(surname||tree.name||'')}" placeholder="e.g. Kelsall" autocomplete="off" /></div>
+    <div class="form-group"><label>Color</label>
+      <input type="color" id="te-color" value="${tree.color||'#7b5ea7'}" style="width:100%;height:40px;cursor:pointer;border-radius:7px;border:1px solid var(--border-default)" /></div>
+    <div class="form-group"><label>Root person <span class="label-note">(oldest known ancestor — sets the landing point when centering this tree)</span></label>
+      <input id="te-root-search" placeholder="Search by name…" value="${esc(rootName)}" oninput="tpTreeRootSearch()" autocomplete="off" />
+      <input type="hidden" id="te-root-id" value="${esc(tree.rootPersonId||'')}" />
+      <div id="te-root-results"></div></div>
+    <div style="display:flex;gap:.6rem;margin-top:.5rem">
+      <button class="btn btn-primary" onclick="tpSaveTree(${JSON.stringify(tree.id||'')})">Save</button>
+      ${tree.id?`<button class="btn btn-outline" style="color:var(--error,#c0392b)" onclick="tpDeleteTree(${JSON.stringify(tree.id)},${JSON.stringify(surname||tree.name)})">Delete</button>`:''}
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    </div>`);
+}
+let _tpRootTimer = null;
+function tpTreeRootSearch(){
+  clearTimeout(_tpRootTimer);
+  _tpRootTimer = setTimeout(async ()=>{
+    const q = val('te-root-search'); const res = el('te-root-results'); if (!res) return;
+    if (!q){ res.innerHTML=''; return; }
+    const r = await apiFetch('/api/collections/persons/records?perPage=6&filter='+encodeURIComponent(`display_name~"${q}"`));
+    const items = r.ok ? (await r.json()).items : [];
+    res.innerHTML = items.map(p =>
+      `<button class="row-card" onclick="tpSetTreeRoot('${p.id}','${esc(p.display_name)}')">
+        <div class="avatar" style="width:32px;height:32px;font-size:.75rem;background:${avatarTint(0)}">${personInitials(p)}</div>
+        <div><div class="rc-name">${esc(p.display_name)}</div><div class="rc-sub">${personYears(p)}</div></div></button>`
+    ).join('');
+  }, 250);
+}
+function tpSetTreeRoot(id, name){
+  const ri=el('te-root-id'),rs=el('te-root-search'),rr=el('te-root-results');
+  if(ri) ri.value=id; if(rs) rs.value=name; if(rr) rr.innerHTML='';
+}
+async function tpSaveTree(existingId){
+  const name = val('te-name'); const surname = val('te-surname');
+  const color = (el('te-color')||{}).value||'#7b5ea7';
+  const rootId = val('te-root-id')||'';
+  if (!name) return formErr('te-error','Tree name is required.');
+  try {
+    const body = {name, surname:surname||name, color, created_by:userId};
+    if (rootId) body.root_person = rootId;
+    let res;
+    if (existingId) res = await apiFetch(`/api/collections/trees/records/${existingId}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    else            res = await apiFetch('/api/collections/trees/records',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if (!res.ok){ const d=await res.json(); throw new Error(d.message||'Save failed'); }
+    const saved = await res.json();
+    const idx = _tS.storedTrees.findIndex(t=>t.id===existingId);
+    if (idx>=0) _tS.storedTrees[idx]=saved; else _tS.storedTrees.push(saved);
+    _computeTrees(); closeModal(); toast('Tree saved.','success'); tpRender();
+  } catch(e){ formErr('te-error',e.message); }
+}
+async function tpDeleteTree(treeId, surname){
+  if (!confirm(`Delete the "${surname}" tree config?\nPeople are not affected — only the color/root settings are removed.`)) return;
+  const res = await apiFetch(`/api/collections/trees/records/${treeId}`,{method:'DELETE'});
+  if (res.ok||res.status===404){
+    _tS.storedTrees = _tS.storedTrees.filter(t=>t.id!==treeId);
+    if (_tS.activeTree===surname) _tS.activeTree=null;
+    _computeTrees(); closeModal(); toast('Tree deleted.','success'); tpRender();
+  } else { toast('Delete failed.','error'); }
+}
+
 async function tpSelectTree(surname){
   _tS.activeTree = surname || null;
   if (!surname){ tpRender(); return; }
-  // Find the oldest-known person in this tree (lowest birth year = likely most ancestral)
+  // Use stored root_person if set
+  const tree = _tS.trees.find(t => t.name === surname);
+  if (tree && tree.rootPersonId){
+    await tpSetFocus(tree.rootPersonId);
+    return;
+  }
+  // Fall back to oldest known ancestor with this surname in the current view
   const candidates = [..._tS.persons.values()].filter(p => p.family_name === surname);
   if (!candidates.length){ tpRender(); return; }
   const root = candidates.sort((a,b) => {
