@@ -252,6 +252,13 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
 .tn-card.anc{opacity:.88}
 .tn-card.partner{border-style:dashed}
 .tn-card.sibling{opacity:.82;border-style:dashed;border-color:var(--border-muted,#d6cfc4)}
+.tn-card.sib-partner{opacity:.72;border-style:dotted;border-color:var(--border-muted,#d6cfc4)}
+.tn-branch{position:absolute;height:22px;border-radius:6px;
+  border:1.5px dashed var(--tc,var(--border-default));background:#f5f2ec;
+  display:flex;align-items:center;justify-content:center;padding:0 8px;
+  font-size:10px;font-weight:600;color:var(--text-muted);cursor:pointer;
+  white-space:nowrap;transition:background .12s,color .12s}
+.tn-branch:hover{background:var(--tc,var(--accent-gold));color:#fff;border-color:var(--tc,var(--accent-gold))}
 .tn-card.col{opacity:.55}
 .tn-card.dimmed{opacity:.25;filter:grayscale(.5)}
 .tn-av{width:42px;height:42px;border-radius:50%;flex-shrink:0;

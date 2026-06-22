@@ -1040,7 +1040,7 @@ const _tS = {
   persons: new Map(), childrenOf: new Map(),
   focusId: null, focusPartners: [],
   collapsed: new Set(),
-  siblings: [], sibsCollapsed: true,
+  siblings: [], sibsCollapsed: true, siblingCouples: new Map(),
   trees: [], storedTrees: [], activeTree: null,
   pan: {x:0,y:0}, zoom: 1,
   dragging: false, dragLast: {x:0,y:0},
@@ -1128,7 +1128,7 @@ async function tpLoad(focusId){
     _tS.focusId = startId; treeFocusId = startId;
     history.replaceState({}, '', `${location.pathname}?tab=tree&person=${startId}`);
     _tS.persons.clear(); _tS.childrenOf.clear(); _tS.focusPartners = [];
-    _tS.siblings = []; _tS.sibsCollapsed = true;
+    _tS.siblings = []; _tS.sibsCollapsed = true; _tS.siblingCouples = new Map();
     await Promise.all([
       tpFetchUp(startId, 0),
       tpFetchDown(startId, 0),
@@ -1138,7 +1138,7 @@ async function tpLoad(focusId){
         _tS.focusPartners.forEach(p => _tS.persons.set(p.id, p));
       }),
     ]);
-    // Fetch siblings (other children of focus's parents)
+    // Fetch siblings (other children of focus's parents) and their first partners
     const focPerson = _tS.persons.get(startId);
     if (focPerson) {
       const sibParentId = focPerson.father || focPerson.mother;
@@ -1146,6 +1146,14 @@ async function tpLoad(focusId){
         const sibList = await getChildren(sibParentId);
         _tS.siblings = sibList.filter(s => s.id !== startId);
         _tS.siblings.forEach(s => _tS.persons.set(s.id, s));
+        await Promise.all(_tS.siblings.map(async s => {
+          const couples = await getCouplesFor(s.id);
+          const pid = couples.length ? (couples[0].partner_a === s.id ? couples[0].partner_b : couples[0].partner_a) : null;
+          if (pid) {
+            const partner = await getPerson(pid);
+            if (partner) { _tS.siblingCouples.set(s.id, partner); _tS.persons.set(partner.id, partner); }
+          }
+        }));
       }
     }
     await tpLoadStoredTrees();
@@ -1206,13 +1214,15 @@ function _descW(id, depth){
   return Math.max(_TW, ch.reduce((s,c) => s + _descW(c.id, depth+1) + _THG, -_THG));
 }
 // Place descendant nodes recursively
-function _descPlace(id, depth, cx, nodes, edges, parentCX, parentY){
+// edgeStartY: if set, overrides the y1 of the edge from this parent to its children (first level only)
+function _descPlace(id, depth, cx, nodes, edges, parentCX, parentY, edgeStartY){
   if (!id || !_tS.persons.has(id)) return;
   const p = _tS.persons.get(id);
   const y = depth * (_TH + _TVG);
   if (depth > 0){
     nodes.push({id, x: cx-_TW/2, y, person:p, role:'desc', d:depth});
-    if (parentCX !== null) edges.push({x1:parentCX, y1:parentY+_TH, x2:cx, y2:y});
+    if (parentCX !== null)
+      edges.push({x1:parentCX, y1:(edgeStartY !== undefined ? edgeStartY : parentY+_TH), x2:cx, y2:y});
   }
   if (depth >= 3 || _tS.collapsed.has(id)) return;
   const ch = _tS.childrenOf.get(id) || [];
@@ -1221,7 +1231,8 @@ function _descPlace(id, depth, cx, nodes, edges, parentCX, parentY){
   const total = ws.reduce((s,w) => s+w+_THG, -_THG);
   let x = cx - total/2;
   for (let i=0; i<ch.length; i++){
-    _descPlace(ch[i].id, depth+1, x+ws[i]/2, nodes, edges, cx, y);
+    // pass edgeStartY only one level deep (focus→child), not grandchild+
+    _descPlace(ch[i].id, depth+1, x+ws[i]/2, nodes, edges, cx, y, depth===0 ? edgeStartY : undefined);
     x += ws[i] + _THG;
   }
 }
@@ -1230,12 +1241,12 @@ function tpComputeLayout(){
   const nodes=[], edges=[];
   _ancPlace(_tS.focusId, 0, 0, nodes, edges, null, null);
 
-  // Compute couple midpoint so children edge from between both parents
+  // Children edge branches from the couple connector line mid-point
   const numPartners = _tS.focusPartners.length;
-  // Focus cx=0; first partner cx = TW + THG (= 188 with current constants)
-  const coupleCX = numPartners > 0 ? (_TW + _THG) / 2 : 0;
+  const coupleCX = numPartners > 0 ? (_TW + _THG) / 2 : 0; // midpoint between focus(cx=0) and partner(cx=TW+THG)
+  const edgeStartY = numPartners > 0 ? _TH / 2 : undefined; // intersect with couple line
 
-  _descPlace(_tS.focusId, 0, coupleCX, nodes, edges, null, null);
+  _descPlace(_tS.focusId, 0, coupleCX, nodes, edges, null, null, edgeStartY);
 
   // Partners of focus placed to the right
   const foc = nodes.find(n => n.id === _tS.focusId);
@@ -1248,22 +1259,30 @@ function tpComputeLayout(){
     }
   }
 
-  // Siblings of focus placed to the left (when expanded)
+  // Siblings of focus placed to the left (when expanded), with their first partner
   if (_tS.siblings.length && !_tS.sibsCollapsed && foc){
     const focPerson = _tS.persons.get(_tS.focusId);
-    // Find shared parent node already placed by _ancPlace
     const parNode = focPerson && (
       nodes.find(n => n.id === focPerson.father) ||
       nodes.find(n => n.id === focPerson.mother)
     );
-    let sx = foc.x; // right edge of leftmost sibling starts at focus left edge
+    let sx = foc.x;
     for (let i = _tS.siblings.length - 1; i >= 0; i--){
       const s = _tS.siblings[i];
-      const sibX = sx - _THG - _TW;
-      const sibCX = sibX + _TW / 2;
+      // Place sibling card
+      sx -= _THG + _TW;
+      const sibX = sx, sibCX = sibX + _TW/2;
       nodes.push({id:s.id, x:sibX, y:0, person:s, role:'sibling', d:0});
       if (parNode) edges.push({x1:parNode.x + _TW/2, y1:parNode.y + _TH, x2:sibCX, y2:0});
-      sx = sibX;
+      // Place sibling's partner further left (same couple-line pattern, mirrored)
+      const sp = _tS.siblingCouples.get(s.id);
+      if (sp){
+        sx -= _THG + _TW;
+        const spX = sx;
+        nodes.push({id:sp.id, x:spX, y:0, person:sp, role:'sib-partner', d:0});
+        // Dashed couple connector: partner right-edge → sibling left-edge
+        edges.push({x1:spX + _TW, y1:_TH/2, x2:sibX, y2:_TH/2, type:'partner'});
+      }
     }
   }
 
@@ -1325,10 +1344,18 @@ function tpRender(){
     const treeColor = _treeColorFor(p.family_name);
     const dimmed = _tS.activeTree && p.family_name !== _tS.activeTree;
     const tcStyle = treeColor ? `;--tc:${treeColor}` : '';
-    const cls = ['tn-card', isFocus?'focus':'', n.role==='anc'?'anc':'', n.role==='partner'?'partner':'', n.role==='sibling'?'sibling':'', isCol?'col':'', dimmed?'dimmed':''].filter(Boolean).join(' ');
+    const cls = ['tn-card', isFocus?'focus':'', n.role==='anc'?'anc':'', n.role==='partner'?'partner':'',
+      n.role==='sibling'?'sibling':'', n.role==='sib-partner'?'sib-partner':'',
+      isCol?'col':'', dimmed?'dimmed':''].filter(Boolean).join(' ');
     html += `<div class="${cls}" style="left:${nx}px;top:${ny}px${tcStyle}" onclick="tpNodeClick(event,'${n.id}')">
       ${av}<div class="tn-info"><div class="tn-name">${esc(p.display_name)}</div>${years?`<div class="tn-years">${esc(years)}</div>`:''}</div>
       ${expBtn}${moreBtn}</div>`;
+    // Branch indicator: small pill above partner/sib-partner nodes with ancestors
+    if ((n.role==='partner' || n.role==='sib-partner') && (p.father || p.mother)){
+      const bLabel = p.family_name ? `↑ ${esc(p.family_name)}` : '↑ family';
+      const bW = 90, bX = nx + (_TW - bW)/2, bY = ny - 28;
+      html += `<div class="tn-branch" style="left:${bX}px;top:${bY}px${tcStyle}" onclick="tpSetFocus('${n.id}')" title="Explore ${esc(p.display_name)}'s family">${bLabel}</div>`;
+    }
   }
 
   inner.style.cssText = `width:${cW}px;height:${cH}px;position:relative`;
