@@ -72,6 +72,61 @@ function _parseYearFromDate(s){
   return m ? parseInt(m[1]) : null;
 }
 
+// ── Genealogy date picker ─────────────────────────────────────────────────────
+const _DP_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const _DP_MONTH_ALT = {
+  january:'Jan', february:'Feb', march:'Mar', april:'Apr', may:'May', june:'Jun',
+  july:'Jul', august:'Aug', september:'Sep', october:'Oct', november:'Nov', december:'Dec'
+};
+const _DP_QUALS = { abt:'Abt', about:'Abt', bef:'Bef', before:'Bef', aft:'Aft', after:'Aft', cir:'Cir', circa:'Cir', ca:'Abt' };
+
+function _parseDateText(s){
+  if (!s) return { qual:'', day:'', month:'', year:'' };
+  let rest = s.trim(), qual = '', day = '', month = '', year = '';
+  for (const [k, v] of Object.entries(_DP_QUALS)){
+    if (new RegExp('^' + k + '(?:\\s|$)', 'i').test(rest)){
+      qual = v; rest = rest.slice(k.length).trim(); break;
+    }
+  }
+  const yr = rest.match(/\b(\d{4})\b/);
+  if (yr){ year = yr[1]; rest = (rest.slice(0, yr.index) + rest.slice(yr.index + 4)).trim(); }
+  for (const m of _DP_MONTHS){
+    if (new RegExp('\\b' + m + '\\b', 'i').test(rest)){ month = m; rest = rest.replace(new RegExp('\\b' + m + '\\b', 'i'), '').trim(); break; }
+  }
+  if (!month){
+    for (const [k, v] of Object.entries(_DP_MONTH_ALT)){
+      if (new RegExp('\\b' + k + '\\b', 'i').test(rest)){ month = v; rest = rest.replace(new RegExp('\\b' + k + '\\b', 'i'), '').trim(); break; }
+    }
+  }
+  const dm = rest.match(/\b(\d{1,2})\b/);
+  if (dm){ const d = parseInt(dm[1]); if (d >= 1 && d <= 31) day = String(d); }
+  return { qual, day, month, year };
+}
+
+function _composeDateText(id){
+  const qual  = (el(id + '-qual')  || {}).value || '';
+  const day   = ((el(id + '-day')  || {}).value || '').trim();
+  const month = (el(id + '-mon')   || {}).value || '';
+  const year  = ((el(id + '-year') || {}).value || '').trim();
+  if (!year && !month && !day) return '';
+  const d = day && parseInt(day) > 0 ? String(parseInt(day)) : '';
+  return [qual, d, month, year].filter(Boolean).join(' ');
+}
+
+function _datePicker(id, current){
+  const { qual, day, month, year } = _parseDateText(current);
+  const qualOpts = [['','Exact'],['Abt','About'],['Bef','Before'],['Aft','After'],['Cir','Circa']]
+    .map(([v,l]) => `<option value="${v}"${v===qual?' selected':''}>${l}</option>`).join('');
+  const monOpts = ['', ..._DP_MONTHS]
+    .map(m => `<option value="${m}"${m===month?' selected':''}>${m||'Month'}</option>`).join('');
+  return `<div class="date-picker-row">
+    <select id="${id}-qual" class="dp-qual">${qualOpts}</select>
+    <input  id="${id}-day"  class="dp-day"  type="number" min="1" max="31" placeholder="Day"  value="${esc(day)}" />
+    <select id="${id}-mon"  class="dp-mon">${monOpts}</select>
+    <input  id="${id}-year" class="dp-year" type="number" min="1" max="2099" placeholder="Year" value="${esc(year)}" />
+  </div>`;
+}
+
 function _sortFacts(facts){
   const catPri = { vital:0, religious:1, life:2, family:3, attribute:4, other:5 };
   // Within vital, birth always first, then burial/cremation after death
@@ -1102,10 +1157,8 @@ async function openPersonForm(id){
     <div class="form-group"><label>Gender</label>
       <select id="pf-gender">${['unknown','male','female','other'].map(g =>
         `<option value="${g}" ${p.gender === g ? 'selected' : ''}>${g}</option>`).join('')}</select></div>
-    <div class="row-2">
-      <div class="form-group"><label>Birth</label><input id="pf-birth" value="${esc(p.birth_date || '')}" placeholder="1947 or 1947-03-12" /></div>
-      <div class="form-group"><label>Death</label><input id="pf-death" value="${esc(p.death_date || '')}" placeholder="blank if living" /></div>
-    </div>
+    <div class="form-group"><label>Birth date</label>${_datePicker('pf-birth', p.birth_date || '')}</div>
+    <div class="form-group"><label>Death date</label>${_datePicker('pf-death', p.death_date || '')}</div>
     <div class="form-group"><label>Bio</label><textarea id="pf-bio">${esc(p.bio || '')}</textarea></div>
     <div class="form-group"><label>Photo</label><input id="pf-photo" type="file" accept="image/*" /></div>
     <div style="display:flex;gap:.6rem;margin-top:.5rem">
@@ -1122,9 +1175,9 @@ async function savePerson(id){
   fd.append('given_name', parts[0] || '');
   fd.append('family_name', parts.slice(1).join(' ') || '');
   fd.append('gender', el('pf-gender').value);
-  fd.append('birth_date', val('pf-birth'));
-  fd.append('death_date', val('pf-death'));
-  fd.append('living', val('pf-death') ? 'false' : 'true');
+  fd.append('birth_date', _composeDateText('pf-birth'));
+  fd.append('death_date', _composeDateText('pf-death'));
+  fd.append('living', _composeDateText('pf-death') ? 'false' : 'true');
   fd.append('bio', val('pf-bio'));
   fd.append('updated_by', userId);
   const photo = el('pf-photo').files[0];
@@ -1554,15 +1607,13 @@ function _factFormHtml(personId, f){
       <label>Fact type</label>
       <select id="ff-type">${_factTypeOptions(type)}</select>
     </div>
-    <div class="row-2">
-      <div class="form-group">
-        <label>Date</label>
-        <input id="ff-date" value="${esc((f && f.date_text) || '')}" placeholder="e.g. 15 Mar 1942 or Abt 1920" />
-      </div>
-      <div class="form-group">
-        <label>Place / Location</label>
-        <input id="ff-place" value="${esc((f && f.place) || '')}" placeholder="City, State, Country" />
-      </div>
+    <div class="form-group">
+      <label>Date</label>
+      ${_datePicker('ff-date', (f && f.date_text) || '')}
+    </div>
+    <div class="form-group">
+      <label>Place / Location</label>
+      <input id="ff-place" value="${esc((f && f.place) || '')}" placeholder="City, State, Country" />
     </div>
     <div class="form-group">
       <label>Value <span style="font-weight:400;text-transform:none;color:var(--text-muted)">(occupation name, address, website URL, etc.)</span></label>
@@ -1596,7 +1647,7 @@ async function openFactForm(personId, factId){
 
 async function saveFact(personId, factId){
   const fact_type = el('ff-type').value;
-  const date_text = val('ff-date');
+  const date_text = _composeDateText('ff-date');
   const place = val('ff-place');
   const value = val('ff-value');
   const description = (el('ff-desc') || {}).value || '';

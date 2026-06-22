@@ -71,6 +71,15 @@ input:focus,textarea:focus,select:focus{
 input::placeholder,textarea::placeholder{color:var(--text-muted)}
 .form-group{margin-bottom:1rem}
 .row-2{display:grid;grid-template-columns:1fr 1fr;gap:.85rem}
+.date-picker-row{display:flex;gap:6px}
+.dp-qual{flex:0 0 96px;width:96px}
+.dp-day{flex:0 0 64px;width:64px;padding:0 8px;text-align:center}
+.dp-mon{flex:1 1 0}
+.dp-year{flex:0 0 76px;width:76px;padding:0 8px;text-align:center}
+/* Remove number input spinners inside date pickers */
+.dp-day::-webkit-outer-spin-button,.dp-day::-webkit-inner-spin-button,
+.dp-year::-webkit-outer-spin-button,.dp-year::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.dp-day[type=number],.dp-year[type=number]{-moz-appearance:textfield}
 
 .card{
   background:var(--bg-card);border:1px solid var(--border-default);
