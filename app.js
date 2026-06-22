@@ -6,6 +6,7 @@
    =========================================================================== */
 
 const API = 'https://reunion-api.klsll.com';
+const UPLOAD_URL = 'https://photo-upload.reunion.klsll.com/upload';
 
 let token = localStorage.getItem('pb_token') || '';
 let userId = localStorage.getItem('pb_user_id') || '';
@@ -1220,7 +1221,10 @@ SCREENS.directory = async function(){
 
 // ── Member profile ───────────────────────────────────────────────────────────
 function fileUrl(collection, rec, field){
-  return rec && rec[field] ? `${API}/api/files/${collection}/${rec.id}/${rec[field]}` : '';
+  if (!rec || !rec[field]) return '';
+  const v = rec[field];
+  if (v.startsWith('http')) return v;
+  return `${API}/api/files/${collection}/${rec.id}/${v}`;
 }
 
 SCREENS.profile = async function(params){
@@ -1474,13 +1478,32 @@ async function doUploadMulti(albumId){
     if (progressEl) progressEl.textContent = `Uploading ${i + 1} of ${total}…`;
     if (stEl) { stEl.textContent = 'uploading…'; stEl.className = 'ufl-status'; }
     try {
+      // Step 1: upload file to R2 via Worker
       const fd = new FormData();
-      fd.append('album', albumId);
       fd.append('image', f);
-      fd.append('uploader', userId);
-      fd.append('caption', f.name.replace(/\.[^.]+$/, ''));
-      const res = await apiFetch('/api/collections/photos/records', { method:'POST', body: fd });
-      if (!res.ok){ const d = await res.json(); throw new Error(d.message || 'Upload failed'); }
+      const uploadRes = await fetch(UPLOAD_URL, {
+        method: 'POST',
+        headers: { Authorization: token },
+        body: fd,
+      });
+      if (!uploadRes.ok) {
+        const d = await uploadRes.json();
+        throw new Error(d.error || `Upload failed (${uploadRes.status})`);
+      }
+      const { url } = await uploadRes.json();
+
+      // Step 2: save metadata to PocketBase
+      const metaRes = await apiFetch('/api/collections/photos/records', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          album: albumId,
+          image: url,
+          caption: f.name.replace(/\.[^.]+$/, ''),
+          uploader: userId,
+        }),
+      });
+      if (!metaRes.ok){ const d = await metaRes.json(); throw new Error(d.message || 'Metadata save failed'); }
       done++;
       if (stEl) { stEl.textContent = '✓'; stEl.className = 'ufl-status done'; }
     } catch(e){
