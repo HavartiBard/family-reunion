@@ -269,17 +269,18 @@ function signUpForm(){
     <p class="sub">Create your account — an admin will approve it.</p>
     <div id="auth-error" class="alert alert-error" style="display:none"></div>
     <div class="row-2">
-      <div class="form-group"><label>First name</label><input id="reg-first" /></div>
-      <div class="form-group"><label>Last name</label><input id="reg-last" /></div>
+      <div class="form-group"><label>First name <span style="color:var(--accent-gold)">*</span></label><input id="reg-first" required /></div>
+      <div class="form-group"><label>Last name <span style="color:var(--accent-gold)">*</span></label><input id="reg-last" required /></div>
     </div>
-    <div class="form-group"><label>Email</label><input id="reg-email" type="email" /></div>
+    <div class="form-group"><label>Email <span style="color:var(--accent-gold)">*</span></label><input id="reg-email" type="email" required /></div>
+    <div class="form-group"><label>Username <span style="color:var(--accent-gold)">*</span> <span style="font-weight:400;font-size:.8rem;color:var(--text-muted)">visible to family members</span></label><input id="reg-username" placeholder="e.g. james_kelsall" /></div>
     <div class="row-2">
       <div class="form-group"><label>Phone</label><input id="reg-phone" /></div>
       <div class="form-group"><label>Birthday</label><input id="reg-birthday" type="date" /></div>
     </div>
     <div class="row-2">
-      <div class="form-group"><label>Password</label><input id="reg-password" type="password" /></div>
-      <div class="form-group"><label>Confirm</label><input id="reg-password2" type="password" /></div>
+      <div class="form-group"><label>Password <span style="color:var(--accent-gold)">*</span></label><input id="reg-password" type="password" required /></div>
+      <div class="form-group"><label>Confirm <span style="color:var(--accent-gold)">*</span></label><input id="reg-password2" type="password" required /></div>
     </div>
     <button class="btn btn-primary btn-full" style="height:54px;font-weight:700;margin-top:.4rem" onclick="doRegister()">Create account</button>
     <p class="auth-foot">Already have an account? <span class="link" onclick="showAuth('signin')">Sign in</span></p>
@@ -322,13 +323,17 @@ async function doLogin(){
 
 async function doRegister(){
   const first = val('reg-first'), last = val('reg-last'), email = val('reg-email'),
+        usernameRaw = val('reg-username'),
         phone = val('reg-phone'), birthday = val('reg-birthday'),
         pw = val('reg-password'), pw2 = val('reg-password2');
-  if (!first || !last || !email || !pw) return authError('Please fill in all required fields.');
+  if (!first || !last) return authError('First and last name are required.');
+  if (!email) return authError('Email is required.');
+  if (!usernameRaw) return authError('Please choose a username.');
   if (pw !== pw2) return authError('Passwords do not match.');
   if (pw.length < 8) return authError('Password must be at least 8 characters.');
+  const username = usernameRaw.trim().replace(/[^a-zA-Z0-9_]/g, '_');
+  if (username.length < 3) return authError('Username must be at least 3 characters (letters, numbers, underscores only).');
   try {
-    const username = email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_') + '_' + Math.random().toString(36).slice(2, 6);
     const body = { username, name: `${first} ${last}`, email, emailVisibility: true, phone, password: pw, passwordConfirm: pw2, approved: false };
     if (birthday) body.birthday = birthday;
     const res = await fetch(`${API}/api/collections/users/records`, {
@@ -1708,34 +1713,39 @@ function showLbTagSearch(photoId){
 async function searchPersonsForTag(query, photoId){
   const resEl = el('lb-tag-results');
   if (!resEl) return;
-  if (!query.trim()){ resEl.innerHTML = ''; return; }
+  const q = query.trim();
+  if (!q){ resEl.innerHTML = ''; return; }
   try {
-    const q = query.trim();
-    // Search persons by name and also users by name/email then resolve to linked person
     const personFilter = `(display_name~"${q}"||given_name~"${q}"||family_name~"${q}")`;
-    const userFilter = `(name~"${q}"||email~"${q}")`;
-    const [pr, ur] = await Promise.all([
-      apiFetch(`/api/collections/persons/records?filter=${encodeURIComponent(personFilter)}&fields=id,display_name&perPage=15`),
-      apiFetch(`/api/collections/users/records?filter=${encodeURIComponent(userFilter)}&fields=id,name,email&perPage=10`)
-    ]);
+    const pr = await apiFetch(`/api/collections/persons/records?filter=${encodeURIComponent(personFilter)}&fields=id,display_name&perPage=15`);
     const persons = pr.ok ? (await pr.json()).items || [] : [];
-    const users = ur.ok ? (await ur.json()).items || [] : [];
 
-    // For matched users, find their linked person records
-    if (users.length) {
-      const userIds = users.map(u => `linked_user="${u.id}"`).join('||');
-      const lr = await apiFetch(`/api/collections/persons/records?filter=${encodeURIComponent(`(${userIds})`)}&fields=id,display_name&perPage=10`);
-      if (lr.ok) {
-        const linked = (await lr.json()).items || [];
-        const existing = new Set(persons.map(p => p.id));
-        linked.forEach(p => { if (!existing.has(p.id)) persons.push(p); });
-      }
-    }
+    const isAdmin = currentUser && currentUser.family_admin;
+    const quickAdd = isAdmin
+      ? `<div class="lb-tag-result" style="color:var(--accent-gold);border-top:1px solid #333;margin-top:.25rem;padding-top:.4rem"
+           onclick="quickAddAndTag('${photoId}',${JSON.stringify(q)})">+ Add "${esc(q)}" to family tree &amp; tag</div>`
+      : '';
 
     resEl.innerHTML = persons.map(p =>
       `<div class="lb-tag-result" onclick="addPersonTag('${photoId}','${p.id}')">${esc(p.display_name || 'Unknown')}</div>`
-    ).join('') || '<div style="color:#555;font-size:.85rem;padding:.3rem .5rem">No results found</div>';
+    ).join('') + (persons.length === 0 ? `<div style="color:#666;font-size:.82rem;padding:.3rem .5rem">No matches in family tree</div>` : '') + quickAdd;
   } catch { /* ignore */ }
+}
+
+async function quickAddAndTag(photoId, name){
+  const parts = name.trim().split(/\s+/);
+  const given = parts[0] || name;
+  const family = parts.slice(1).join(' ') || '';
+  try {
+    const r = await apiFetch('/api/collections/persons/records', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ display_name: name, given_name: given, family_name: family, living: true })
+    });
+    if (!r.ok){ const d = await r.json(); throw new Error(d.message || 'Could not create person'); }
+    const person = await r.json();
+    await addPersonTag(photoId, person.id);
+    toast(`"${name}" added to family tree and tagged.`, 'success');
+  } catch(e){ toast(e.message, 'error'); }
 }
 
 async function addPersonTag(photoId, personId){
@@ -1793,7 +1803,7 @@ async function _loadLbComments(photoId){
     if (!items.length){ container.innerHTML = '<div style="color:#555;font-size:.82rem">No comments yet.</div>'; return; }
     container.innerHTML = items.map(c => {
       const author = c.expand && c.expand.author;
-      const name = author ? (author.name || author.username || author.email.split('@')[0]) : 'Unknown';
+      const name = author ? (author.name || (author.email ? author.email.split('@')[0] : 'Family member')) : 'Unknown';
       const canDel = c.author === userId || (currentUser && currentUser.family_admin);
       return `<div class="lb-comment">
         <div class="lb-comment-author">${esc(name)}
@@ -1841,7 +1851,7 @@ async function loadComments(relatedId, relatedType, containerId){
     if (!items.length){ container.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem">No comments yet.</p>'; return; }
     container.innerHTML = items.map(c => {
       const author = c.expand && c.expand.author;
-      const name = author ? (author.name || author.username || author.email.split('@')[0]) : 'Unknown';
+      const name = author ? (author.name || (author.email ? author.email.split('@')[0] : 'Family member')) : 'Unknown';
       const initials = name.charAt(0).toUpperCase();
       const canDel = c.author === userId || (currentUser && currentUser.family_admin);
       const date = c.created ? new Date(c.created).toLocaleDateString() : '';
