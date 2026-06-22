@@ -329,7 +329,7 @@ async function doRegister(){
   if (pw.length < 8) return authError('Password must be at least 8 characters.');
   try {
     const username = email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_') + '_' + Math.random().toString(36).slice(2, 6);
-    const body = { username, name: `${first} ${last}`, email, phone, password: pw, passwordConfirm: pw2, approved: false };
+    const body = { username, name: `${first} ${last}`, email, emailVisibility: true, phone, password: pw, passwordConfirm: pw2, approved: false };
     if (birthday) body.birthday = birthday;
     const res = await fetch(`${API}/api/collections/users/records`, {
       method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body)
@@ -2254,16 +2254,21 @@ SCREENS.admin = async function(){
   const stat = (v, l) => `<div class="stat-card"><div class="stat-val">${v}</div><div class="stat-label">${l}</div></div>`;
 
   const pendingRows = pending.length
-    ? pending.map(u => `<tr>
-        <td>${esc(u.name || '—')}</td>
-        <td>${esc(u.email || '—')}</td>
-        <td>${u.created ? new Date(u.created).toLocaleDateString() : '—'}</td>
-        <td>
-          <button class="btn btn-primary btn-sm" onclick="adminApprove('${u.id}')">Approve</button>
-          <button class="btn btn-danger btn-sm" style="margin-left:.3rem" onclick="adminDeny('${u.id}')">Deny</button>
-        </td>
-      </tr>`).join('')
-    : '<tr><td colspan="4" style="color:var(--text-muted);text-align:center;padding:1rem">No pending requests.</td></tr>';
+    ? pending.map(u => {
+        const displayName = u.name || '—';
+        const displayEmail = u.email || u.username || '(email hidden)';
+        return `<tr>
+          <td>${esc(displayName)}</td>
+          <td>${esc(displayEmail)}</td>
+          <td>${u.phone ? esc(u.phone) : '—'}</td>
+          <td>${u.created ? new Date(u.created).toLocaleDateString() : '—'}</td>
+          <td>
+            <button class="btn btn-primary btn-sm" onclick="adminApprove('${u.id}')">Approve</button>
+            <button class="btn btn-danger btn-sm" style="margin-left:.3rem" onclick="adminDeny('${u.id}')">Deny</button>
+          </td>
+        </tr>`;
+      }).join('')
+    : '<tr><td colspan="5" style="color:var(--text-muted);text-align:center;padding:1rem">No pending requests.</td></tr>';
 
   const memberRows = members.map(u => `<tr>
     <td>${esc(u.name || '—')}</td>
@@ -2287,7 +2292,7 @@ SCREENS.admin = async function(){
     ${pending.length ? `<div class="admin-section">Pending approvals</div>
     <div class="admin-table-wrap">
       <table class="admin-table">
-        <thead><tr><th>Name</th><th>Email</th><th>Signed up</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Signed up</th><th>Actions</th></tr></thead>
         <tbody>${pendingRows}</tbody>
       </table>
     </div>` : ''}
