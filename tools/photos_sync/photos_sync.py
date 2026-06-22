@@ -164,7 +164,7 @@ class PB:
         import requests
         body = {
             "album": album_id,
-            "image": image_url,
+            "image_url": image_url,
             "source_path": entry["source_path"],
             "caption": entry["caption"],
         }
