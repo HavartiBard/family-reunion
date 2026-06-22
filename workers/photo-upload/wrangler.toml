@@ -7,7 +7,7 @@ binding = "PHOTOS_BUCKET"
 bucket_name = "family-reunion-photos"
 
 [env.production]
-routes = [{ pattern = "photo-upload.reunion.klsll.com/*", zone_name = "reunion.klsll.com" }]
+routes = [{ pattern = "photo-upload.klsll.com/*", zone_name = "klsll.com" }]
 
 [[env.production.r2_buckets]]
 binding = "PHOTOS_BUCKET"
