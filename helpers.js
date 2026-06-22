@@ -27,7 +27,8 @@
     const b = _extractYear(p.birth_date);
     const d = _extractYear(p.death_date);
     if (!b && !d) return '';
-    return `${b || '?'}–${d || (p.living === false ? '?' : '')}`.replace(/–$/, '');
+    if (d) return `${b || '?'}–${d}`;
+    return b ? `${b}–Living` : '';
   }
 
   function avatarTint(index) {

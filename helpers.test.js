@@ -21,7 +21,9 @@ test('personInitials from display_name', () => {
 
 test('personYears formats birth and death', () => {
   assert.strictEqual(h.personYears({ birth_date: '1947-03-12', death_date: '2001' }), '1947–2001');
-  assert.strictEqual(h.personYears({ birth_date: '1947', living: true }), '1947');
+  assert.strictEqual(h.personYears({ birth_date: '1947', living: true }), '1947–Living');
+  assert.strictEqual(h.personYears({ birth_date: '1947' }), '1947–Living');
+  assert.strictEqual(h.personYears({ death_date: '2001' }), '?–2001');
   assert.strictEqual(h.personYears({}), '');
 });
 
