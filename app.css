@@ -331,6 +331,23 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
 .fact-cat-family .fact-icon{background:#fdeef0;color:#a03050}
 .fact-cat-attribute .fact-icon{background:#edf0f7;color:#3a5080}
 
+/* Family events — visually muted vs direct events */
+.fact-family{opacity:.7;margin-left:16px;padding-left:10px;border-left:2px solid var(--border-default)}
+.fact-family .fact-icon{background:var(--bg-hover);color:var(--text-muted);font-size:.7rem}
+.fact-family .fact-label{font-size:.82rem;font-weight:500;color:var(--text-secondary)}
+.fact-rel-link{font-size:.78rem;color:var(--accent-gold);cursor:pointer;margin-top:.15rem;display:inline-block}
+.fact-rel-link:hover{text-decoration:underline}
+
+/* Relationships panel */
+.rel-section{padding:.85rem 0;border-bottom:1px solid var(--border-default)}
+.rel-section:last-child{border-bottom:none;padding-bottom:0}
+.rel-section:first-child{padding-top:0}
+.rel-section-title{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--text-muted);margin-bottom:.5rem}
+.rel-empty{font-size:.82rem;color:var(--text-muted);margin-bottom:.4rem}
+.rel-add-row{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.5rem}
+.rel-add-btn{font-size:.78rem!important;height:30px!important;padding:0 10px!important;border-radius:8px!important}
+
 .about-text{font-size:14.5px;line-height:1.7;color:#4f4b44}
 .contact-row{display:flex;gap:12px;align-items:center;padding:.55rem 0;border-bottom:1px solid var(--border-default);font-size:.9rem}
 .contact-row:last-child{border-bottom:none}

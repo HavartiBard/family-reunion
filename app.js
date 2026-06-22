@@ -1233,9 +1233,12 @@ async function applyRelationship(focusId, rel, otherId){
     const slot = (await getPerson(otherId)).gender === 'female' ? 'mother' : 'father';
     return patchPerson(focusId, { [slot]: otherId });
   }
-  if (rel === 'child') {
+  if (rel === 'father') return patchPerson(focusId, { father: otherId });
+  if (rel === 'mother') return patchPerson(focusId, { mother: otherId });
+  if (rel === 'child' || rel === 'son' || rel === 'daughter') {
     const slot = focus.gender === 'female' ? 'mother' : 'father';
-    return patchPerson(otherId, { [slot]: focusId });
+    const extra = rel === 'son' ? { gender:'male' } : rel === 'daughter' ? { gender:'female' } : {};
+    return patchPerson(otherId, { [slot]: focusId, ...extra });
   }
   if (rel === 'sibling') return patchPerson(otherId, { father: focus.father || '', mother: focus.mother || '' });
   if (rel === 'partner') {
@@ -1260,10 +1263,12 @@ async function createAndLink(focusId, rel){
   const q = val('rel-search');
   if (!q) return formErr('rel-error', 'Enter a name to create a new person.');
   try {
+    const genderMap = { father:'male', mother:'female', son:'male', daughter:'female' };
+    const body = { display_name: q, given_name: q.split(' ')[0], family_name: q.split(' ').slice(1).join(' '),
+      living: true, created_by: userId, updated_by: userId };
+    if (genderMap[rel]) body.gender = genderMap[rel];
     const res = await apiFetch('/api/collections/persons/records', {
-      method:'POST', headers:{ 'Content-Type':'application/json' },
-      body: JSON.stringify({ display_name: q, given_name: q.split(' ')[0], family_name: q.split(' ').slice(1).join(' '),
-        living: true, created_by: userId, updated_by: userId }) });
+      method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
     if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Create failed'); }
     const created = await res.json(); personCache.set(created.id, created);
     await applyRelationship(focusId, rel, created.id);
@@ -1692,6 +1697,50 @@ async function deleteFact(factId, personId){
   } catch(e){ toast(e.message, 'error'); }
 }
 
+// ── Profile: family-events helpers ───────────────────────────────────────────
+
+let _profileState = { personId:null, facts:[], familyFacts:[], canEdit:false, showFamily:true };
+
+async function _fetchSiblings(p){
+  const filters = [];
+  if (p.father) filters.push(`father="${p.father}"`);
+  if (p.mother) filters.push(`mother="${p.mother}"`);
+  if (!filters.length) return [];
+  const f = encodeURIComponent(`(${filters.join(' || ')}) && id!="${p.id}"`);
+  const r = await apiFetch(`/api/collections/persons/records?filter=${f}&perPage=100&sort=birth_date`);
+  return r.ok ? (await r.json()).items || [] : [];
+}
+
+async function _fetchFamilyFacts(relatives){
+  if (!relatives.length) return [];
+  const TYPES = ['birth','death','burial','cremation','marriage','graduation'];
+  const ids = [...new Set(relatives.map(rv => rv.person.id))];
+  const pf = ids.map(id => `person="${id}"`).join(' || ');
+  const tf = TYPES.map(t => `fact_type="${t}"`).join(' || ');
+  const filter = encodeURIComponent(`(${pf}) && (${tf})`);
+  const r = await apiFetch(`/api/collections/person_facts/records?filter=${filter}&perPage=500&sort=sort_year`);
+  if (!r.ok) return [];
+  const facts = (await r.json()).items || [];
+  return facts.map(f => {
+    const rel = relatives.find(rv => rv.person.id === f.person);
+    return { ...f, _relPerson: rel?.person || null, _relLabel: rel?.label || '' };
+  });
+}
+
+function _relGenderLabel(person, role){
+  if (role === 'sibling') return person.gender==='female'?'Sister':person.gender==='male'?'Brother':'Sibling';
+  if (role === 'child')   return person.gender==='female'?'Daughter':person.gender==='male'?'Son':'Child';
+  return { father:'Father', mother:'Mother', partner:'Spouse' }[role] || role;
+}
+
+function toggleFamilyEvents(){
+  _profileState.showFamily = !_profileState.showFamily;
+  const c = el('facts-section');
+  if (c) c.innerHTML = _renderFactsHTML(
+    _profileState.personId, _profileState.facts, _profileState.familyFacts,
+    _profileState.canEdit, _profileState.showFamily);
+}
+
 async function _reloadFactsSection(personId){
   const container = el('facts-section');
   if (!container) return;
@@ -1699,19 +1748,18 @@ async function _reloadFactsSection(personId){
   try {
     const r = await apiFetch(`/api/collections/person_facts/records?filter=${encodeURIComponent(`(person="${personId}")`)}&perPage=200&sort=sort_year`);
     const facts = r.ok ? (await r.json()).items || [] : [];
-    const myPersonIdVal = await myPersonId().catch(()=>null);
-    const canEdit = !!(currentUser && (currentUser.family_admin || myPersonIdVal === personId));
-    container.innerHTML = _renderFactsHTML(personId, facts, canEdit);
+    _profileState.facts = facts;
+    container.innerHTML = _renderFactsHTML(personId, facts, _profileState.familyFacts, _profileState.canEdit, _profileState.showFamily);
   } catch { container.innerHTML = '<p style="color:var(--text-muted);font-size:.86rem;padding:.5rem 0">Could not load facts.</p>'; }
 }
 
-function _renderFactsHTML(personId, facts, canEdit){
-  const sorted = _sortFacts(facts);
-  const rows = sorted.map(f => {
+function _renderFactsHTML(personId, facts, familyFacts, canEdit, showFamily){
+  const direct = _sortFacts(facts);
+
+  const directRow = f => {
     const def = _factDef(f.fact_type);
-    const catClass = `fact-cat-${def.cat}`;
     const meta = [f.date_text, f.place].filter(Boolean).join(' · ');
-    return `<div class="fact-item ${catClass}">
+    return `<div class="fact-item fact-cat-${def.cat}">
       <div class="fact-icon">${def.icon}</div>
       <div class="fact-body">
         <div class="fact-label">${esc(def.label)}</div>
@@ -1722,17 +1770,143 @@ function _renderFactsHTML(personId, facts, canEdit){
       </div>
       ${canEdit ? `<button class="btn btn-outline btn-sm fact-edit-btn" onclick="openFactForm('${personId}','${f.id}')">Edit</button>` : ''}
     </div>`;
-  }).join('');
+  };
 
-  const empty = !facts.length ? '<p style="color:var(--text-muted);font-size:.86rem;padding:.25rem 0">No facts recorded yet.</p>' : '';
+  const familyRow = f => {
+    const def = _factDef(f.fact_type);
+    const meta = [f.date_text, f.place].filter(Boolean).join(' · ');
+    return `<div class="fact-item fact-family fact-cat-${def.cat}">
+      <div class="fact-icon">${def.icon}</div>
+      <div class="fact-body">
+        <div class="fact-label">${esc(f._relLabel)}'s ${esc(def.label.toLowerCase())}</div>
+        ${meta ? `<div class="fact-meta">${esc(meta)}</div>` : ''}
+        ${f._relPerson ? `<span class="fact-rel-link" onclick="navigate('profile',{id:'${f._relPerson.id}'})">${esc(f._relPerson.display_name)} →</span>` : ''}
+      </div>
+    </div>`;
+  };
+
+  // Merge and sort by year; direct events win tiebreaks
+  const all = [
+    ...direct.map(f => ({ f, family:false, y: f.sort_year||9999 })),
+    ...(showFamily ? [...familyFacts].sort((a,b)=>(a.sort_year||9999)-(b.sort_year||9999)) : [])
+      .map(f => ({ f, family:true, y: f.sort_year||9999 }))
+  ].sort((a,b) => a.y!==b.y ? a.y-b.y : (a.family?1:-1));
+
+  const rows = all.map(({f,family}) => family ? familyRow(f) : directRow(f)).join('');
 
   return `
     <div class="facts-header">
       <div class="section-label">Facts &amp; Events</div>
-      ${canEdit ? `<button class="btn btn-outline btn-sm" onclick="openFactForm('${personId}','')">+ Add fact</button>` : ''}
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+        ${familyFacts.length ? `<button class="btn btn-outline btn-sm" style="font-size:.78rem" onclick="toggleFamilyEvents()">
+          ${showFamily ? '⊙ Hide' : '○ Show'} family events (${familyFacts.length})</button>` : ''}
+        ${canEdit ? `<button class="btn btn-outline btn-sm" onclick="openFactForm('${personId}','')">+ Add fact</button>` : ''}
+      </div>
     </div>
-    ${empty}
+    ${!all.length ? '<p style="color:var(--text-muted);font-size:.86rem;padding:.25rem 0">No facts recorded yet.</p>' : ''}
     <div class="facts-list">${rows}</div>`;
+}
+
+// ── Profile: relationships panel ──────────────────────────────────────────────
+
+function _relPersonRow(person, relLabel){
+  return `<div class="conn-row" onclick="navigate('profile',{id:'${person.id}'})">
+    <div class="avatar" style="width:34px;height:34px;font-size:.78rem">${personInitials(person)}</div>
+    <div class="conn-meta">
+      <div class="conn-name">${esc(person.display_name)}</div>
+      <div class="conn-rel">${esc(relLabel)}${personYears(person) ? ' · ' + personYears(person) : ''}</div>
+    </div>
+    <span class="conn-chev">›</span></div>`;
+}
+
+function _addRelBtn(personId, role, label){
+  return `<button class="btn btn-outline btn-sm rel-add-btn" onclick="openProfileRelativeModal('${personId}','${role}')">+ ${label}</button>`;
+}
+
+function _renderRelationshipsPanel(personId, p, ex, siblings, partners, children, canEdit){
+  const hasFather = !!p.father;
+  const hasMother = !!p.mother;
+
+  const section = (title, rows, addBtns) => `
+    <div class="rel-section">
+      <div class="rel-section-title">${title}</div>
+      ${rows || '<p class="rel-empty">None linked</p>'}
+      ${canEdit && addBtns ? `<div class="rel-add-row">${addBtns}</div>` : ''}
+    </div>`;
+
+  const parents = section('Parents',
+    [ex.father && _relPersonRow(ex.father, 'Father'), ex.mother && _relPersonRow(ex.mother, 'Mother')].filter(Boolean).join(''),
+    [!hasFather && _addRelBtn(personId,'father','Add father'), !hasMother && _addRelBtn(personId,'mother','Add mother')].filter(Boolean).join(''));
+
+  const sibs = section('Siblings',
+    siblings.map(s => _relPersonRow(s, _relGenderLabel(s,'sibling'))).join(''),
+    _addRelBtn(personId,'sibling','Add sibling'));
+
+  const spouses = section('Spouse / Partner',
+    partners.map(pt => _relPersonRow(pt, 'Partner')).join(''),
+    _addRelBtn(personId,'partner','Add spouse'));
+
+  const kids = section('Children',
+    children.map(ch => _relPersonRow(ch, _relGenderLabel(ch,'child'))).join(''),
+    [_addRelBtn(personId,'son','Add son'), _addRelBtn(personId,'daughter','Add daughter')].join(''));
+
+  return `<div class="card">${parents}${sibs}${spouses}${kids}</div>`;
+}
+
+// ── Profile: add-relative modal (profile context — reloads profile not tree) ──
+
+function openProfileRelativeModal(personId, role){
+  const titles = { father:'father', mother:'mother', sibling:'sibling', partner:'spouse / partner', son:'son', daughter:'daughter' };
+  openModal(`<h2 class="card-title">Add ${titles[role]||role}</h2>
+    <div id="rel-error" class="alert alert-error" style="display:none"></div>
+    <div class="form-group"><label>Search existing</label>
+      <input id="rel-search" placeholder="Type a name…" oninput="profileSearchPersons('${personId}','${role}')" autocomplete="off" /></div>
+    <div id="rel-results" style="display:flex;flex-direction:column;gap:.4rem;margin-bottom:1rem"></div>
+    <button class="btn btn-primary btn-full" onclick="profileCreateAndLink('${personId}','${role}')">Create new &amp; link</button>
+    <div style="margin-top:.6rem"><button class="btn btn-outline" onclick="closeModal()">Cancel</button></div>`);
+}
+
+let _profRelTimer = null;
+function profileSearchPersons(personId, role){
+  clearTimeout(_profRelTimer);
+  _profRelTimer = setTimeout(async () => {
+    const q = val('rel-search'); const e = el('rel-results');
+    if (!q){ e.innerHTML = ''; return; }
+    const r = await apiFetch(`/api/collections/persons/records?perPage=8&filter=` + encodeURIComponent(`(display_name~"${q}")`));
+    const items = r.ok ? (await r.json()).items : [];
+    e.innerHTML = items.length
+      ? items.map(p => `<button class="row-card" onclick="profileLinkExisting('${personId}','${role}','${p.id}')">
+          <div class="avatar" style="width:36px;height:36px;font-size:.8rem">${personInitials(p)}</div>
+          <div><div class="rc-name">${esc(p.display_name)}</div><div class="rc-sub">${personYears(p)}</div></div></button>`).join('')
+      : '<p style="font-size:.82rem;color:var(--text-muted)">No matches — create new below.</p>';
+  }, 250);
+}
+
+async function profileLinkExisting(personId, role, otherId){
+  try {
+    await applyRelationship(personId, role, otherId);
+    closeModal(); personCache.delete(personId);
+    await SCREENS.profile({ id: personId });
+  } catch(e){ formErr('rel-error', e.message); }
+}
+
+async function profileCreateAndLink(personId, role){
+  const q = val('rel-search');
+  if (!q) return formErr('rel-error', 'Enter a name.');
+  try {
+    const parts = q.trim().split(/\s+/);
+    const genderMap = { father:'male', mother:'female', son:'male', daughter:'female' };
+    const body = { display_name: q, given_name: parts[0], family_name: parts.slice(1).join(' '),
+      living: true, created_by: userId, updated_by: userId };
+    if (genderMap[role]) body.gender = genderMap[role];
+    const r = await apiFetch('/api/collections/persons/records', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    if (!r.ok){ const d = await r.json(); throw new Error(d.message || 'Create failed'); }
+    const created = await r.json(); personCache.set(created.id, created);
+    await applyRelationship(personId, role, created.id);
+    closeModal(); personCache.delete(personId);
+    await SCREENS.profile({ id: personId });
+  } catch(e){ formErr('rel-error', e.message); }
 }
 
 // ── Profile screen ────────────────────────────────────────────────────────────
@@ -1742,8 +1916,9 @@ SCREENS.profile = async function(params){
   if (!id) id = await myPersonId();
   if (!id) { mountMain('<div class="screen-pad"><div class="empty-state"><div class="emoji">👤</div><p>No profile linked yet. Open the tree and use "This is me".</p></div></div>'); return; }
 
-  let p, couples = [], partners = [], children = [], photos = [], facts = [];
+  let p, facts = [], photos = [], siblings = [], partners = [], children = [], familyFacts = [];
   try {
+    // Phase 1: core data in parallel
     const [personRes, factsRes, phRes] = await Promise.all([
       apiFetch(`/api/collections/persons/records/${id}?expand=father,mother,linked_user`),
       apiFetch(`/api/collections/person_facts/records?filter=${encodeURIComponent(`(person="${id}")`)}&perPage=200&sort=sort_year`),
@@ -1753,10 +1928,28 @@ SCREENS.profile = async function(params){
     p = await personRes.json();
     if (factsRes.ok) facts = (await factsRes.json()).items || [];
     if (phRes.ok) photos = (await phRes.json()).items || [];
-    couples = await getCouplesFor(id);
-    const partnerIds = couples.map(c => c.partner_a === id ? c.partner_b : c.partner_a);
+
+    // Phase 2: relationships (need p first for sibling query)
+    const [couplesData, siblingsData, childrenData] = await Promise.all([
+      getCouplesFor(id),
+      _fetchSiblings(p),
+      getChildren(id),
+    ]);
+    siblings = siblingsData;
+    children = childrenData;
+    const partnerIds = couplesData.map(c => c.partner_a === id ? c.partner_b : c.partner_a);
     partners = (await Promise.all(partnerIds.map(getPerson))).filter(Boolean);
-    children = await getChildren(id);
+
+    // Phase 3: family facts (need all relatives first)
+    const ex0 = p.expand || {};
+    const relatives = [
+      ...(ex0.father ? [{ person: ex0.father, label:'Father', role:'father' }] : []),
+      ...(ex0.mother ? [{ person: ex0.mother, label:'Mother', role:'mother' }] : []),
+      ...siblings.map(s => ({ person: s, label: _relGenderLabel(s,'sibling'), role:'sibling' })),
+      ...partners.map(pt => ({ person: pt, label:'Spouse', role:'partner' })),
+      ...children.map(ch => ({ person: ch, label: _relGenderLabel(ch,'child'), role:'child' })),
+    ];
+    familyFacts = await _fetchFamilyFacts(relatives);
   } catch { mountMain('<div class="screen-pad"><div class="empty-state"><p>Could not load this profile.</p></div></div>'); return; }
 
   const ex = p.expand || {};
@@ -1768,10 +1961,8 @@ SCREENS.profile = async function(params){
   const myPersonIdVal = await myPersonId().catch(()=>null);
   const canEdit = !!(currentUser && (currentUser.family_admin || myPersonIdVal === id));
 
-  const conn = (label, person) => person ? `<div class="conn-row" onclick="navigate('profile',{id:'${person.id}'})">
-      <div class="avatar" style="width:34px;height:34px;font-size:.78rem">${personInitials(person)}</div>
-      <div class="conn-meta"><div class="conn-name">${esc(person.display_name)}</div><div class="conn-rel">${esc(label)}</div></div>
-      <span class="conn-chev">›</span></div>` : '';
+  // Store state for toggle/reload
+  _profileState = { personId: id, facts, familyFacts, canEdit, showFamily: _profileState.showFamily };
 
   mountMain(`<div class="screen-pad" style="max-width:1100px">
     <div class="breadcrumb"><span class="link" onclick="navigate('directory')">Directory</span> › ${esc(p.display_name)}</div>
@@ -1780,10 +1971,12 @@ SCREENS.profile = async function(params){
       <div class="ph-main">
         <h1 class="ph-name">${esc(p.display_name)}</h1>
         <div class="ph-sub">${esc(sub)}</div>
-        <div class="ph-pills">${branch ? `<span class="pill">${esc(branch)}</span>` : ''}
+        <div class="ph-pills">
+          ${branch ? `<span class="pill">${esc(branch)}</span>` : ''}
           ${p.birth_date ? `<span class="pill">b. ${esc(_parseYearFromDate(p.birth_date) || p.birth_date)}</span>` : ''}
           ${p.death_date ? `<span class="pill">d. ${esc(_parseYearFromDate(p.death_date) || p.death_date)}</span>` : ''}
-          ${linked ? '<span class="pill">Has account</span>' : ''}</div>
+          ${linked ? '<span class="pill">Has account</span>' : ''}
+        </div>
       </div>
       <div class="ph-actions">
         ${linked && linked.email ? `<a class="btn btn-primary btn-sm" href="mailto:${esc(linked.email)}">Message</a>` : ''}
@@ -1795,36 +1988,29 @@ SCREENS.profile = async function(params){
 
     <div class="profile-grid-3col">
       <div class="facts-card card" id="facts-section">
-        ${_renderFactsHTML(id, facts, canEdit)}
+        ${_renderFactsHTML(id, facts, familyFacts, canEdit, _profileState.showFamily)}
       </div>
 
       <aside class="profile-sidebar">
-        <div class="card">
-          <div class="section-label" style="margin-bottom:.7rem">About</div>
-          <p class="about-text">${p.bio ? esc(p.bio) : '<span style="color:var(--text-muted)">No bio yet.</span>'}</p>
-        </div>
+        ${_renderRelationshipsPanel(id, p, ex, siblings, partners, children, canEdit)}
 
-        ${linked ? `<div class="card">
+        ${p.bio ? `<div class="card">
+          <div class="section-label" style="margin-bottom:.7rem">About</div>
+          <p class="about-text">${esc(p.bio)}</p>
+        </div>` : ''}
+
+        ${linked && (linked.email || linked.phone) ? `<div class="card">
           <div class="section-label" style="margin-bottom:.7rem">Contact</div>
           ${linked.email ? `<div class="contact-row"><span>✉</span><span>${esc(linked.email)}</span></div>` : ''}
           ${linked.phone ? `<div class="contact-row"><span>☎</span><span>${esc(linked.phone)}</span></div>` : ''}
-          ${!linked.email && !linked.phone ? '<p style="color:var(--text-muted);font-size:.86rem">No contact details shared.</p>' : ''}</div>` : ''}
+        </div>` : ''}
 
-        <div class="card">
-          <div class="section-label" style="margin-bottom:.7rem">Family</div>
-          ${conn('Father', ex.father)}${conn('Mother', ex.mother)}
-          ${partners.map(pt => conn('Partner', pt)).join('')}
-          ${children.map(ch => conn('Child', ch)).join('')}
-          ${!ex.father && !ex.mother && !partners.length && !children.length ? '<p style="color:var(--text-muted);font-size:.86rem">No connections linked yet.</p>' : ''}
-        </div>
-
-        <div class="card">
+        ${photos.length ? `<div class="card">
           <div class="section-label" style="margin-bottom:.9rem">Photos</div>
-          ${photos.length ? `<div class="photo-mini">${photos.slice(0, 6).map(ph =>
+          <div class="photo-mini">${photos.slice(0, 6).map(ph =>
             `<img src="${fileUrl('photos', ph, 'image_url')}" alt="" style="cursor:pointer">`).join('')}</div>
-            <div class="link" style="margin-top:.6rem;font-size:.82rem" onclick="navigate('gallery')">See all →</div>`
-            : '<p style="color:var(--text-muted);font-size:.86rem">No tagged photos.</p>'}
-        </div>
+          <div class="link" style="margin-top:.6rem;font-size:.82rem" onclick="navigate('gallery')">See all →</div>
+        </div>` : ''}
       </aside>
     </div>
   </div>`);
