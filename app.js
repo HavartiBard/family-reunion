@@ -1710,13 +1710,31 @@ async function searchPersonsForTag(query, photoId){
   if (!resEl) return;
   if (!query.trim()){ resEl.innerHTML = ''; return; }
   try {
-    const r = await apiFetch(`/api/collections/persons/records?filter=${encodeURIComponent(`(display_name~"${query}"||given_name~"${query}")`)}` +
-      `&fields=id,display_name&perPage=10`);
-    if (!r.ok) return;
-    const items = (await r.json()).items || [];
-    resEl.innerHTML = items.map(p =>
+    const q = query.trim();
+    // Search persons by name and also users by name/email then resolve to linked person
+    const personFilter = `(display_name~"${q}"||given_name~"${q}"||family_name~"${q}")`;
+    const userFilter = `(name~"${q}"||email~"${q}")`;
+    const [pr, ur] = await Promise.all([
+      apiFetch(`/api/collections/persons/records?filter=${encodeURIComponent(personFilter)}&fields=id,display_name&perPage=15`),
+      apiFetch(`/api/collections/users/records?filter=${encodeURIComponent(userFilter)}&fields=id,name,email&perPage=10`)
+    ]);
+    const persons = pr.ok ? (await pr.json()).items || [] : [];
+    const users = ur.ok ? (await ur.json()).items || [] : [];
+
+    // For matched users, find their linked person records
+    if (users.length) {
+      const userIds = users.map(u => `linked_user="${u.id}"`).join('||');
+      const lr = await apiFetch(`/api/collections/persons/records?filter=${encodeURIComponent(`(${userIds})`)}&fields=id,display_name&perPage=10`);
+      if (lr.ok) {
+        const linked = (await lr.json()).items || [];
+        const existing = new Set(persons.map(p => p.id));
+        linked.forEach(p => { if (!existing.has(p.id)) persons.push(p); });
+      }
+    }
+
+    resEl.innerHTML = persons.map(p =>
       `<div class="lb-tag-result" onclick="addPersonTag('${photoId}','${p.id}')">${esc(p.display_name || 'Unknown')}</div>`
-    ).join('') || '<div style="color:#555;font-size:.85rem;padding:.3rem .5rem">No results</div>';
+    ).join('') || '<div style="color:#555;font-size:.85rem;padding:.3rem .5rem">No results found</div>';
   } catch { /* ignore */ }
 }
 
@@ -1775,7 +1793,7 @@ async function _loadLbComments(photoId){
     if (!items.length){ container.innerHTML = '<div style="color:#555;font-size:.82rem">No comments yet.</div>'; return; }
     container.innerHTML = items.map(c => {
       const author = c.expand && c.expand.author;
-      const name = author ? (author.name || author.email) : 'Unknown';
+      const name = author ? (author.name || author.username || author.email.split('@')[0]) : 'Unknown';
       const canDel = c.author === userId || (currentUser && currentUser.family_admin);
       return `<div class="lb-comment">
         <div class="lb-comment-author">${esc(name)}
@@ -1823,7 +1841,7 @@ async function loadComments(relatedId, relatedType, containerId){
     if (!items.length){ container.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem">No comments yet.</p>'; return; }
     container.innerHTML = items.map(c => {
       const author = c.expand && c.expand.author;
-      const name = author ? (author.name || author.email) : 'Unknown';
+      const name = author ? (author.name || author.username || author.email.split('@')[0]) : 'Unknown';
       const initials = name.charAt(0).toUpperCase();
       const canDel = c.author === userId || (currentUser && currentUser.family_admin);
       const date = c.created ? new Date(c.created).toLocaleDateString() : '';
