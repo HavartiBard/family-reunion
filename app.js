@@ -1004,20 +1004,7 @@ async function postNews(){
 
 // ── Family tree ──────────────────────────────────────────────────────────────
 let treeFocusId = null;
-let treeTrail = [];
 const personCache = new Map();
-
-SCREENS.tree = function(params){
-  mountMain(`<div class="tree-screen">
-    <div class="tree-header">
-      <div><h1 class="tree-title">Family Tree</h1>
-        <div id="tree-breadcrumb" class="tree-breadcrumb" style="display:none"></div></div>
-      <button class="btn btn-outline btn-sm" onclick="openPersonForm()">Add person</button>
-    </div>
-    <div id="tree-canvas" class="tree-canvas"><div class="spinner"></div></div>
-  </div>`);
-  openTree((params && params.person) || null);
-};
 
 async function getPerson(id){
   if (!id) return null;
@@ -1047,93 +1034,331 @@ function dedupeById(arr){
   for (const x of arr) if (x && !seen.has(x.id)) { seen.add(x.id); out.push(x); }
   return out;
 }
-async function fetchNeighborhood(focusId){
-  const focus = await getPerson(focusId);
-  if (!focus) return null;
-  const parents = [await getPerson(focus.father), await getPerson(focus.mother)].filter(Boolean);
-  const couples = await getCouplesFor(focusId);
-  const partnerIds = couples.map(c => c.partner_a === focusId ? c.partner_b : c.partner_a);
-  const partners = (await Promise.all(partnerIds.map(getPerson))).filter(Boolean);
-  const children = await getChildren(focusId);
-  let siblings = [];
-  for (const par of parents) (await getChildren(par.id)).forEach(k => { if (k.id !== focusId) siblings.push(k); });
-  siblings = dedupeById(siblings);
-  let grandparents = [];
-  for (const par of parents) grandparents.push(await getPerson(par.father), await getPerson(par.mother));
-  grandparents = grandparents.filter(Boolean);
-  let grandchildren = [];
-  for (const ch of children) grandchildren.push(...await getChildren(ch.id));
-  grandchildren = dedupeById(grandchildren);
-  return { focus, parents, partners, siblings, children, grandparents, grandchildren, couples };
-}
 
-function nodeHtml(p, depth, isFocus, idx){
-  const years = depth === 2 ? '' : `<div class="tn-years">${personYears(p)}</div>`;
-  return `<button class="tree-node${isFocus ? ' focus' : ''}" data-depth="${depth}" onclick="focusPerson('${p.id}')">
-    <div class="avatar tn-av" style="background:${avatarTint(idx || 0)};color:var(--text-primary)">${personInitials(p)}</div>
-    <div class="tn-name">${esc(p.display_name)}</div>${years}</button>`;
-}
-function renderTree(n){
-  const row = (nodes, depth) => nodes.length
-    ? `<div class="tree-row">${nodes.map((p, i) => nodeHtml(p, depth, false, i)).join('')}</div>` : '';
-  const conn = (nodes) => nodes.length ? '<div class="tree-conn"></div>' : '';
-  const focusRow = `<div class="tree-row">` +
-    n.siblings.map((p, i) => nodeHtml(p, 1, false, i)).join('') +
-    nodeHtml(n.focus, 0, true, 0) +
-    n.partners.map((p, i) => nodeHtml(p, 1, false, i + 3)).join('') + `</div>`;
-  const html =
-    row(n.grandparents, 2) + conn(n.grandparents) +
-    row(n.parents, 1) + conn(n.parents) +
-    focusRow +
-    conn(n.children) + row(n.children, 1) +
-    conn(n.grandchildren) + row(n.grandchildren, 2) +
-    treeActionsHtml(n.focus);
-  el('tree-canvas').innerHTML = html ||
-    '<div class="empty-state"><div class="emoji">🌱</div><p>No relatives linked yet.</p></div>';
-}
-function treeActionsHtml(focus){
-  const claim = focus.linked_user
-    ? (focus.linked_user === userId ? '<span class="pill">This is you</span>' : '')
-    : `<button class="btn btn-outline btn-sm" onclick="claimPerson('${focus.id}')">This is me</button>`;
-  return `<div class="tree-actions">
-    <button class="btn btn-primary btn-sm" onclick="openPersonForm('${focus.id}')">Edit</button>
-    <button class="btn btn-outline btn-sm" onclick="openAddRelative('${focus.id}')">Add relative</button>
-    <button class="btn btn-outline btn-sm" onclick="navigate('profile',{id:'${focus.id}'})">View profile</button>
-    ${claim}</div>`;
-}
-async function focusPerson(id, fromTrail){
-  if (!id) return;
-  if (!fromTrail) {
-    if (treeFocusId && treeFocusId !== id) treeTrail.push(treeFocusId);
-    if (treeTrail.length > 12) treeTrail.shift();
-  }
-  treeFocusId = id;
-  history.replaceState({}, '', `${location.pathname}?tab=tree&person=${id}`);
-  el('tree-canvas').innerHTML = '<div class="spinner"></div>';
-  const n = await fetchNeighborhood(id);
-  if (!n) { el('tree-canvas').innerHTML = '<div class="alert alert-error">Person not found.</div>'; return; }
-  renderBreadcrumb();
-  renderTree(n);
-}
-function renderBreadcrumb(){
-  const e = el('tree-breadcrumb');
-  if (!e) return;
-  if (!treeTrail.length) { e.style.display = 'none'; return; }
-  e.style.display = ''; e.innerHTML = '<span class="link" onclick="treeBack()">‹ Back</span>';
-}
-async function treeBack(){ const prev = treeTrail.pop(); if (prev) await focusPerson(prev, true); }
+// ── Canvas tree state ─────────────────────────────────────────────────────────
+const _tS = {
+  persons: new Map(), childrenOf: new Map(),
+  focusId: null, focusPartners: [],
+  collapsed: new Set(),
+  pan: {x:0,y:0}, zoom: 1,
+  dragging: false, dragLast: {x:0,y:0},
+  ctxId: null, _offset: null, loading: false,
+};
+const _TW = 160, _TH = 88, _THG = 28, _TVG = 100; // node w/h, h-gap, v-gap
 
-async function openTree(personId){
-  const target = personId || treeFocusId || (currentUser && await myPersonId()) || null;
-  if (!target) {
-    el('tree-canvas').innerHTML =
-      `<div class="empty-state"><div class="emoji">🌳</div>
-        <p>No one in the tree yet. Add people, or use "Add relative".</p>
+SCREENS.tree = function(params){
+  mountMain(`<div class="tree-screen">
+    <div class="tree-hdr">
+      <h1 class="tree-title">Family Tree</h1>
+      <button class="btn btn-outline btn-sm" onclick="openPersonForm()">+ Add person</button>
+    </div>
+    <div class="tree-vp" id="tree-vp"
+      onmousedown="tpDragStart(event)" onmousemove="tpDragMove(event)"
+      onmouseup="tpDragEnd()" onmouseleave="tpDragEnd()"
+      ontouchstart="tpTouchStart(event)" ontouchmove="tpTouchMove(event)" ontouchend="tpDragEnd()"
+      onwheel="tpWheel(event)">
+      <div class="tree-inner" id="tree-inner"></div>
+      <div class="tree-controls">
+        <button class="tc-btn" onclick="tpZoom(0.15)" title="Zoom in">+</button>
+        <button class="tc-btn" onclick="tpZoom(-0.15)" title="Zoom out">−</button>
+        <button class="tc-btn" onclick="tpResetView()" title="Fit to view">⊡</button>
+      </div>
+    </div>
+  </div>`);
+  _tS.persons.clear(); _tS.childrenOf.clear(); _tS.focusPartners = [];
+  _tS.collapsed.clear(); _tS.ctxId = null;
+  _tS.pan = {x:0,y:0}; _tS.zoom = 1;
+  tpLoad((params && params.person) || treeFocusId || null);
+};
+
+async function tpLoad(focusId){
+  if (_tS.loading) return;
+  _tS.loading = true;
+  const inner = el('tree-inner');
+  if (inner) inner.innerHTML = '<div class="spinner" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)"></div>';
+  try {
+    let startId = focusId;
+    if (!startId && currentUser) startId = await myPersonId();
+    if (!startId){
+      const r = await apiFetch('/api/collections/persons/records?perPage=1');
+      if (r.ok) startId = ((await r.json()).items[0]||{}).id || null;
+    }
+    if (!startId){
+      if (inner) inner.innerHTML = `<div class="empty-state" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center">
+        <div style="font-size:3rem">🌳</div><p>No one in the tree yet.</p>
         <button class="btn btn-primary" style="margin-top:1rem" onclick="openPersonForm()">Add a person</button></div>`;
+      return;
+    }
+    _tS.focusId = startId; treeFocusId = startId;
+    history.replaceState({}, '', `${location.pathname}?tab=tree&person=${startId}`);
+    _tS.persons.clear(); _tS.childrenOf.clear(); _tS.focusPartners = [];
+    await Promise.all([
+      tpFetchUp(startId, 0),
+      tpFetchDown(startId, 0),
+      getCouplesFor(startId).then(async couples => {
+        const pids = couples.map(c => c.partner_a === startId ? c.partner_b : c.partner_a);
+        _tS.focusPartners = (await Promise.all(pids.map(getPerson))).filter(Boolean);
+        _tS.focusPartners.forEach(p => _tS.persons.set(p.id, p));
+      }),
+    ]);
+    tpRender(); tpCenterFocus();
+  } finally { _tS.loading = false; }
+}
+
+async function tpFetchUp(id, depth){
+  if (!id || depth > 3) return;
+  const p = await getPerson(id); if (!p) return;
+  _tS.persons.set(id, p);
+  if (depth < 3) await Promise.all([tpFetchUp(p.father, depth+1), tpFetchUp(p.mother, depth+1)]);
+}
+async function tpFetchDown(id, depth){
+  if (!id) return;
+  if (depth > 0){ const p = await getPerson(id); if (p) _tS.persons.set(id, p); }
+  if (depth >= 3) return;
+  const ch = await getChildren(id);
+  _tS.childrenOf.set(id, ch);
+  ch.forEach(c => _tS.persons.set(c.id, c));
+  await Promise.all(ch.map(c => tpFetchDown(c.id, depth+1)));
+}
+
+// Compact ancestor subtree width
+function _ancW(id, depth){
+  if (!id || !_tS.persons.has(id)) return 0;
+  if (depth >= 3 || _tS.collapsed.has(id)) return _TW;
+  const p = _tS.persons.get(id);
+  const fW = (p.father && _tS.persons.has(p.father)) ? _ancW(p.father, depth+1) : 0;
+  const mW = (p.mother && _tS.persons.has(p.mother)) ? _ancW(p.mother, depth+1) : 0;
+  if (!fW && !mW) return _TW;
+  return Math.max(_TW, fW + (fW && mW ? _THG : 0) + mW);
+}
+// Place ancestor nodes recursively (depth increases going up)
+function _ancPlace(id, depth, cx, nodes, edges, childCX, childY){
+  if (!id || !_tS.persons.has(id)) return;
+  const p = _tS.persons.get(id);
+  const y = -depth * (_TH + _TVG);
+  nodes.push({id, x: cx - _TW/2, y, person:p, role: depth===0 ? 'focus' : 'anc', d:depth});
+  if (childCX !== null) edges.push({x1:cx, y1:y+_TH, x2:childCX, y2:childY});
+  if (depth >= 3 || _tS.collapsed.has(id)) return;
+  const fW = (p.father && _tS.persons.has(p.father)) ? _ancW(p.father, depth+1) : 0;
+  const mW = (p.mother && _tS.persons.has(p.mother)) ? _ancW(p.mother, depth+1) : 0;
+  if (!fW && !mW) return;
+  const total = fW + (fW && mW ? _THG : 0) + mW;
+  let curX = cx - total/2;
+  if (fW){ _ancPlace(p.father, depth+1, curX+fW/2, nodes, edges, cx, y); curX += fW + (mW ? _THG : 0); }
+  if (mW)  _ancPlace(p.mother, depth+1, curX+mW/2, nodes, edges, cx, y);
+}
+
+// Descendant subtree width
+function _descW(id, depth){
+  if (!id || !_tS.persons.has(id)) return 0;
+  if (depth >= 3 || _tS.collapsed.has(id)) return _TW;
+  const ch = _tS.childrenOf.get(id) || [];
+  if (!ch.length) return _TW;
+  return Math.max(_TW, ch.reduce((s,c) => s + _descW(c.id, depth+1) + _THG, -_THG));
+}
+// Place descendant nodes recursively
+function _descPlace(id, depth, cx, nodes, edges, parentCX, parentY){
+  if (!id || !_tS.persons.has(id)) return;
+  const p = _tS.persons.get(id);
+  const y = depth * (_TH + _TVG);
+  if (depth > 0){
+    nodes.push({id, x: cx-_TW/2, y, person:p, role:'desc', d:depth});
+    if (parentCX !== null) edges.push({x1:parentCX, y1:parentY+_TH, x2:cx, y2:y});
+  }
+  if (depth >= 3 || _tS.collapsed.has(id)) return;
+  const ch = _tS.childrenOf.get(id) || [];
+  if (!ch.length) return;
+  const ws = ch.map(c => _descW(c.id, depth+1));
+  const total = ws.reduce((s,w) => s+w+_THG, -_THG);
+  let x = cx - total/2;
+  for (let i=0; i<ch.length; i++){
+    _descPlace(ch[i].id, depth+1, x+ws[i]/2, nodes, edges, cx, y);
+    x += ws[i] + _THG;
+  }
+}
+
+function tpComputeLayout(){
+  const nodes=[], edges=[];
+  _ancPlace(_tS.focusId, 0, 0, nodes, edges, null, null);
+  _descPlace(_tS.focusId, 0, 0, nodes, edges, null, null);
+  // Partners of focus placed to the right
+  const foc = nodes.find(n => n.id === _tS.focusId);
+  if (foc && _tS.focusPartners.length){
+    let px = foc.x + _TW + _THG;
+    for (const p of _tS.focusPartners){
+      nodes.push({id:p.id, x:px, y:0, person:p, role:'partner', d:0});
+      edges.push({x1:foc.x+_TW, y1:_TH/2, x2:px, y2:_TH/2, type:'partner'});
+      px += _TW + _THG;
+    }
+  }
+  return {nodes, edges};
+}
+
+function tpRender(){
+  const inner = el('tree-inner'); if (!inner) return;
+  const {nodes, edges} = tpComputeLayout();
+  if (!nodes.length){
+    inner.innerHTML = '<div class="empty-state" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)"><div style="font-size:3rem">🌱</div><p>No relatives yet.</p></div>';
     return;
   }
-  await focusPerson(target);
+  const PAD = 60;
+  const minX = Math.min(...nodes.map(n=>n.x)) - PAD;
+  const maxX = Math.max(...nodes.map(n=>n.x+_TW)) + PAD;
+  const minY = Math.min(...nodes.map(n=>n.y)) - PAD;
+  const maxY = Math.max(...nodes.map(n=>n.y+_TH)) + PAD;
+  const cW = maxX-minX, cH = maxY-minY;
+  const ox = -minX, oy = -minY;
+  _tS._offset = {ox, oy, cW, cH};
+
+  // SVG connector lines
+  let svg = '';
+  for (const e of edges){
+    const x1=e.x1+ox, y1=e.y1+oy, x2=e.x2+ox, y2=e.y2+oy;
+    if (e.type === 'partner'){
+      svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--accent-gold)" stroke-dasharray="5 3" stroke-width="2" stroke-linecap="round"/>`;
+    } else {
+      const my=(y1+y2)/2;
+      svg += `<path d="M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}" stroke="#c4bba8" fill="none" stroke-width="2" stroke-linecap="round"/>`;
+    }
+  }
+
+  // Node cards
+  let html = `<svg class="tree-svg" width="${cW}" height="${cH}" viewBox="0 0 ${cW} ${cH}">${svg}</svg>`;
+  for (const n of nodes){
+    const p = n.person;
+    const nx = n.x+ox, ny = n.y+oy;
+    const isFocus = n.id === _tS.focusId;
+    const years = personYears(p);
+    const photoUrl = p.photo ? `${API}/api/files/persons/${p.id}/${p.photo}?thumb=80x80` : '';
+    const av = photoUrl
+      ? `<img class="tn-av tn-av-img" src="${photoUrl}" alt="" loading="lazy">`
+      : `<div class="tn-av" style="background:${avatarTint(p.id.charCodeAt(0)%6)};color:#4a3a2a">${personInitials(p)}</div>`;
+
+    // Collapse button: ancestors with known parents, descendants/focus with children
+    const hasUp = n.role==='anc' && n.d < 3 && (p.father || p.mother) && (_tS.persons.has(p.father)||_tS.persons.has(p.mother));
+    const hasDown = (n.role==='focus'||n.role==='desc') && (_tS.childrenOf.get(n.id)||[]).length > 0;
+    const isCol = _tS.collapsed.has(n.id);
+    const expBtn = (hasUp||hasDown) ? `<button class="tn-exp-btn${isCol?' col':''}" onclick="tpToggleCollapse(event,'${n.id}')" title="${isCol?'Expand branch':'Collapse branch'}">${isCol?'+':'−'}</button>` : '';
+
+    // "Has more" stub for great-grandparents with parents, or max-depth descendants
+    const moreAnc = n.role==='anc' && n.d===3 && (p.father||p.mother);
+    const moreDesc = n.role==='desc' && n.d===3 && !_tS.childrenOf.has(n.id);
+    const moreBtn = (moreAnc||moreDesc) ? '<div class="tn-more" title="More relatives exist beyond this view">···</div>' : '';
+
+    const cls = ['tn-card', isFocus?'focus':'', n.role==='anc'?'anc':'', n.role==='partner'?'partner':'', isCol?'col':''].filter(Boolean).join(' ');
+    html += `<div class="${cls}" style="left:${nx}px;top:${ny}px" onclick="tpNodeClick(event,'${n.id}')">
+      ${av}<div class="tn-info"><div class="tn-name">${esc(p.display_name)}</div>${years?`<div class="tn-years">${esc(years)}</div>`:''}</div>
+      ${expBtn}${moreBtn}</div>`;
+  }
+
+  inner.style.cssText = `width:${cW}px;height:${cH}px;position:relative`;
+  inner.innerHTML = html;
 }
+
+function tpCenterFocus(){
+  const vp = el('tree-vp'); if (!vp || !_tS._offset) return;
+  const {ox, oy, cW, cH} = _tS._offset;
+  const vpW = vp.clientWidth, vpH = vp.clientHeight;
+  _tS.zoom = Math.max(0.2, Math.min(1, (vpW-80)/cW, (vpH-80)/cH));
+  _tS.pan.x = vpW/2 - (ox+_TW/2)*_tS.zoom;
+  _tS.pan.y = vpH/2 - (oy+_TH/2)*_tS.zoom;
+  tpApplyTransform();
+}
+function tpApplyTransform(){
+  const inner = el('tree-inner');
+  if (inner) inner.style.transform = `translate(${_tS.pan.x}px,${_tS.pan.y}px) scale(${_tS.zoom})`;
+}
+
+// Pan / Zoom
+function tpDragStart(e){
+  if (e.button !== 0 || e.target.closest('.tn-card,.tree-ctx,.tc-btn,.tn-exp-btn')) return;
+  _tS.dragging = true; _tS.dragLast = {x:e.clientX, y:e.clientY};
+  e.preventDefault();
+}
+function tpDragMove(e){
+  if (!_tS.dragging) return;
+  _tS.pan.x += e.clientX-_tS.dragLast.x; _tS.pan.y += e.clientY-_tS.dragLast.y;
+  _tS.dragLast = {x:e.clientX, y:e.clientY}; tpApplyTransform();
+}
+function tpDragEnd(){ _tS.dragging = false; }
+
+let _tpT0=null, _tpD0=0, _tpZ0=1;
+function tpTouchStart(e){
+  if (e.touches.length===1 && !e.target.closest('.tn-card,.tree-ctx,.tc-btn,.tn-exp-btn')){
+    _tS.dragging=true; _tS.dragLast={x:e.touches[0].clientX, y:e.touches[0].clientY};
+  } else if (e.touches.length===2){
+    _tS.dragging=false;
+    _tpD0=Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
+    _tpZ0=_tS.zoom;
+    _tpT0={x:(e.touches[0].clientX+e.touches[1].clientX)/2, y:(e.touches[0].clientY+e.touches[1].clientY)/2};
+  }
+  e.preventDefault();
+}
+function tpTouchMove(e){
+  if (e.touches.length===1 && _tS.dragging){
+    _tS.pan.x+=e.touches[0].clientX-_tS.dragLast.x; _tS.pan.y+=e.touches[0].clientY-_tS.dragLast.y;
+    _tS.dragLast={x:e.touches[0].clientX, y:e.touches[0].clientY}; tpApplyTransform();
+  } else if (e.touches.length===2 && _tpT0){
+    const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
+    const nz=Math.max(0.15,Math.min(3,_tpZ0*d/_tpD0));
+    const mx=(e.touches[0].clientX+e.touches[1].clientX)/2, my=(e.touches[0].clientY+e.touches[1].clientY)/2;
+    const f=nz/_tS.zoom; _tS.pan.x=mx-f*(mx-_tS.pan.x); _tS.pan.y=my-f*(my-_tS.pan.y); _tS.zoom=nz;
+    tpApplyTransform();
+  }
+  e.preventDefault();
+}
+function tpWheel(e){ e.preventDefault(); tpZoom(e.deltaY>0?-0.1:0.1, e.clientX, e.clientY); }
+function tpZoom(delta, cx, cy){
+  const vp=el('tree-vp'); if (!vp) return;
+  if (cx===undefined){ cx=vp.clientWidth/2; cy=vp.clientHeight/2; }
+  const oz=_tS.zoom; _tS.zoom=Math.max(0.15,Math.min(3,_tS.zoom+delta));
+  const f=_tS.zoom/oz; _tS.pan.x=cx-f*(cx-_tS.pan.x); _tS.pan.y=cy-f*(cy-_tS.pan.y);
+  tpApplyTransform();
+}
+function tpResetView(){ tpCenterFocus(); }
+
+// Context menu
+function tpNodeClick(e, id){
+  e.stopPropagation();
+  if (_tS.ctxId===id){ tpCloseCtx(); return; }
+  tpCloseCtx(); _tS.ctxId=id;
+  const vp=el('tree-vp'); const cr=e.currentTarget.getBoundingClientRect(), vr=vp.getBoundingClientRect();
+  let mx=cr.left-vr.left, my=cr.bottom-vr.top+8;
+  const menuW=202, menuH=200;
+  if (mx+menuW>vr.width-8) mx=vr.width-menuW-8;
+  if (my+menuH>vr.height-8) my=cr.top-vr.top-menuH-4;
+  const p=_tS.persons.get(id)||{};
+  const isMe=p.linked_user===userId, canClaim=!p.linked_user;
+  const m=document.createElement('div'); m.className='tree-ctx'; m.id='tree-ctx';
+  m.style.cssText=`left:${mx}px;top:${my}px`;
+  m.innerHTML=`<div class="ctx-name">${esc(p.display_name||'')}</div>
+    <button class="ctx-item" onclick="tpSetFocus('${id}')">⊙ Center on this person</button>
+    <button class="ctx-item" onclick="navigate('profile',{id:'${id}'});tpCloseCtx()">☰ View profile</button>
+    <button class="ctx-item" onclick="openPersonForm('${id}');tpCloseCtx()">✎ Edit details</button>
+    <button class="ctx-item" onclick="openAddRelative('${id}');tpCloseCtx()">＋ Add relative</button>
+    ${canClaim?`<button class="ctx-item" onclick="claimPerson('${id}');tpCloseCtx()">★ This is me</button>`:''}
+    ${isMe?'<div class="ctx-me">★ This is you</div>':''}`;
+  vp.appendChild(m);
+  requestAnimationFrame(()=>document.addEventListener('click', _tpCtxOff, {once:true}));
+}
+function _tpCtxOff(e){ if (!e.target.closest('#tree-ctx')) tpCloseCtx(); }
+function tpCloseCtx(){ const m=el('tree-ctx'); if (m) m.remove(); _tS.ctxId=null; }
+async function tpSetFocus(id){
+  tpCloseCtx(); _tS.collapsed.clear(); await tpLoad(id);
+}
+function tpToggleCollapse(e, id){
+  e.stopPropagation();
+  if (_tS.collapsed.has(id)) _tS.collapsed.delete(id); else _tS.collapsed.add(id);
+  tpRender(); setTimeout(tpCenterFocus, 50);
+}
+
+// Backward-compat shim used by savePerson, linkExisting, createAndLink, claimPerson, merge
+async function focusPerson(id){
+  if (!id) return;
+  treeFocusId = id; personCache.delete(id);
+  if (el('tree-vp')) await tpSetFocus(id);
+}
+async function openTree(personId){ await tpLoad(personId); }
 async function myPersonId(){
   const res = await apiFetch(`/api/collections/persons/records?perPage=1&filter=` +
     encodeURIComponent(`(linked_user="${userId}")`));
