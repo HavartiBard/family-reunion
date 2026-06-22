@@ -1040,6 +1040,7 @@ const _tS = {
   persons: new Map(), childrenOf: new Map(),
   focusId: null, focusPartners: [],
   collapsed: new Set(),
+  siblings: [], sibsCollapsed: true,
   trees: [], storedTrees: [], activeTree: null,
   pan: {x:0,y:0}, zoom: 1,
   dragging: false, dragLast: {x:0,y:0},
@@ -1127,6 +1128,7 @@ async function tpLoad(focusId){
     _tS.focusId = startId; treeFocusId = startId;
     history.replaceState({}, '', `${location.pathname}?tab=tree&person=${startId}`);
     _tS.persons.clear(); _tS.childrenOf.clear(); _tS.focusPartners = [];
+    _tS.siblings = []; _tS.sibsCollapsed = true;
     await Promise.all([
       tpFetchUp(startId, 0),
       tpFetchDown(startId, 0),
@@ -1136,6 +1138,16 @@ async function tpLoad(focusId){
         _tS.focusPartners.forEach(p => _tS.persons.set(p.id, p));
       }),
     ]);
+    // Fetch siblings (other children of focus's parents)
+    const focPerson = _tS.persons.get(startId);
+    if (focPerson) {
+      const sibParentId = focPerson.father || focPerson.mother;
+      if (sibParentId) {
+        const sibList = await getChildren(sibParentId);
+        _tS.siblings = sibList.filter(s => s.id !== startId);
+        _tS.siblings.forEach(s => _tS.persons.set(s.id, s));
+      }
+    }
     await tpLoadStoredTrees();
     _computeTrees();
     tpRender(); tpCenterFocus();
@@ -1217,7 +1229,14 @@ function _descPlace(id, depth, cx, nodes, edges, parentCX, parentY){
 function tpComputeLayout(){
   const nodes=[], edges=[];
   _ancPlace(_tS.focusId, 0, 0, nodes, edges, null, null);
-  _descPlace(_tS.focusId, 0, 0, nodes, edges, null, null);
+
+  // Compute couple midpoint so children edge from between both parents
+  const numPartners = _tS.focusPartners.length;
+  // Focus cx=0; first partner cx = TW + THG (= 188 with current constants)
+  const coupleCX = numPartners > 0 ? (_TW + _THG) / 2 : 0;
+
+  _descPlace(_tS.focusId, 0, coupleCX, nodes, edges, null, null);
+
   // Partners of focus placed to the right
   const foc = nodes.find(n => n.id === _tS.focusId);
   if (foc && _tS.focusPartners.length){
@@ -1228,6 +1247,26 @@ function tpComputeLayout(){
       px += _TW + _THG;
     }
   }
+
+  // Siblings of focus placed to the left (when expanded)
+  if (_tS.siblings.length && !_tS.sibsCollapsed && foc){
+    const focPerson = _tS.persons.get(_tS.focusId);
+    // Find shared parent node already placed by _ancPlace
+    const parNode = focPerson && (
+      nodes.find(n => n.id === focPerson.father) ||
+      nodes.find(n => n.id === focPerson.mother)
+    );
+    let sx = foc.x; // right edge of leftmost sibling starts at focus left edge
+    for (let i = _tS.siblings.length - 1; i >= 0; i--){
+      const s = _tS.siblings[i];
+      const sibX = sx - _THG - _TW;
+      const sibCX = sibX + _TW / 2;
+      nodes.push({id:s.id, x:sibX, y:0, person:s, role:'sibling', d:0});
+      if (parNode) edges.push({x1:parNode.x + _TW/2, y1:parNode.y + _TH, x2:sibCX, y2:0});
+      sx = sibX;
+    }
+  }
+
   return {nodes, edges};
 }
 
@@ -1286,7 +1325,7 @@ function tpRender(){
     const treeColor = _treeColorFor(p.family_name);
     const dimmed = _tS.activeTree && p.family_name !== _tS.activeTree;
     const tcStyle = treeColor ? `;--tc:${treeColor}` : '';
-    const cls = ['tn-card', isFocus?'focus':'', n.role==='anc'?'anc':'', n.role==='partner'?'partner':'', isCol?'col':'', dimmed?'dimmed':''].filter(Boolean).join(' ');
+    const cls = ['tn-card', isFocus?'focus':'', n.role==='anc'?'anc':'', n.role==='partner'?'partner':'', n.role==='sibling'?'sibling':'', isCol?'col':'', dimmed?'dimmed':''].filter(Boolean).join(' ');
     html += `<div class="${cls}" style="left:${nx}px;top:${ny}px${tcStyle}" onclick="tpNodeClick(event,'${n.id}')">
       ${av}<div class="tn-info"><div class="tn-name">${esc(p.display_name)}</div>${years?`<div class="tn-years">${esc(years)}</div>`:''}</div>
       ${expBtn}${moreBtn}</div>`;
@@ -1485,11 +1524,17 @@ function tpNodeClick(e, id){
   const isMe=p.linked_user===userId, canClaim=!p.linked_user;
   const m=document.createElement('div'); m.className='tree-ctx'; m.id='tree-ctx';
   m.style.cssText=`left:${mx}px;top:${my}px`;
+  const isFocus = id === _tS.focusId;
+  const hasChildren = (_tS.childrenOf.get(id)||[]).length > 0;
+  const isCollapsed = _tS.collapsed.has(id);
+  const hasSibs = isFocus && _tS.siblings.length > 0;
   m.innerHTML=`<div class="ctx-name">${esc(p.display_name||'')}</div>
     <button class="ctx-item" onclick="tpSetFocus('${id}')">⊙ Center on this person</button>
     <button class="ctx-item" onclick="navigate('profile',{id:'${id}'});tpCloseCtx()">☰ View profile</button>
     <button class="ctx-item" onclick="openPersonForm('${id}');tpCloseCtx()">✎ Edit details</button>
     <button class="ctx-item" onclick="openAddRelative('${id}');tpCloseCtx()">＋ Add relative</button>
+    ${hasChildren?`<button class="ctx-item" onclick="tpToggleCollapse(event,'${id}');tpCloseCtx()">${isCollapsed?'▶ Expand children':'▼ Collapse children'}</button>`:''}
+    ${hasSibs?`<button class="ctx-item" onclick="tpToggleSibs();tpCloseCtx()">${_tS.sibsCollapsed?`◀ Show siblings (${_tS.siblings.length})`:'◀ Hide siblings'}</button>`:''}
     ${canClaim?`<button class="ctx-item" onclick="claimPerson('${id}');tpCloseCtx()">★ This is me</button>`:''}
     ${isMe?'<div class="ctx-me">★ This is you</div>':''}`;
   vp.appendChild(m);
@@ -1503,6 +1548,10 @@ async function tpSetFocus(id){
 function tpToggleCollapse(e, id){
   e.stopPropagation();
   if (_tS.collapsed.has(id)) _tS.collapsed.delete(id); else _tS.collapsed.add(id);
+  tpRender(); setTimeout(tpCenterFocus, 50);
+}
+function tpToggleSibs(){
+  _tS.sibsCollapsed = !_tS.sibsCollapsed;
   tpRender(); setTimeout(tpCenterFocus, 50);
 }
 
