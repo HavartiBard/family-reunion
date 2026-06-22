@@ -1267,22 +1267,36 @@ function tpComputeLayout(){
       nodes.find(n => n.id === focPerson.mother)
     );
     let sx = foc.x;
+    const sibCXs = [];
     for (let i = _tS.siblings.length - 1; i >= 0; i--){
       const s = _tS.siblings[i];
-      // Place sibling card
       sx -= _THG + _TW;
       const sibX = sx, sibCX = sibX + _TW/2;
       nodes.push({id:s.id, x:sibX, y:0, person:s, role:'sibling', d:0});
-      if (parNode) edges.push({x1:parNode.x + _TW/2, y1:parNode.y + _TH, x2:sibCX, y2:0});
-      // Place sibling's partner further left (same couple-line pattern, mirrored)
+      sibCXs.push(sibCX); // collect for T-junction; individual edges added below
       const sp = _tS.siblingCouples.get(s.id);
       if (sp){
         sx -= _THG + _TW;
         const spX = sx;
         nodes.push({id:sp.id, x:spX, y:0, person:sp, role:'sib-partner', d:0});
-        // Dashed couple connector: partner right-edge → sibling left-edge
         edges.push({x1:spX + _TW, y1:_TH/2, x2:sibX, y2:_TH/2, type:'partner'});
       }
+    }
+    // Build T-junction bus line: one vertical stem from parent, horizontal bar, vertical drops
+    if (parNode && sibCXs.length) {
+      // Remove the _ancPlace bezier that went straight from parent to focus
+      for (let j = edges.length - 1; j >= 0; j--) {
+        const e = edges[j];
+        if (!e.type && e.x2 === 0 && e.y2 === 0) { edges.splice(j, 1); break; }
+      }
+      const parCX = parNode.x + _TW/2;
+      const parBot = parNode.y + _TH;
+      const elbowY = parBot + _TVG * 0.5;
+      const allCXs = [0, ...sibCXs]; // 0 = focus center X
+      const minCX = Math.min(...allCXs), maxCX = Math.max(...allCXs);
+      edges.push({x1:parCX, y1:parBot, x2:parCX, y2:elbowY, type:'straight'});
+      edges.push({x1:minCX, y1:elbowY, x2:maxCX, y2:elbowY, type:'straight'});
+      for (const cx of allCXs) edges.push({x1:cx, y1:elbowY, x2:cx, y2:0, type:'straight'});
     }
   }
 
@@ -1311,6 +1325,8 @@ function tpRender(){
     const x1=e.x1+ox, y1=e.y1+oy, x2=e.x2+ox, y2=e.y2+oy;
     if (e.type === 'partner'){
       svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--accent-gold)" stroke-dasharray="5 3" stroke-width="2" stroke-linecap="round"/>`;
+    } else if (e.type === 'straight'){
+      svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#c4bba8" stroke-width="2" stroke-linecap="round"/>`;
     } else {
       const my=(y1+y2)/2;
       svg += `<path d="M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}" stroke="#c4bba8" fill="none" stroke-width="2" stroke-linecap="round"/>`;
@@ -1324,10 +1340,17 @@ function tpRender(){
     const nx = n.x+ox, ny = n.y+oy;
     const isFocus = n.id === _tS.focusId;
     const years = personYears(p);
-    const photoUrl = p.photo ? `${API}/api/files/persons/${p.id}/${p.photo}?thumb=80x80` : '';
+
+    // Tree color: prefer birth surname for tree membership (e.g. married-in persons)
+    const treeSurname = p.birth_surname || p.family_name;
+    const treeColor = _treeColorFor(treeSurname) || _treeColorFor(p.family_name);
+    const dimmed = _tS.activeTree && treeSurname !== _tS.activeTree && p.family_name !== _tS.activeTree;
+
+    const photoUrl = p.photo ? `${API}/api/files/persons/${p.id}/${p.photo}?thumb=80x88` : '';
+    const bandColor = treeColor || avatarTint(p.id.charCodeAt(0)%6);
     const av = photoUrl
-      ? `<img class="tn-av tn-av-img" src="${photoUrl}" alt="" loading="lazy">`
-      : `<div class="tn-av" style="background:${avatarTint(p.id.charCodeAt(0)%6)};color:#4a3a2a">${personInitials(p)}</div>`;
+      ? `<div class="tn-av-band" style="background:${bandColor}"><img class="tn-av-band-img" src="${photoUrl}" alt="" loading="lazy"></div>`
+      : `<div class="tn-av-band" style="background:${bandColor}">${personInitials(p)}</div>`;
 
     // Collapse button: ancestors with known parents, descendants/focus with children
     const hasUp = n.role==='anc' && n.d < 3 && (p.father || p.mother) && (_tS.persons.has(p.father)||_tS.persons.has(p.mother));
@@ -1339,10 +1362,6 @@ function tpRender(){
     const moreAnc = n.role==='anc' && n.d===3 && (p.father||p.mother);
     const moreDesc = n.role==='desc' && n.d===3 && !_tS.childrenOf.has(n.id);
     const moreBtn = (moreAnc||moreDesc) ? '<div class="tn-more" title="More relatives exist beyond this view">···</div>' : '';
-
-    // Tree color stripe
-    const treeColor = _treeColorFor(p.family_name);
-    const dimmed = _tS.activeTree && p.family_name !== _tS.activeTree;
     const tcStyle = treeColor ? `;--tc:${treeColor}` : '';
     const cls = ['tn-card', isFocus?'focus':'', n.role==='anc'?'anc':'', n.role==='partner'?'partner':'',
       n.role==='sibling'?'sibling':'', n.role==='sib-partner'?'sib-partner':'',
@@ -1352,7 +1371,8 @@ function tpRender(){
       ${expBtn}${moreBtn}</div>`;
     // Branch indicator: small pill above partner/sib-partner nodes with ancestors
     if ((n.role==='partner' || n.role==='sib-partner') && (p.father || p.mother)){
-      const bLabel = p.family_name ? `↑ ${esc(p.family_name)}` : '↑ family';
+      const bSurname = p.birth_surname || p.family_name;
+      const bLabel = bSurname ? `↑ ${esc(bSurname)}` : '↑ family';
       const bW = 90, bX = nx + (_TW - bW)/2, bY = ny - 28;
       html += `<div class="tn-branch" style="left:${bX}px;top:${bY}px${tcStyle}" onclick="tpSetFocus('${n.id}')" title="Explore ${esc(p.display_name)}'s family">${bLabel}</div>`;
     }
