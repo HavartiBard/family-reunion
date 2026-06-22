@@ -1057,6 +1057,9 @@ function _computeTrees(){
   const counts = new Map();
   for (const p of _tS.persons.values()){
     const s = (p.family_name||'').trim(); if (s) counts.set(s, (counts.get(s)||0)+1);
+    // Also count birth surname so married-in persons anchor their birth lineage
+    const bs = (p.birth_surname||'').trim();
+    if (bs && bs !== s) counts.set(bs, (counts.get(bs)||0)+1);
   }
   const sorted = [...counts.entries()].sort((a,b)=>b[1]-a[1]);
   _tS.trees = sorted.map(([name,count],i) => {
