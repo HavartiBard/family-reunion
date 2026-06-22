@@ -1040,17 +1040,37 @@ const _tS = {
   persons: new Map(), childrenOf: new Map(),
   focusId: null, focusPartners: [],
   collapsed: new Set(),
+  trees: [], activeTree: null,
   pan: {x:0,y:0}, zoom: 1,
   dragging: false, dragLast: {x:0,y:0},
   ctxId: null, _offset: null, loading: false,
 };
+// Surname-based tree color palette (earthy tones complementing the app's warm aesthetic)
+const _TREE_COLORS = ['#7b5ea7','#2c6e49','#1a5276','#a04000','#7d6608','#6e2f1a','#0e6655','#4a235a'];
+function _treeColorFor(surname){
+  if (!surname) return null;
+  const t = _tS.trees.find(t => t.name === surname);
+  return t ? t.color : null;
+}
+function _computeTrees(){
+  const counts = new Map();
+  for (const p of _tS.persons.values()){
+    const s = (p.family_name||'').trim(); if (s) counts.set(s, (counts.get(s)||0)+1);
+  }
+  // Sort by frequency descending so the most common surnames get top-palette colors
+  const sorted = [...counts.entries()].sort((a,b)=>b[1]-a[1]);
+  _tS.trees = sorted.map(([name,count],i) => ({name, count, color:_TREE_COLORS[i%_TREE_COLORS.length]}));
+}
 const _TW = 160, _TH = 88, _THG = 28, _TVG = 100; // node w/h, h-gap, v-gap
 
 SCREENS.tree = function(params){
   mountMain(`<div class="tree-screen">
     <div class="tree-hdr">
       <h1 class="tree-title">Family Tree</h1>
-      <button class="btn btn-outline btn-sm" onclick="openPersonForm()">+ Add person</button>
+      <div class="tree-hdr-right">
+        <div id="tree-selector" class="tree-selector"></div>
+        <button class="btn btn-outline btn-sm" onclick="openPersonForm()">+ Add person</button>
+      </div>
     </div>
     <div class="tree-vp" id="tree-vp"
       onmousedown="tpDragStart(event)" onmousemove="tpDragMove(event)"
@@ -1066,7 +1086,7 @@ SCREENS.tree = function(params){
     </div>
   </div>`);
   _tS.persons.clear(); _tS.childrenOf.clear(); _tS.focusPartners = [];
-  _tS.collapsed.clear(); _tS.ctxId = null;
+  _tS.collapsed.clear(); _tS.ctxId = null; _tS.trees = []; _tS.activeTree = null;
   _tS.pan = {x:0,y:0}; _tS.zoom = 1;
   tpLoad((params && params.person) || treeFocusId || null);
 };
@@ -1101,6 +1121,7 @@ async function tpLoad(focusId){
         _tS.focusPartners.forEach(p => _tS.persons.set(p.id, p));
       }),
     ]);
+    _computeTrees();
     tpRender(); tpCenterFocus();
   } finally { _tS.loading = false; }
 }
@@ -1245,14 +1266,42 @@ function tpRender(){
     const moreDesc = n.role==='desc' && n.d===3 && !_tS.childrenOf.has(n.id);
     const moreBtn = (moreAnc||moreDesc) ? '<div class="tn-more" title="More relatives exist beyond this view">···</div>' : '';
 
-    const cls = ['tn-card', isFocus?'focus':'', n.role==='anc'?'anc':'', n.role==='partner'?'partner':'', isCol?'col':''].filter(Boolean).join(' ');
-    html += `<div class="${cls}" style="left:${nx}px;top:${ny}px" onclick="tpNodeClick(event,'${n.id}')">
+    // Tree color stripe
+    const treeColor = _treeColorFor(p.family_name);
+    const dimmed = _tS.activeTree && p.family_name !== _tS.activeTree;
+    const tcStyle = treeColor ? `;--tc:${treeColor}` : '';
+    const cls = ['tn-card', isFocus?'focus':'', n.role==='anc'?'anc':'', n.role==='partner'?'partner':'', isCol?'col':'', dimmed?'dimmed':''].filter(Boolean).join(' ');
+    html += `<div class="${cls}" style="left:${nx}px;top:${ny}px${tcStyle}" onclick="tpNodeClick(event,'${n.id}')">
       ${av}<div class="tn-info"><div class="tn-name">${esc(p.display_name)}</div>${years?`<div class="tn-years">${esc(years)}</div>`:''}</div>
       ${expBtn}${moreBtn}</div>`;
   }
 
   inner.style.cssText = `width:${cW}px;height:${cH}px;position:relative`;
   inner.innerHTML = html;
+  tpRenderSelector();
+}
+
+function tpRenderSelector(){
+  const sel = el('tree-selector'); if (!sel) return;
+  if (!_tS.trees.length){ sel.innerHTML = ''; return; }
+  const all = `<button class="ts-pill${!_tS.activeTree?' active':''}" onclick="tpSelectTree(null)">All</button>`;
+  const pills = _tS.trees.map(t =>
+    `<button class="ts-pill${_tS.activeTree===t.name?' active':''}" style="--tc:${t.color}" onclick="tpSelectTree(${JSON.stringify(t.name)})" title="${esc(t.name)} lineage">${esc(t.name)}</button>`
+  ).join('');
+  sel.innerHTML = all + pills;
+}
+async function tpSelectTree(surname){
+  _tS.activeTree = surname || null;
+  if (!surname){ tpRender(); return; }
+  // Find the oldest-known person in this tree (lowest birth year = likely most ancestral)
+  const candidates = [..._tS.persons.values()].filter(p => p.family_name === surname);
+  if (!candidates.length){ tpRender(); return; }
+  const root = candidates.sort((a,b) => {
+    const ya = parseInt(_parseYearFromDate(a.birth_date))||9999;
+    const yb = parseInt(_parseYearFromDate(b.birth_date))||9999;
+    return ya - yb;
+  })[0];
+  await tpSetFocus(root.id);
 }
 
 function tpCenterFocus(){

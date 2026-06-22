@@ -214,9 +214,17 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
 /* ── Family tree (canvas) ──────────────────────────────────────────────── */
 .tree-screen{display:flex;flex-direction:column;height:100vh;overflow:hidden}
 .tree-hdr{display:flex;justify-content:space-between;align-items:center;gap:12px;
-  padding:14px 24px;border-bottom:1px solid var(--border-default);
-  background:rgba(244,241,234,.9);backdrop-filter:blur(6px);position:relative;z-index:3;flex-shrink:0}
-.tree-title{font-family:var(--font-display);font-size:24px;margin:0}
+  padding:10px 20px;border-bottom:1px solid var(--border-default);
+  background:rgba(244,241,234,.92);backdrop-filter:blur(6px);position:relative;z-index:3;flex-shrink:0}
+.tree-title{font-family:var(--font-display);font-size:22px;margin:0;white-space:nowrap}
+.tree-hdr-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+/* Tree selector pills */
+.tree-selector{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+.ts-pill{padding:4px 11px;border-radius:20px;border:1.5px solid var(--border-default);
+  background:#fff;cursor:pointer;font-size:.78rem;font-weight:600;color:var(--text-secondary);
+  transition:all .15s;white-space:nowrap}
+.ts-pill:hover{border-color:var(--tc, var(--accent-gold));color:var(--tc, var(--text-primary))}
+.ts-pill.active{background:var(--tc,var(--text-primary));color:#fff;border-color:var(--tc,var(--text-primary))}
 .tree-vp{flex:1;position:relative;overflow:hidden;cursor:grab;
   background:#ede8df;
   background-image:radial-gradient(#d8d0c2 1.2px,transparent 1.2px);background-size:24px 24px}
@@ -225,15 +233,18 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
 .tree-svg{position:absolute;top:0;left:0;pointer-events:none;overflow:visible}
 /* Node cards */
 .tn-card{position:absolute;width:160px;height:88px;
-  display:flex;align-items:center;gap:10px;padding:10px 11px;
+  display:flex;align-items:center;gap:10px;padding:10px 11px 10px 15px;
   border-radius:13px;border:2px solid var(--border-default);
   background:#fff;box-shadow:0 3px 12px rgba(31,45,39,.10);
-  cursor:pointer;user-select:none;transition:border-color .15s,box-shadow .15s;overflow:hidden;box-sizing:border-box}
-.tn-card:hover{border-color:var(--accent-gold);box-shadow:0 4px 18px rgba(31,45,39,.16)}
-.tn-card.focus{border-color:var(--accent-gold);background:#fffaf0;box-shadow:0 4px 20px rgba(180,140,60,.22)}
+  cursor:pointer;user-select:none;transition:border-color .15s,box-shadow .15s,opacity .2s;overflow:hidden;box-sizing:border-box}
+.tn-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;
+  background:var(--tc,transparent);border-radius:11px 0 0 11px}
+.tn-card:hover{border-color:var(--tc,var(--accent-gold));box-shadow:0 4px 18px rgba(31,45,39,.16)}
+.tn-card.focus{border-color:var(--tc,var(--accent-gold));background:#fffaf0;box-shadow:0 4px 20px rgba(180,140,60,.22)}
 .tn-card.anc{opacity:.88}
 .tn-card.partner{border-style:dashed}
-.tn-card.col{opacity:.6}
+.tn-card.col{opacity:.55}
+.tn-card.dimmed{opacity:.25;filter:grayscale(.5)}
 .tn-av{width:42px;height:42px;border-radius:50%;flex-shrink:0;
   display:flex;align-items:center;justify-content:center;font-size:.82rem;font-weight:700}
 .tn-av-img{width:42px;height:42px;border-radius:50%;object-fit:cover;flex-shrink:0}
