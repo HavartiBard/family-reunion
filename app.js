@@ -6,7 +6,7 @@
    =========================================================================== */
 
 const API = 'https://reunion-api.klsll.com';
-const UPLOAD_URL = 'https://photo-upload.reunion.klsll.com/upload';
+const UPLOAD_URL = 'https://photo-upload.klsll.com/upload';
 
 let token = localStorage.getItem('pb_token') || '';
 let userId = localStorage.getItem('pb_user_id') || '';
