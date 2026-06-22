@@ -15,6 +15,22 @@
   <div id="modal-backdrop" class="modal-backdrop" hidden>
     <div id="modal-box" class="modal-box"></div>
   </div>
+  <div id="lb-overlay" class="lb-overlay" hidden>
+    <button class="lb-x" onclick="closeLightbox()">✕</button>
+    <div class="lb-layout">
+      <div class="lb-img-area">
+        <button id="lb-prev" class="lb-arrow lb-arrow-left" onclick="lbStep(-1)">‹</button>
+        <img id="lb-img" class="lb-image" src="" alt="">
+        <button id="lb-next" class="lb-arrow lb-arrow-right" onclick="lbStep(1)">›</button>
+      </div>
+      <div class="lb-panel">
+        <div id="lb-counter" class="lb-counter"></div>
+        <div id="lb-caption" class="lb-meta-section"></div>
+        <div id="lb-tags" class="lb-meta-section"></div>
+        <div id="lb-comments" class="lb-comments-section"></div>
+      </div>
+    </div>
+  </div>
   <script src="helpers.js"></script>
   <script src="merge.js"></script>
   <script src="app.js"></script>

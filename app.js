@@ -1327,10 +1327,12 @@ async function renderAlbums(){
   const isAdmin = currentUser && currentUser.family_admin;
   const nowMs = Date.now();
   const cards = albums.map(a => {
-    const thumb = fileUrl('albums', a, 'cover_photo');
+    const thumb = a.cover_photo_url || fileUrl('albums', a, 'cover_photo');
     const isNew = a.created && (nowMs - new Date(a.created).getTime()) < 30 * 86400000;
     return `<div class="album-card" onclick="navigate('gallery',{album:'${a.id}'})">
-      <div class="album-thumb">${thumb ? `<img src="${esc(thumb)}" alt="">` : '<div class="album-thumb-placeholder"></div>'}</div>
+      <div class="album-thumb" id="alb-thumb-${a.id}">${thumb
+        ? `<img src="${esc(thumb)}" alt="">`
+        : '<div class="album-thumb-placeholder"></div>'}</div>
       <div class="album-meta">
         <div class="album-name">${esc(a.name)}${isNew ? '<span class="pill" style="margin-left:.4rem;font-size:.66rem">New</span>' : ''}</div>
         ${a.year ? `<div class="album-year">${esc(String(a.year))}</div>` : ''}
@@ -1347,39 +1349,135 @@ async function renderAlbums(){
       ? `<div class="album-grid">${cards}</div>`
       : '<div class="empty-state"><div class="emoji">📷</div><p>No albums yet. Ask a family admin to create the first one.</p></div>'}
   </div>`);
+
+  // Auto-cover: for albums with no cover, lazily pull first photo
+  const noCover = albums.filter(a => !a.cover_photo_url && !a.cover_photo);
+  if (noCover.length) {
+    await Promise.all(noCover.map(async a => {
+      try {
+        const r = await apiFetch(`/api/collections/photos/records?filter=${encodeURIComponent(`(album="${a.id}")`)}` +
+          `&sort=created&perPage=1&fields=id,image_url`);
+        if (!r.ok) return;
+        const items = (await r.json()).items || [];
+        if (!items.length || !items[0].image_url) return;
+        const thumbEl = document.getElementById(`alb-thumb-${a.id}`);
+        if (thumbEl) thumbEl.innerHTML = `<img src="${esc(items[0].image_url)}" alt="">`;
+      } catch { /* ignore */ }
+    }));
+  }
 }
+
+let _lbPhotos = [];
+let _lbIndex = 0;
+let _lbAlbumId = null;
 
 async function renderAlbum(albumId){
   mountMain('<div class="screen-pad"><div class="spinner"></div></div>');
-  let album = null, photos = [];
+  let album = null, photos = [], events = [];
   try {
-    const [aRes, pRes] = await Promise.all([
-      apiFetch(`/api/collections/albums/records/${albumId}`),
-      apiFetch(`/api/collections/photos/records?filter=${encodeURIComponent(`(album="${albumId}")`)}` + `&sort=-created&perPage=200`)
+    const [aRes, pRes, evRes] = await Promise.all([
+      apiFetch(`/api/collections/albums/records/${albumId}?expand=event`),
+      apiFetch(`/api/collections/photos/records?filter=${encodeURIComponent(`(album="${albumId}")`)}` + `&sort=-created&perPage=200`),
+      apiFetch('/api/collections/events/records?sort=start_date&perPage=200&fields=id,name')
     ]);
     if (aRes.ok) album = await aRes.json();
     if (pRes.ok) photos = (await pRes.json()).items || [];
+    if (evRes.ok) events = (await evRes.json()).items || [];
   } catch { /* ignore */ }
   if (!album) { mountMain('<div class="screen-pad"><div class="empty-state"><p>Album not found.</p></div></div>'); return; }
 
+  _lbAlbumId = albumId;
+  _lbPhotos = photos.map(ph => ({
+    id: ph.id,
+    url: fileUrl('photos', ph, 'image_url'),
+    caption: ph.caption || '',
+    tagged_persons: Array.isArray(ph.tagged_persons) ? ph.tagged_persons : [],
+    uploader: ph.uploader || ''
+  }));
+
+  const isAdmin = currentUser && currentUser.family_admin;
   const photoItems = photos.map((ph, i) => {
     const url = fileUrl('photos', ph, 'image_url');
     const span = (i + 1) % 5 === 0 ? ' pg-span' : '';
-    return `<div class="pg-item${span}" onclick="openLightbox(${i})" data-src="${esc(url)}">
+    return `<div class="pg-item${span}" onclick="openLightbox(${i})">
       ${url ? `<img src="${esc(url)}" alt="${esc(ph.caption || '')}">` : '<div class="pg-placeholder"></div>'}
     </div>`;
   }).join('');
 
+  const linkedEvent = album.expand && album.expand.event;
+  const yearSpan = album.year ? ` <span style="font-family:var(--font-ui);font-size:1rem;font-weight:400;color:var(--text-muted)">${album.year}</span>` : '';
+
   mountMain(`<div class="screen-pad">
     <div class="breadcrumb"><span class="link" onclick="navigate('gallery')">Albums</span> › ${esc(album.name)}</div>
     <div class="gallery-header" style="margin-top:.75rem">
-      <h1 class="card-title" style="margin:0">${esc(album.name)}${album.year ? ` <span style="font-family:var(--font-ui);font-size:1rem;font-weight:400;color:var(--text-muted)">${album.year}</span>` : ''}</h1>
-      <button class="btn btn-primary btn-sm" onclick="openUploadPhoto('${albumId}')">Upload photo</button>
+      <h1 class="card-title" style="margin:0">${esc(album.name)}${yearSpan}</h1>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+        ${isAdmin ? `<button class="btn btn-outline btn-sm" onclick="openEditAlbum('${albumId}')">Edit album</button>` : ''}
+        <button class="btn btn-primary btn-sm" onclick="openUploadPhoto('${albumId}')">Upload photo</button>
+      </div>
     </div>
+    ${album.description ? `<p class="album-desc">${esc(album.description)}</p>` : ''}
+    ${linkedEvent ? `<p style="font-size:.85rem;color:var(--text-muted);margin:-.5rem 0 1rem">
+      Linked to event: <span class="link" onclick="navigate('events',{event:'${linkedEvent.id}'})">${esc(linkedEvent.name)}</span></p>` : ''}
     ${photos.length
       ? `<div class="photo-grid">${photoItems}</div>`
       : '<div class="empty-state"><div class="emoji">📷</div><p>No photos yet — be the first to upload.</p></div>'}
+    <div class="album-comments">
+      <h3 class="card-title" style="font-size:1rem;margin:0 0 .75rem">Comments</h3>
+      <div id="alb-cmt-list"><div class="spinner"></div></div>
+      <div class="comment-form">
+        <textarea id="alb-cmt-input" class="comment-input" rows="2" placeholder="Add a comment…"></textarea>
+        <button class="btn btn-primary btn-sm comment-submit"
+          onclick="submitComment('${albumId}','album','alb-cmt-list','alb-cmt-input')">Post</button>
+      </div>
+    </div>
   </div>`);
+
+  loadComments(albumId, 'album', 'alb-cmt-list');
+}
+
+async function openEditAlbum(albumId){
+  openModal('<div class="spinner"></div>');
+  try {
+    const [aRes, evRes] = await Promise.all([
+      apiFetch(`/api/collections/albums/records/${albumId}`),
+      apiFetch('/api/collections/events/records?sort=start_date&perPage=200&fields=id,name')
+    ]);
+    if (!aRes.ok) throw new Error('Could not load album');
+    const a = await aRes.json();
+    const evList = evRes.ok ? ((await evRes.json()).items || []) : [];
+    const evOptions = `<option value="">None</option>` +
+      evList.map(e => `<option value="${e.id}"${a.event === e.id ? ' selected' : ''}>${esc(e.name)}</option>`).join('');
+    openModal(`<h2 class="card-title">Edit album</h2>
+      <div id="alb-edit-err" class="alert alert-error" style="display:none"></div>
+      <div class="form-group"><label>Name</label><input id="albe-name" value="${esc(a.name)}" /></div>
+      <div class="row-2">
+        <div class="form-group"><label>Year</label><input id="albe-year" type="number" value="${a.year || ''}" /></div>
+        <div class="form-group"><label>Linked event</label><select id="albe-event">${evOptions}</select></div>
+      </div>
+      <div class="form-group"><label>Description</label><textarea id="albe-desc">${esc(a.description || '')}</textarea></div>
+      <div class="form-group"><label>Cover photo (upload new)</label><input id="albe-cover" type="file" accept="image/*" /></div>
+      <div style="display:flex;gap:.6rem;margin-top:.5rem">
+        <button class="btn btn-primary" onclick="saveEditAlbum('${albumId}')">Save</button>
+        <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      </div>`);
+  } catch(e){ openModal(`<p class="alert alert-error">${esc(e.message)}</p><button class="btn btn-outline btn-sm" onclick="closeModal()">Close</button>`); }
+}
+
+async function saveEditAlbum(albumId){
+  const name = val('albe-name');
+  if (!name){ formErr('alb-edit-err','Name is required.'); return; }
+  const fd = new FormData();
+  fd.append('name', name);
+  const yr = val('albe-year'); fd.append('year', yr || '');
+  const desc = val('albe-desc'); fd.append('description', desc);
+  const eventId = val('albe-event'); fd.append('event', eventId);
+  const cover = el('albe-cover').files[0]; if (cover) fd.append('cover_photo', cover);
+  try {
+    const r = await apiFetch(`/api/collections/albums/records/${albumId}`, { method:'PATCH', body: fd });
+    if (!r.ok){ const d = await r.json(); throw new Error(d.message || 'Update failed'); }
+    closeModal(); renderAlbum(albumId);
+  } catch(e){ formErr('alb-edit-err', e.message); }
 }
 
 function openNewAlbum(){
@@ -1521,25 +1619,248 @@ async function doUploadMulti(albumId){
   setTimeout(() => { closeModal(); renderAlbum(albumId); }, errors.length ? 3000 : 1200);
 }
 
-let _lbPhotos = [];
 function openLightbox(index){
-  const items = document.querySelectorAll('.pg-item[data-src]');
-  _lbPhotos = Array.from(items).map(n => n.dataset.src).filter(Boolean);
-  showLightboxAt(index);
+  if (!_lbPhotos.length) return;
+  _lbIndex = Math.max(0, Math.min(index, _lbPhotos.length - 1));
+  el('lb-overlay').hidden = false;
+  document.body.style.overflow = 'hidden';
+  _showLightboxAt(_lbIndex);
+  document.addEventListener('keydown', _lbKeyHandler);
 }
-function showLightboxAt(i){
+
+function closeLightbox(){
+  el('lb-overlay').hidden = true;
+  document.body.style.overflow = '';
+  document.removeEventListener('keydown', _lbKeyHandler);
+}
+
+function lbStep(dir){
+  _showLightboxAt(_lbIndex + dir);
+}
+
+function _lbKeyHandler(e){
+  if (e.key === 'Escape') closeLightbox();
+  else if (e.key === 'ArrowLeft') lbStep(-1);
+  else if (e.key === 'ArrowRight') lbStep(1);
+}
+
+function _showLightboxAt(i){
+  if (!_lbPhotos.length) return;
   i = Math.max(0, Math.min(i, _lbPhotos.length - 1));
-  const src = _lbPhotos[i];
-  const hasP = i > 0, hasN = i < _lbPhotos.length - 1;
-  openModal(`<div class="lightbox">
-    <button class="lb-close btn btn-outline btn-sm" onclick="closeModal()">✕ Close</button>
-    <div class="lb-img-wrap"><img src="${esc(src)}" alt="" /></div>
-    <div class="lb-nav">
-      ${hasP ? `<button class="btn btn-outline btn-sm" onclick="showLightboxAt(${i-1})">‹ Prev</button>` : '<span></span>'}
-      <span style="font-size:.82rem;color:var(--text-muted)">${i+1} / ${_lbPhotos.length}</span>
-      ${hasN ? `<button class="btn btn-outline btn-sm" onclick="showLightboxAt(${i+1})">Next ›</button>` : '<span></span>'}
-    </div>
-  </div>`);
+  _lbIndex = i;
+  const ph = _lbPhotos[i];
+
+  const imgEl = el('lb-img');
+  imgEl.src = ph.url;
+  imgEl.alt = ph.caption || '';
+  el('lb-prev').hidden = i === 0;
+  el('lb-next').hidden = i === _lbPhotos.length - 1;
+  el('lb-counter').textContent = `${i + 1} / ${_lbPhotos.length}`;
+
+  const isAdmin = currentUser && currentUser.family_admin;
+  const canEdit = isAdmin || ph.uploader === userId;
+
+  const capEl = el('lb-caption');
+  capEl.innerHTML = `
+    ${ph.caption ? `<p class="lb-section-label">Caption</p><p class="lb-caption-text">${esc(ph.caption)}</p>` : ''}
+    ${canEdit && _lbAlbumId ? `<button class="lb-tag-add" style="margin-top:.35rem" onclick="setAlbumCover('${ph.url}')">Set as album cover</button>` : ''}`;
+
+  // Tags (async, fills in lb-tags)
+  el('lb-tags').innerHTML = '<p class="lb-section-label">People in photo</p><div class="lb-tag-list"><span style="color:#555;font-size:.82rem">Loading…</span></div>';
+  _loadLbTags(ph, canEdit);
+
+  // Comments (fills in lb-comments)
+  _renderLbComments(ph.id);
+}
+
+async function _loadLbTags(ph, canEdit){
+  const tagsEl = el('lb-tags');
+  if (!tagsEl) return;
+  const tagIds = ph.tagged_persons || [];
+  let persons = [];
+  if (tagIds.length){
+    try {
+      const filter = tagIds.map(id => `id="${id}"`).join('||');
+      const r = await apiFetch(`/api/collections/persons/records?filter=${encodeURIComponent(`(${filter})`)}&fields=id,display_name&perPage=50`);
+      if (r.ok) persons = (await r.json()).items || [];
+    } catch { /* ignore */ }
+  }
+  const tags = persons.map(p =>
+    `<span class="lb-tag" onclick="navigate('profile',{id:'${p.id}'})">${esc(p.display_name || 'Unknown')}</span>`
+  ).join('');
+  const addBtn = canEdit
+    ? `<button class="lb-tag-add" onclick="showLbTagSearch('${ph.id}')">+ Tag person</button>`
+    : '';
+  tagsEl.innerHTML = `<p class="lb-section-label">People in photo</p>
+    <div class="lb-tag-list">${tags || '<span style="color:#555;font-size:.82rem">None tagged yet</span>'}${addBtn}</div>
+    <div id="lb-tag-search-wrap"></div>`;
+}
+
+function showLbTagSearch(photoId){
+  const wrap = el('lb-tag-search-wrap');
+  if (!wrap) return;
+  wrap.innerHTML = `<input class="lb-tag-search" id="lb-tag-inp" placeholder="Search by name…"
+    oninput="searchPersonsForTag(this.value,'${photoId}')">
+    <div class="lb-tag-results" id="lb-tag-results"></div>`;
+  setTimeout(() => { const inp = el('lb-tag-inp'); if (inp) inp.focus(); }, 50);
+}
+
+async function searchPersonsForTag(query, photoId){
+  const resEl = el('lb-tag-results');
+  if (!resEl) return;
+  if (!query.trim()){ resEl.innerHTML = ''; return; }
+  try {
+    const r = await apiFetch(`/api/collections/persons/records?filter=${encodeURIComponent(`(display_name~"${query}"||given_name~"${query}")`)}` +
+      `&fields=id,display_name&perPage=10`);
+    if (!r.ok) return;
+    const items = (await r.json()).items || [];
+    resEl.innerHTML = items.map(p =>
+      `<div class="lb-tag-result" onclick="addPersonTag('${photoId}','${p.id}')">${esc(p.display_name || 'Unknown')}</div>`
+    ).join('') || '<div style="color:#555;font-size:.85rem;padding:.3rem .5rem">No results</div>';
+  } catch { /* ignore */ }
+}
+
+async function addPersonTag(photoId, personId){
+  const ph = _lbPhotos[_lbIndex];
+  if (!ph) return;
+  const current = ph.tagged_persons || [];
+  if (current.includes(personId)){ el('lb-tag-search-wrap').innerHTML = ''; return; }
+  const updated = [...current, personId];
+  try {
+    const r = await apiFetch(`/api/collections/photos/records/${photoId}`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ tagged_persons: updated })
+    });
+    if (!r.ok) throw new Error('Tag update failed');
+    ph.tagged_persons = updated;
+    el('lb-tag-search-wrap').innerHTML = '';
+    const isAdmin = currentUser && currentUser.family_admin;
+    _loadLbTags(ph, isAdmin || ph.uploader === userId);
+  } catch(e){ toast(e.message, 'error'); }
+}
+
+async function setAlbumCover(url){
+  if (!_lbAlbumId) return;
+  try {
+    const r = await apiFetch(`/api/collections/albums/records/${_lbAlbumId}`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ cover_photo_url: url })
+    });
+    if (!r.ok) throw new Error('Could not set cover');
+    toast('Album cover updated.', 'success');
+  } catch(e){ toast(e.message, 'error'); }
+}
+
+function _renderLbComments(photoId){
+  const container = el('lb-comments');
+  if (!container) return;
+  container.innerHTML = `
+    <p class="lb-section-label">Comments</p>
+    <div class="lb-comment-list" id="lb-cmt-list"><div style="color:#555;font-size:.82rem">Loading…</div></div>
+    <div class="lb-comment-form">
+      <textarea class="lb-comment-input" id="lb-cmt-inp" rows="2" placeholder="Add a comment…"></textarea>
+      <button class="lb-comment-submit" onclick="submitLbComment('${photoId}')">Post comment</button>
+    </div>`;
+  _loadLbComments(photoId);
+}
+
+async function _loadLbComments(photoId){
+  const container = el('lb-cmt-list');
+  if (!container) return;
+  try {
+    const r = await apiFetch(`/api/collections/comments/records?filter=${encodeURIComponent(`(related_id="${photoId}"&&related_type="photo")`)}` +
+      `&sort=created&perPage=100&expand=author`);
+    if (!r.ok){ container.innerHTML = '<div style="color:#555;font-size:.82rem">Could not load.</div>'; return; }
+    const items = (await r.json()).items || [];
+    if (!items.length){ container.innerHTML = '<div style="color:#555;font-size:.82rem">No comments yet.</div>'; return; }
+    container.innerHTML = items.map(c => {
+      const author = c.expand && c.expand.author;
+      const name = author ? (author.name || author.email) : 'Unknown';
+      const canDel = c.author === userId || (currentUser && currentUser.family_admin);
+      return `<div class="lb-comment">
+        <div class="lb-comment-author">${esc(name)}
+          ${canDel ? `<button class="lb-comment-del" onclick="_deleteLbComment('${c.id}','${photoId}')">Delete</button>` : ''}
+        </div>
+        <div class="lb-comment-body">${esc(c.body)}</div>
+      </div>`;
+    }).join('');
+  } catch { container.innerHTML = '<div style="color:#555;font-size:.82rem">Could not load.</div>'; }
+}
+
+async function submitLbComment(photoId){
+  const input = el('lb-cmt-inp');
+  const body = input ? input.value.trim() : '';
+  if (!body) return;
+  try {
+    const r = await apiFetch('/api/collections/comments/records', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ body, author: userId, related_id: photoId, related_type: 'photo' })
+    });
+    if (!r.ok){ const d = await r.json(); throw new Error(d.message || 'Post failed'); }
+    input.value = '';
+    _loadLbComments(photoId);
+  } catch(e){ toast(e.message, 'error'); }
+}
+
+async function _deleteLbComment(commentId, photoId){
+  try {
+    const r = await apiFetch(`/api/collections/comments/records/${commentId}`, { method:'DELETE' });
+    if (!r.ok && r.status !== 204) throw new Error('Delete failed');
+    _loadLbComments(photoId);
+  } catch(e){ toast(e.message, 'error'); }
+}
+
+// ── Album comments ────────────────────────────────────────────────────────────
+
+async function loadComments(relatedId, relatedType, containerId){
+  const container = el(containerId);
+  if (!container) return;
+  try {
+    const r = await apiFetch(`/api/collections/comments/records?filter=${encodeURIComponent(`(related_id="${relatedId}"&&related_type="${relatedType}")`)}` +
+      `&sort=created&perPage=100&expand=author`);
+    if (!r.ok){ container.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem">Could not load comments.</p>'; return; }
+    const items = (await r.json()).items || [];
+    if (!items.length){ container.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem">No comments yet.</p>'; return; }
+    container.innerHTML = items.map(c => {
+      const author = c.expand && c.expand.author;
+      const name = author ? (author.name || author.email) : 'Unknown';
+      const initials = name.charAt(0).toUpperCase();
+      const canDel = c.author === userId || (currentUser && currentUser.family_admin);
+      const date = c.created ? new Date(c.created).toLocaleDateString() : '';
+      return `<div class="comment-item" id="cmt-${c.id}">
+        <div class="comment-avatar">${initials}</div>
+        <div class="comment-body-wrap">
+          <div><span class="comment-author">${esc(name)}</span><span class="comment-date">${date}</span>
+            ${canDel ? `<button class="comment-del-btn" onclick="deleteComment('${c.id}','${relatedId}','${relatedType}','${containerId}')">Delete</button>` : ''}
+          </div>
+          <p class="comment-text">${esc(c.body)}</p>
+        </div>
+      </div>`;
+    }).join('');
+  } catch { container.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem">Could not load comments.</p>'; }
+}
+
+async function submitComment(relatedId, relatedType, containerId, inputId){
+  const input = el(inputId);
+  const body = input ? input.value.trim() : '';
+  if (!body) return;
+  try {
+    const r = await apiFetch('/api/collections/comments/records', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ body, author: userId, related_id: relatedId, related_type: relatedType })
+    });
+    if (!r.ok){ const d = await r.json(); throw new Error(d.message || 'Post failed'); }
+    input.value = '';
+    loadComments(relatedId, relatedType, containerId);
+  } catch(e){ toast(e.message, 'error'); }
+}
+
+async function deleteComment(commentId, relatedId, relatedType, containerId){
+  try {
+    const r = await apiFetch(`/api/collections/comments/records/${commentId}`, { method:'DELETE' });
+    if (!r.ok && r.status !== 204) throw new Error('Delete failed');
+    loadComments(relatedId, relatedType, containerId);
+  } catch(e){ toast(e.message, 'error'); }
 }
 
 // ── Notifications ────────────────────────────────────────────────────────────
