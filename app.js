@@ -99,6 +99,17 @@ async function init(){
 }
 
 async function enterApp(){
+  // If user has no linked person in the tree, run the claim/onboarding flow first
+  const linkedId = await myPersonId().catch(() => null);
+  if (!linkedId) {
+    const nameParts = (currentUser.name || '').trim().split(/\s+/);
+    await showTreeClaimStep(nameParts[0] || '', nameParts.slice(1).join(' ') || '');
+    return;
+  }
+  _launchAppShell();
+}
+
+function _launchAppShell(){
   clearInterval(rollerTimer);
   el('app').innerHTML = `
     <div id="app-shell">
@@ -106,11 +117,12 @@ async function enterApp(){
       <main id="main"></main>
     </div>
     <nav id="bottom-nav"></nav>`;
-  await Promise.all([refreshUnread(), refreshPending(), loadBranchAdminState()]);
-  renderSidebar();
-  const dl = new URLSearchParams(location.search).get('person');
-  if (dl) navigate('tree', { person: dl });
-  else navigate(currentTab());
+  Promise.all([refreshUnread(), refreshPending(), loadBranchAdminState()]).then(() => {
+    renderSidebar();
+    const dl = new URLSearchParams(location.search).get('person');
+    if (dl) navigate('tree', { person: dl });
+    else navigate(currentTab());
+  });
 }
 
 async function refreshUnread(){
@@ -410,7 +422,8 @@ async function submitClaim(personId){
       body: JSON.stringify({ person: personId, user: userId, status: 'pending' })
     });
     if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not submit claim'); }
-    showPending('Your account is awaiting approval. An admin will also review your tree claim.');
+    // Claim submitted — go to family wizard for the claimed person so they can fill in family info
+    showFamilyWizard(personId);
   } catch (e) {
     const errEl = document.getElementById('claim-results');
     if (errEl) errEl.insertAdjacentHTML('afterbegin',
@@ -419,6 +432,7 @@ async function submitClaim(personId){
 }
 
 async function skipClaim(first, last){
+  let personId = null;
   try {
     const res = await apiFetch('/api/collections/persons/records', {
       method:'POST', headers:{ 'Content-Type':'application/json' },
@@ -430,9 +444,197 @@ async function skipClaim(first, last){
         linked_user: userId
       })
     });
-    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not create tree entry'); }
+    if (res.ok) { const p = await res.json(); personId = p.id; }
   } catch { /* non-fatal */ }
-  showPending();
+  showFamilyWizard(personId);
+}
+
+// ── Family onboarding wizard ─────────────────────────────────────────────────
+
+let _wiz = { personId: null, step: 0, gender: null, childrenAdded: 0 };
+const _WIZ_STEPS = ['father', 'mother', 'children'];
+
+async function showFamilyWizard(personId){
+  _wiz = { personId, step: 0, gender: null, childrenAdded: 0 };
+  if (personId) {
+    try {
+      const r = await apiFetch(`/api/collections/persons/records/${personId}?fields=gender`);
+      if (r.ok) { const p = await r.json(); _wiz.gender = p.gender || null; }
+    } catch { /* non-fatal */ }
+  }
+  _renderWizStep();
+}
+
+function _wizAfterDone(){
+  if (!currentUser.approved && !currentUser.family_admin) showPending();
+  else _launchAppShell();
+}
+
+function _renderWizStep(){
+  const step = _WIZ_STEPS[_wiz.step];
+  const total = _WIZ_STEPS.length;
+  const pips = _WIZ_STEPS.map((_, i) =>
+    `<div class="wiz-pip${i === _wiz.step ? ' active' : i < _wiz.step ? ' done' : ''}"></div>`
+  ).join('');
+
+  let heading, sub, body;
+  if (step === 'father') {
+    heading = 'Who is your father?';
+    sub = 'Search for him in the family tree, or add him as a new entry.';
+    body = _wizSearchHTML('father', 'Dad\'s name…');
+  } else if (step === 'mother') {
+    heading = 'Who is your mother?';
+    sub = 'Search for her in the family tree, or add her as a new entry.';
+    body = _wizSearchHTML('mother', 'Mom\'s name…');
+  } else {
+    heading = 'Any children?';
+    sub = `Add your children one at a time. ${_wiz.childrenAdded ? `(${_wiz.childrenAdded} added so far)` : ''}`;
+    body = _wizSearchHTML('child', 'Child\'s name…');
+  }
+
+  el('app').innerHTML = `<div class="claim-step">
+    <div class="claim-box" style="max-width:520px">
+      <div class="wiz-pips">${pips}</div>
+      <div style="font-size:.78rem;color:var(--text-muted);margin-bottom:.5rem">Step ${_wiz.step + 1} of ${total}</div>
+      <h2>${heading}</h2>
+      <p class="sub">${sub}</p>
+      ${body}
+      <div style="display:flex;gap:.6rem;margin-top:1rem">
+        ${step === 'children' && _wiz.childrenAdded > 0
+          ? `<button class="btn btn-primary" onclick="_wizDoneStep()">Done adding children</button>`
+          : `<button class="btn btn-outline" onclick="_wizSkipStep()">Skip</button>`}
+        ${_wiz.step > 0 ? `<button class="btn btn-ghost btn-sm" onclick="_wizBack()" style="margin-left:auto">← Back</button>` : ''}
+      </div>
+    </div>
+  </div>`;
+
+  setTimeout(() => {
+    const inp = document.getElementById('wiz-search');
+    if (inp) inp.focus();
+  }, 50);
+}
+
+function _wizSearchHTML(role, placeholder){
+  return `<div class="form-group" style="margin-bottom:.5rem">
+    <input id="wiz-search" placeholder="${placeholder}" oninput="_wizRunSearch(this.value,'${role}')" autocomplete="off" />
+  </div>
+  <div id="wiz-results" class="wiz-results"></div>`;
+}
+
+let _wizSearchTimer = null;
+let _wizAllPersons = null;
+
+async function _wizRunSearch(q, role){
+  clearTimeout(_wizSearchTimer);
+  _wizSearchTimer = setTimeout(async () => {
+    const resEl = document.getElementById('wiz-results');
+    if (!resEl) return;
+    const query = q.trim();
+    if (!query){ resEl.innerHTML = ''; return; }
+
+    if (!_wizAllPersons) {
+      const r = await apiFetch('/api/collections/persons/records?perPage=500&sort=family_name&fields=id,display_name,given_name,family_name,birth_date,linked_user');
+      _wizAllPersons = r.ok ? (await r.json()).items || [] : [];
+    }
+
+    const lower = query.toLowerCase();
+    const matches = _wizAllPersons.filter(p => {
+      const name = (p.display_name || `${p.given_name} ${p.family_name}`).toLowerCase();
+      return name.includes(lower);
+    }).slice(0, 8);
+
+    const rows = matches.map(p => {
+      const name = p.display_name || `${p.given_name} ${p.family_name}`.trim();
+      const yr = p.birth_date ? p.birth_date.slice(0, 4) : '';
+      return `<div class="claim-result" onclick="_wizSelectPerson('${p.id}','${esc(name)}','${role}')">
+        <div class="avatar" style="width:36px;height:36px;font-size:.8rem">${(name[0]||'?').toUpperCase()}</div>
+        <div><div class="cr-name">${esc(name)}</div><div class="cr-sub">${yr ? 'b. ' + yr : ''}</div></div>
+      </div>`;
+    }).join('');
+
+    const addNew = `<div class="claim-result" style="border-style:dashed;color:var(--accent-gold)"
+        onclick="_wizCreateAndSelect('${esc(query)}','${role}')">
+      <div class="avatar" style="width:36px;height:36px;font-size:.8rem;background:var(--bg-hover)">+</div>
+      <div><div class="cr-name">Add "${esc(query)}" as new person</div>
+           <div class="cr-sub">Create a new entry in the family tree</div></div>
+    </div>`;
+
+    resEl.innerHTML = rows + addNew;
+  }, 200);
+}
+
+async function _wizSelectPerson(personId, name, role){
+  await _wizLinkRelation(personId, role);
+}
+
+async function _wizCreateAndSelect(name, role){
+  const parts = name.trim().split(/\s+/);
+  const body = {
+    display_name: name,
+    given_name: parts[0] || name,
+    family_name: parts.slice(1).join(' ') || '',
+    living: true
+  };
+  if (role === 'father') body.gender = 'm';
+  if (role === 'mother') body.gender = 'f';
+  try {
+    const r = await apiFetch('/api/collections/persons/records', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    if (!r.ok){ const d = await r.json(); throw new Error(d.message || 'Could not create person'); }
+    const p = await r.json();
+    _wizAllPersons = null; // invalidate cache
+    await _wizLinkRelation(p.id, role);
+  } catch(e){ toast(e.message, 'error'); }
+}
+
+async function _wizLinkRelation(relatedId, role){
+  if (!_wiz.personId) { _wizDoneStep(); return; }
+  try {
+    if (role === 'father' || role === 'mother') {
+      await apiFetch(`/api/collections/persons/records/${_wiz.personId}`, {
+        method:'PATCH', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ [role]: relatedId })
+      });
+      toast(`${role === 'father' ? 'Father' : 'Mother'} added to your profile.`, 'success');
+      _wizDoneStep();
+    } else if (role === 'child') {
+      // Determine whether to set child's father or mother based on gender
+      const field = _wiz.gender === 'f' ? 'mother' : 'father';
+      await apiFetch(`/api/collections/persons/records/${relatedId}`, {
+        method:'PATCH', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ [field]: _wiz.personId })
+      });
+      _wiz.childrenAdded++;
+      _wizAllPersons = null;
+      toast(`Child added.`, 'success');
+      _renderWizStep(); // stay on children step to add more
+    }
+  } catch(e){ toast(e.message, 'error'); }
+}
+
+function _wizDoneStep(){
+  _wizAllPersons = null;
+  if (_wiz.step < _WIZ_STEPS.length - 1) {
+    _wiz.step++;
+    _renderWizStep();
+  } else {
+    _wizAfterDone();
+  }
+}
+
+function _wizSkipStep(){
+  _wizAllPersons = null;
+  if (_wiz.step < _WIZ_STEPS.length - 1) {
+    _wiz.step++;
+    _renderWizStep();
+  } else {
+    _wizAfterDone();
+  }
+}
+
+function _wizBack(){
+  if (_wiz.step > 0) { _wiz.step--; _renderWizStep(); }
 }
 
 async function doGoogleAuth(){
