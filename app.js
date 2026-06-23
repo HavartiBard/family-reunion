@@ -1038,7 +1038,7 @@ function dedupeById(arr){
 // ── Canvas tree state ─────────────────────────────────────────────────────────
 const _tS = {
   persons: new Map(), childrenOf: new Map(),
-  focusId: null, focusPartners: [],
+  focusId: null, focusPartners: [], partnersOf: new Map(),
   collapsed: new Set(),     // hides a node's parents (ancestor direction)
   descCollapsed: new Set(), // hides a node's children (descendant direction)
   siblings: [], sibsCollapsed: false, siblingCouples: new Map(),
@@ -1113,7 +1113,7 @@ SCREENS.tree = function(params){
       </div>
     </div>
   </div>`);
-  _tS.persons.clear(); _tS.childrenOf.clear(); _tS.focusPartners = [];
+  _tS.persons.clear(); _tS.childrenOf.clear(); _tS.focusPartners = []; _tS.partnersOf.clear();
   _tS.collapsed.clear(); _tS.descCollapsed.clear(); _tS.ctxId = null; _tS.trees = []; _tS.storedTrees = []; _tS.activeTree = null;
   _tS.pan = {x:0,y:0}; _tS.zoom = 1;
   tpLoad((params && params.person) || treeFocusId || null);
@@ -1139,19 +1139,15 @@ async function tpLoad(focusId){
     }
     _tS.focusId = startId; treeFocusId = startId;
     history.replaceState({}, '', `${location.pathname}?tab=tree&person=${startId}`);
-    _tS.persons.clear(); _tS.childrenOf.clear(); _tS.focusPartners = [];
+    _tS.persons.clear(); _tS.childrenOf.clear(); _tS.focusPartners = []; _tS.partnersOf.clear();
     _tS.siblings = []; _tS.sibsCollapsed = false; _tS.siblingCouples = new Map();
     _tS.ancSiblings.clear();
     _tS.expandedRelated.clear();
     await Promise.all([
       tpFetchUp(startId, 0),
       tpFetchDown(startId, 0),
-      getCouplesFor(startId).then(async couples => {
-        const pids = couples.map(c => c.partner_a === startId ? c.partner_b : c.partner_a);
-        _tS.focusPartners = (await Promise.all(pids.map(getPerson))).filter(Boolean);
-        _tS.focusPartners.forEach(p => _tS.persons.set(p.id, p));
-      }),
     ]);
+    await tpFetchVisiblePartners(startId);
     // Fetch siblings (other children of focus's parents) and their first partners
     const focPerson = _tS.persons.get(startId);
     if (focPerson) {
@@ -1192,6 +1188,19 @@ async function tpFetchDown(id, depth){
   _tS.childrenOf.set(id, ch);
   ch.forEach(c => _tS.persons.set(c.id, c));
   await Promise.all(ch.map(c => tpFetchDown(c.id, depth+1)));
+}
+
+async function tpFetchVisiblePartners(focusId){
+  const ids = [..._tS.persons.keys()];
+  const entries = await Promise.all(ids.map(async (id) => {
+    const couples = await getCouplesFor(id);
+    const partnerIds = dedupeById(couples.map(c => ({ id: c.partner_a === id ? c.partner_b : c.partner_a }))).map(p => p.id);
+    const partners = (await Promise.all(partnerIds.map(getPerson))).filter(Boolean);
+    partners.forEach(p => _tS.persons.set(p.id, p));
+    return [id, partners];
+  }));
+  _tS.partnersOf = new Map(entries);
+  _tS.focusPartners = _tS.partnersOf.get(focusId) || [];
 }
 
 // Fetch siblings for all visible ancestors (everyone who appears as father/mother of a loaded person)
@@ -1293,63 +1302,193 @@ function _orthoPath(x1, y1, x2, y2, r=10){
   return `M${x1},${y1} L${x1},${ey-r} Q${x1},${ey} ${x1+s*r},${ey} L${x2-s*r},${ey} Q${x2},${ey} ${x2},${ey+r} L${x2},${y2}`;
 }
 
+function _descBirthYear(p){
+  return parseInt(_parseYearFromDate(p && p.birth_date)) || 9999;
+}
+
+function _pairKey(a, b){
+  const ids = [a, b].filter(Boolean).sort();
+  return ids.length ? ids.join('|') : '';
+}
+
+function _partnersAround(personId){
+  const person = _tS.persons.get(personId);
+  if (!person) return { left: [], right: [], ordered: [] };
+  const partners = (_tS.partnersOf.get(personId) || []).slice().sort((a, b) => _descBirthYear(a) - _descBirthYear(b));
+  const left = [], right = [];
+  for (const partner of partners){
+    const pGender = partner.gender || 'unknown';
+    const selfGender = person.gender || 'unknown';
+    let goLeft;
+    if      (pGender === 'male' && selfGender !== 'male') goLeft = true;
+    else if (pGender !== 'male' && selfGender === 'male') goLeft = false;
+    else goLeft = _descBirthYear(partner) < _descBirthYear(person);
+    if (goLeft) left.push(partner);
+    else right.push(partner);
+  }
+  return { left, right, ordered: [...left, person, ...right] };
+}
+
+function _childGroupsFor(personId){
+  const children = ((_tS.childrenOf.get(personId) || []).slice())
+    .sort((a, b) => _descBirthYear(a) - _descBirthYear(b));
+  if (!children.length) return [];
+
+  const partnerOrder = _partnersAround(personId).ordered
+    .filter(p => p.id !== personId)
+    .map((p, idx) => [p.id, idx]);
+  const partnerIndex = new Map(partnerOrder);
+  const groups = new Map();
+
+  for (const child of children){
+    const otherParentId = child.father === personId ? child.mother : child.mother === personId ? child.father : '';
+    const key = otherParentId ? _pairKey(personId, otherParentId) : `single:${personId}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        partnerId: otherParentId || '',
+        partner: otherParentId ? _tS.persons.get(otherParentId) || null : null,
+        children: [],
+      });
+    }
+    groups.get(key).children.push(child);
+  }
+
+  return [...groups.values()].sort((a, b) => {
+    const ai = a.partnerId ? (partnerIndex.get(a.partnerId) ?? 999) : 500;
+    const bi = b.partnerId ? (partnerIndex.get(b.partnerId) ?? 999) : 500;
+    if (ai !== bi) return ai - bi;
+    return _descBirthYear(a.children[0]) - _descBirthYear(b.children[0]);
+  });
+}
+
+function _descFamilyW(id, depth){
+  if (!id || !_tS.persons.has(id)) return 0;
+  const rowCards = _partnersAround(id).ordered;
+  const rowW = rowCards.length * _TW + Math.max(0, rowCards.length - 1) * _THG;
+  if (depth >= 3 || _tS.descCollapsed.has(id)) return rowW;
+  const groups = _childGroupsFor(id);
+  if (!groups.length) return rowW;
+  const groupGap = _THG * 2;
+  const childW = groups.reduce((sum, group, idx) => {
+    const w = Math.max(_TW, group.children.reduce((acc, child) => acc + _descFamilyW(child.id, depth+1), 0) + Math.max(0, group.children.length - 1) * _THG);
+    return sum + w + (idx ? groupGap : 0);
+  }, 0);
+  return Math.max(rowW, childW);
+}
+
+function _descPlaceFamily(id, depth, leftX, nodes, edges, incomingCX, parentY, edgeStartY){
+  if (!id || !_tS.persons.has(id)) return;
+  const person = _tS.persons.get(id);
+  const partners = _partnersAround(id);
+  const rowCards = partners.ordered;
+  const blockW = _descFamilyW(id, depth);
+  const rowW = rowCards.length * _TW + Math.max(0, rowCards.length - 1) * _THG;
+  const selfIdx = partners.left.length;
+  const rowStart = depth === 0
+    ? (-_TW/2) - selfIdx * (_TW + _THG)
+    : leftX + (blockW - rowW) / 2;
+  const y = depth * (_TH + _TVG);
+  const partnerCX = new Map();
+  let selfCX = 0;
+
+  for (let i = 0; i < rowCards.length; i++){
+    const p = rowCards[i];
+    const x = rowStart + i * (_TW + _THG);
+    if (p.id === id) {
+      selfCX = x + _TW/2;
+      if (depth > 0) nodes.push({ id: p.id, x, y, person: p, role:'desc', d: depth });
+    } else {
+      partnerCX.set(p.id, x + _TW/2);
+      nodes.push({ id: p.id, x, y, person: p, role:'partner', d: depth });
+    }
+  }
+
+  for (const partner of partners.left) {
+    edges.push({ x1:partnerCX.get(partner.id)+_TW/2, y1:y+_TH/2, x2:selfCX-_TW/2, y2:y+_TH/2, type:'partner' });
+  }
+  for (const partner of partners.right) {
+    edges.push({ x1:selfCX+_TW/2, y1:y+_TH/2, x2:partnerCX.get(partner.id)-_TW/2, y2:y+_TH/2, type:'partner' });
+  }
+
+  if (depth > 0 && incomingCX !== null) {
+    edges.push({ x1: incomingCX, y1: (edgeStartY !== undefined ? edgeStartY : parentY + _TH), x2: selfCX, y2: y });
+  }
+
+  if (depth >= 3 || _tS.descCollapsed.has(id)) return;
+  const groups = _childGroupsFor(id);
+  if (!groups.length) return;
+
+  const groupGap = _THG * 2;
+  const groupWidths = groups.map(group =>
+    Math.max(_TW, group.children.reduce((sum, child) => sum + _descFamilyW(child.id, depth+1), 0) + Math.max(0, group.children.length - 1) * _THG)
+  );
+  const totalChildrenW = groupWidths.reduce((sum, w, idx) => sum + w + (idx ? groupGap : 0), 0);
+  let gx = leftX + (blockW - totalChildrenW) / 2;
+
+  for (let i = 0; i < groups.length; i++){
+    const group = groups[i];
+    const groupW = groupWidths[i];
+    const unionCX = group.partnerId && partnerCX.has(group.partnerId)
+      ? (selfCX + partnerCX.get(group.partnerId)) / 2
+      : selfCX;
+    const unionStartY = group.partnerId && partnerCX.has(group.partnerId) ? y + _TH/2 : undefined;
+
+    let childX = gx;
+    for (const child of group.children){
+      const childW = _descFamilyW(child.id, depth+1);
+      _descPlaceFamily(child.id, depth+1, childX, nodes, edges, unionCX, y, unionStartY);
+      childX += childW + _THG;
+    }
+    gx += groupW + groupGap;
+  }
+}
+
 function tpComputeLayout(){
   const nodes=[], edges=[];
   _ancPlace(_tS.focusId, 0, 0, nodes, edges, null, null);
 
   const foc = nodes.find(n => n.id === _tS.focusId);
-  const focP = _tS.persons.get(_tS.focusId);
-  const focGender = focP ? (focP.gender || 'unknown') : 'unknown';
-  const _birthYr = p => parseInt(_parseYearFromDate(p && p.birth_date)) || 9999;
+  const descBlockW = _descFamilyW(_tS.focusId, 0);
+  _descPlaceFamily(_tS.focusId, 0, -descBlockW/2, nodes, edges, null, null, undefined);
 
-  // Place partners: male on left, female on right; same-sex: eldest on left
-  let firstPartnerCX = null; // center X of first/only partner
-  if (foc && _tS.focusPartners.length){
-    let leftPx = foc.x;       // next left-partner starts here, steps left
-    let rightPx = foc.x + _TW + _THG; // next right-partner left edge
-    for (const p of _tS.focusPartners){
-      const pGender = p.gender || 'unknown';
-      let goLeft;
-      if      (pGender === 'male' && focGender !== 'male') goLeft = true;
-      else if (pGender !== 'male' && focGender === 'male') goLeft = false;
-      else goLeft = _birthYr(p) < _birthYr(focP); // same sex: eldest left
-      let px;
-      if (goLeft){ leftPx -= (_TW + _THG); px = leftPx; }
-      else        { px = rightPx; rightPx += _TW + _THG; }
-      nodes.push({id:p.id, x:px, y:0, person:p, role:'partner', d:0});
-      if (goLeft) edges.push({x1:px+_TW, y1:_TH/2, x2:foc.x,      y2:_TH/2, type:'partner'});
-      else        edges.push({x1:foc.x+_TW, y1:_TH/2, x2:px,       y2:_TH/2, type:'partner'});
-      if (firstPartnerCX === null) firstPartnerCX = px + _TW/2;
-    }
-  }
-
-  // Children branch from couple midpoint
-  const focCX = 0; // focus card center (cx passed to _ancPlace)
-  const coupleCX = firstPartnerCX !== null ? (focCX + firstPartnerCX) / 2 : focCX;
-  const edgeStartY = firstPartnerCX !== null ? _TH / 2 : undefined;
-  _descPlace(_tS.focusId, 0, coupleCX, nodes, edges, null, null, edgeStartY);
-
-  // Siblings of focus: always go left of the leftmost card on the focus row
+  // Siblings of focus render on the outer side of the focus person's own branch,
+  // not on the spouse side. This keeps the row hierarchy closer to Ancestry's layout.
   if (_tS.siblings.length && !_tS.sibsCollapsed && foc){
     const focPerson = _tS.persons.get(_tS.focusId);
     const parNode = focPerson && (
       nodes.find(n => n.id === focPerson.father) ||
       nodes.find(n => n.id === focPerson.mother)
     );
-    // Start left of whatever is leftmost in the focus row (handles left partner)
-    let sx = Math.min(...nodes.filter(n => n.y === 0).map(n => n.x));
+    const focusPartners = _partnersAround(_tS.focusId);
+    const rowNodes = nodes.filter(n => n.y === 0);
+    const putRight = focusPartners.left.length > 0 && focusPartners.right.length === 0;
+    let sx = putRight
+      ? Math.max(...rowNodes.map(n => n.x + _TW))
+      : Math.min(...rowNodes.map(n => n.x));
     const sibCXs = [];
     for (let i = _tS.siblings.length - 1; i >= 0; i--){
       const s = _tS.siblings[i];
-      sx -= _THG + _TW;
-      const sibX = sx, sibCX = sibX + _TW/2;
+      if (putRight) sx += _THG;
+      else sx -= _THG + _TW;
+      const sibX = putRight ? sx : sx;
+      const sibCX = sibX + _TW/2;
       nodes.push({id:s.id, x:sibX, y:0, person:s, role:'sibling', d:0});
       sibCXs.push(sibCX);
       const sp = _tS.siblingCouples.get(s.id);
       if (sp){
-        sx -= _THG + _TW;
-        nodes.push({id:sp.id, x:sx, y:0, person:sp, role:'sib-partner', d:0});
-        edges.push({x1:sx+_TW, y1:_TH/2, x2:sibX, y2:_TH/2, type:'partner'});
+        if (putRight){
+          const spX = sibX + _TW + _THG;
+          sx = spX + _TW;
+          nodes.push({id:sp.id, x:spX, y:0, person:sp, role:'sib-partner', d:0});
+          edges.push({x1:sibX+_TW, y1:_TH/2, x2:spX, y2:_TH/2, type:'partner'});
+        } else {
+          sx -= _THG + _TW;
+          nodes.push({id:sp.id, x:sx, y:0, person:sp, role:'sib-partner', d:0});
+          edges.push({x1:sx+_TW, y1:_TH/2, x2:sibX, y2:_TH/2, type:'partner'});
+        }
+      } else if (putRight) {
+        sx = sibX + _TW;
       }
     }
     if (parNode && sibCXs.length){
@@ -1734,6 +1873,26 @@ function tpCenterFocus(){
   _tS.pan.y = vpH/2 - (oy+_TH/2)*_tS.zoom;
   tpApplyTransform();
 }
+
+function tpRenderPreserveViewport(){
+  const vp = el('tree-vp');
+  const prevOffset = _tS._offset;
+  const vpW = vp ? vp.clientWidth : 0;
+  const vpH = vp ? vp.clientHeight : 0;
+  const anchor = (vp && prevOffset)
+    ? {
+        x: ((vpW / 2) - _tS.pan.x) / _tS.zoom - prevOffset.ox,
+        y: ((vpH / 2) - _tS.pan.y) / _tS.zoom - prevOffset.oy,
+      }
+    : null;
+  tpRender();
+  if (vp && anchor && _tS._offset) {
+    _tS.pan.x = vpW / 2 - (anchor.x + _tS._offset.ox) * _tS.zoom;
+    _tS.pan.y = vpH / 2 - (anchor.y + _tS._offset.oy) * _tS.zoom;
+    tpApplyTransform();
+  }
+}
+
 function tpApplyTransform(){
   const inner = el('tree-inner');
   if (inner) inner.style.transform = `translate(${_tS.pan.x}px,${_tS.pan.y}px) scale(${_tS.zoom})`;
@@ -1826,11 +1985,11 @@ function tpToggleCollapse(e, id, dir){
   e.stopPropagation();
   const set = dir === 'desc' ? _tS.descCollapsed : _tS.collapsed;
   if (set.has(id)) set.delete(id); else set.add(id);
-  tpRender(); setTimeout(tpCenterFocus, 50);
+  tpRenderPreserveViewport();
 }
 function tpToggleSibs(){
   _tS.sibsCollapsed = !_tS.sibsCollapsed;
-  tpRender(); setTimeout(tpCenterFocus, 50);
+  tpRenderPreserveViewport();
 }
 
 // Backward-compat shim used by savePerson, linkExisting, createAndLink, claimPerson, merge
