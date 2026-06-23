@@ -248,6 +248,7 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
 .tn-card:hover{border-color:var(--tc,var(--accent-gold));box-shadow:0 4px 18px rgba(31,45,39,.16)}
 .tn-card.focus{border-color:var(--tc,var(--accent-gold));background:#fffaf0;box-shadow:0 4px 20px rgba(180,140,60,.22)}
 .tn-card.anc{opacity:.88}
+.tn-card.placeholder{border-style:dashed;border-color:#cdbfa8;background:#fbf8f2}
 .tn-card.partner{border-style:dashed}
 .tn-card.sibling{opacity:.82;border-style:dashed;border-color:var(--border-muted,#d6cfc4)}
 .tn-card.sib-partner{opacity:.72;border-style:dotted;border-color:var(--border-muted,#d6cfc4)}

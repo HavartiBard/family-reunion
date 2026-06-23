@@ -1052,6 +1052,11 @@ const _tS = {
 };
 // Surname-based tree color palette (earthy tones complementing the app's warm aesthetic)
 const _TREE_COLORS = ['#7b5ea7','#2c6e49','#1a5276','#a04000','#7d6608','#6e2f1a','#0e6655','#4a235a'];
+const _ANC_ROW_CENTERS = {
+  1: [-188, 188],
+  2: [-470, -282, 282, 470],
+  3: [-752, -564, -376, -188, 188, 376, 564, 752],
+};
 function _treeColorFor(surname){
   if (!surname) return null;
   const t = _tS.trees.find(t => t.name === surname);
@@ -1228,38 +1233,56 @@ async function tpFetchAncSiblings(focusId){
   }));
 }
 
-// Compact ancestor subtree width
-function _ancW(id, depth){
-  if (!id || !_tS.persons.has(id)) return 0;
-  if (depth >= 3 || _tS.collapsed.has(id)) return _TW;
-  const p = _tS.persons.get(id);
-  const fW = (p.father && _tS.persons.has(p.father)) ? _ancW(p.father, depth+1) : 0;
-  const mW = (p.mother && _tS.persons.has(p.mother)) ? _ancW(p.mother, depth+1) : 0;
-  if (!fW && !mW) return _TW;
-  return Math.max(_TW, fW + (fW && mW ? _THG : 0) + mW);
+function _ancCenter(depth, slot){
+  const row = _ANC_ROW_CENTERS[depth] || [];
+  return row[slot] ?? 0;
 }
-// Place ancestor nodes recursively (depth increases going up)
-function _ancPlace(id, depth, cx, nodes, edges, childCX, childY){
-  if (!id || !_tS.persons.has(id)) return;
-  const p = _tS.persons.get(id);
-  const y = -depth * (_TH + _TVG);
-  nodes.push({id, x: cx - _TW/2, y, person:p, role: depth===0 ? 'focus' : 'anc', d:depth});
-  if (childCX !== null) edges.push({x1:cx, y1:y+_TH, x2:childCX, y2:childY});
-  if (depth >= 3 || _tS.collapsed.has(id)) return;
-  const fW = (p.father && _tS.persons.has(p.father)) ? _ancW(p.father, depth+1) : 0;
-  const mW = (p.mother && _tS.persons.has(p.mother)) ? _ancW(p.mother, depth+1) : 0;
-  if (!fW && !mW) return;
-  const total = fW + (fW && mW ? _THG : 0) + mW;
-  let curX = cx - total/2;
-  const fCX = fW ? curX + fW/2 : null;
-  if (fW){ _ancPlace(p.father, depth+1, curX+fW/2, nodes, edges, cx, y); curX += fW + (mW ? _THG : 0); }
-  const mCX = mW ? curX + mW/2 : null;
-  if (mW)  _ancPlace(p.mother, depth+1, curX+mW/2, nodes, edges, cx, y);
-  // Couple connector between parent pair (gold dashed line at card mid-height)
-  if (fCX !== null && mCX !== null){
-    const pY = -(depth+1) * (_TH + _TVG);
-    edges.push({x1:fCX+_TW/2, y1:pY+_TH/2, x2:mCX-_TW/2, y2:pY+_TH/2, type:'partner'});
-  }
+
+function _ancSibsVisible(id, depth){
+  const toggled = _tS.ancSibsCollapsed.has(id);
+  return depth === 1 ? !toggled : toggled;
+}
+
+function _ancBuildDirect(childId, depth, slot, childCX, childTopY, nodes, edges){
+  if (depth >= 3 || _tS.collapsed.has(childId)) return;
+  const child = _tS.persons.get(childId);
+  if (!child) return;
+
+  const nextDepth = depth + 1;
+  const parentY = -nextDepth * (_TH + _TVG);
+  const fatherSlot = slot * 2;
+  const motherSlot = slot * 2 + 1;
+  const fatherCX = _ancCenter(nextDepth, fatherSlot);
+  const motherCX = _ancCenter(nextDepth, motherSlot);
+  const father = child.father ? _tS.persons.get(child.father) : null;
+  const mother = child.mother ? _tS.persons.get(child.mother) : null;
+
+  const addParentNode = (person, role, cx, parentId) => {
+    if (person) {
+      nodes.push({ id: person.id, x: cx - _TW/2, y: parentY, person, role:'anc', d: nextDepth });
+    } else {
+      nodes.push({
+        id: `ph:${parentId}:${role}`,
+        x: cx - _TW/2,
+        y: parentY,
+        person: { display_name: role === 'father' ? 'Add father' : 'Add mother' },
+        role:'anc-placeholder',
+        d: nextDepth,
+        placeholder: true,
+        placeholderRole: role,
+        childId: parentId,
+      });
+    }
+  };
+
+  addParentNode(father, 'father', fatherCX, childId);
+  addParentNode(mother, 'mother', motherCX, childId);
+  edges.push({ x1: fatherCX + _TW/2, y1: parentY + _TH/2, x2: motherCX - _TW/2, y2: parentY + _TH/2, type:'partner' });
+  const pairCX = (fatherCX + motherCX) / 2;
+  edges.push({ x1: pairCX, y1: parentY + _TH/2, x2: childCX, y2: childTopY, type:'straight' });
+
+  if (father) _ancBuildDirect(father.id, nextDepth, fatherSlot, fatherCX, parentY, nodes, edges);
+  if (mother) _ancBuildDirect(mother.id, nextDepth, motherSlot, motherCX, parentY, nodes, edges);
 }
 
 // Descendant subtree width
@@ -1448,7 +1471,9 @@ function _descPlaceFamily(id, depth, leftX, nodes, edges, incomingCX, parentY, e
 
 function tpComputeLayout(){
   const nodes=[], edges=[];
-  _ancPlace(_tS.focusId, 0, 0, nodes, edges, null, null);
+  const focusPerson = _tS.persons.get(_tS.focusId);
+  if (focusPerson) nodes.push({ id:_tS.focusId, x:-_TW/2, y:0, person:focusPerson, role:'focus', d:0 });
+  _ancBuildDirect(_tS.focusId, 0, 0, 0, 0, nodes, edges);
 
   const foc = nodes.find(n => n.id === _tS.focusId);
   const focCX = foc ? (foc.x + _TW/2) : 0;
@@ -1548,7 +1573,7 @@ function tpComputeLayout(){
     for (const n of uniqueNodes.slice()){
       if (n.role !== 'anc') continue;
       const entry = _tS.ancSiblings.get(n.id); if (!entry) continue;
-      if (_tS.ancSibsCollapsed.has(n.id)) continue;
+      if (!_ancSibsVisible(n.id, n.d)) continue;
       const {parentId, sibs} = entry;
       const parNode = uniqueNodes.find(m => m.id === parentId);
       const rowY = n.y;
@@ -1707,7 +1732,7 @@ function tpRender(){
     const hasSideSibs = n.role==='anc' && _tS.ancSiblings.has(n.id);
     const isColAnc = _tS.collapsed.has(n.id);
     const isColDesc = _tS.descCollapsed.has(n.id);
-    const isColSide = _tS.ancSibsCollapsed.has(n.id);
+    const isColSide = !_ancSibsVisible(n.id, n.d);
     const isCol = isColAnc || isColDesc;
 
     // "Has more" stub for great-grandparents with parents, or max-depth descendants
@@ -1718,8 +1743,12 @@ function tpRender(){
     const cls = ['tn-card', isFocus?'focus':'', n.role==='anc'?'anc':'', n.role==='partner'?'partner':'',
       n.role==='sibling'?'sibling':'', n.role==='sib-partner'?'sib-partner':'',
       n.role==='anc-sib'?'anc-sib':'',
+      n.placeholder?'placeholder':'',
       isCol?'col':'', dimmed?'dimmed':''].filter(Boolean).join(' ');
-    html += `<div class="${cls}" style="left:${nx}px;top:${ny}px${tcStyle}" onclick="tpNodeClick(event,'${n.id}')">
+    const clickAttr = n.placeholder
+      ? `onclick="tpAddAncestor('${n.childId}','${n.placeholderRole}')"`
+      : `onclick="tpNodeClick(event,'${n.id}')"`
+    html += `<div class="${cls}" style="left:${nx}px;top:${ny}px${tcStyle}" ${clickAttr}>
       ${av}<div class="tn-info"><div class="tn-name">${esc(p.display_name)}</div>${years?`<div class="tn-years">${esc(years)}</div>`:''}</div>
       ${moreBtn}</div>`;
     // Collapse button rendered outside the card, on the connector end (leaf position)
@@ -1994,6 +2023,9 @@ function _tpCtxOff(e){ if (!e.target.closest('#tree-ctx')) tpCloseCtx(); }
 function tpCloseCtx(){ const m=el('tree-ctx'); if (m) m.remove(); _tS.ctxId=null; }
 async function tpSetFocus(id){
   tpCloseCtx(); _tS.collapsed.clear(); _tS.descCollapsed.clear(); await tpLoad(id);
+}
+function tpAddAncestor(childId, role){
+  pickRelative(childId, role);
 }
 function tpToggleAncestorSibs(e, id){
   e.stopPropagation();
