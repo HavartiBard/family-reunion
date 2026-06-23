@@ -1052,10 +1052,10 @@ const _tS = {
 };
 // Surname-based tree color palette (earthy tones complementing the app's warm aesthetic)
 const _TREE_COLORS = ['#7b5ea7','#2c6e49','#1a5276','#a04000','#7d6608','#6e2f1a','#0e6655','#4a235a'];
-const _ANC_ROW_CENTERS = {
-  1: [-188, 188],
-  2: [-470, -282, 282, 470],
-  3: [-752, -564, -376, -188, 188, 376, 564, 752],
+const _ANC_PAIR_CENTERS = {
+  1: [0],
+  2: [-282, 282],
+  3: [-564, -188, 188, 564],
 };
 function _treeColorFor(surname){
   if (!surname) return null;
@@ -1233,8 +1233,8 @@ async function tpFetchAncSiblings(focusId){
   }));
 }
 
-function _ancCenter(depth, slot){
-  const row = _ANC_ROW_CENTERS[depth] || [];
+function _ancPairCenter(depth, slot){
+  const row = _ANC_PAIR_CENTERS[depth] || [];
   return row[slot] ?? 0;
 }
 
@@ -1250,10 +1250,9 @@ function _ancBuildDirect(childId, depth, slot, childCX, childTopY, nodes, edges)
 
   const nextDepth = depth + 1;
   const parentY = -nextDepth * (_TH + _TVG);
-  const fatherSlot = slot * 2;
-  const motherSlot = slot * 2 + 1;
-  const fatherCX = _ancCenter(nextDepth, fatherSlot);
-  const motherCX = _ancCenter(nextDepth, motherSlot);
+  const pairCX = _ancPairCenter(nextDepth, slot);
+  const fatherCX = pairCX - (_TW + _THG) / 2;
+  const motherCX = pairCX + (_TW + _THG) / 2;
   const father = child.father ? _tS.persons.get(child.father) : null;
   const mother = child.mother ? _tS.persons.get(child.mother) : null;
 
@@ -1278,11 +1277,10 @@ function _ancBuildDirect(childId, depth, slot, childCX, childTopY, nodes, edges)
   addParentNode(father, 'father', fatherCX, childId);
   addParentNode(mother, 'mother', motherCX, childId);
   edges.push({ x1: fatherCX + _TW/2, y1: parentY + _TH/2, x2: motherCX - _TW/2, y2: parentY + _TH/2, type:'partner' });
-  const pairCX = (fatherCX + motherCX) / 2;
   edges.push({ x1: pairCX, y1: parentY + _TH/2, x2: childCX, y2: childTopY, type:'straight' });
 
-  if (father) _ancBuildDirect(father.id, nextDepth, fatherSlot, fatherCX, parentY, nodes, edges);
-  if (mother) _ancBuildDirect(mother.id, nextDepth, motherSlot, motherCX, parentY, nodes, edges);
+  if (father) _ancBuildDirect(father.id, nextDepth, slot * 2, fatherCX, parentY, nodes, edges);
+  if (mother) _ancBuildDirect(mother.id, nextDepth, slot * 2 + 1, motherCX, parentY, nodes, edges);
 }
 
 // Descendant subtree width
