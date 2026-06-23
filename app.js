@@ -1040,7 +1040,8 @@ const _tS = {
   persons: new Map(), childrenOf: new Map(),
   focusId: null, focusPartners: [],
   collapsed: new Set(),
-  siblings: [], sibsCollapsed: true, siblingCouples: new Map(),
+  siblings: [], sibsCollapsed: false, siblingCouples: new Map(),
+  ancSiblings: new Map(),
   expandedRelated: new Set(),
   trees: [], storedTrees: [], activeTree: null,
   pan: {x:0,y:0}, zoom: 1,
@@ -1138,7 +1139,8 @@ async function tpLoad(focusId){
     _tS.focusId = startId; treeFocusId = startId;
     history.replaceState({}, '', `${location.pathname}?tab=tree&person=${startId}`);
     _tS.persons.clear(); _tS.childrenOf.clear(); _tS.focusPartners = [];
-    _tS.siblings = []; _tS.sibsCollapsed = true; _tS.siblingCouples = new Map();
+    _tS.siblings = []; _tS.sibsCollapsed = false; _tS.siblingCouples = new Map();
+    _tS.ancSiblings.clear();
     _tS.expandedRelated.clear();
     await Promise.all([
       tpFetchUp(startId, 0),
@@ -1167,6 +1169,7 @@ async function tpLoad(focusId){
         }));
       }
     }
+    await tpFetchAncSiblings(startId);
     await tpLoadStoredTrees();
     _computeTrees();
     tpRender(); tpCenterFocus();
@@ -1189,7 +1192,29 @@ async function tpFetchDown(id, depth){
   await Promise.all(ch.map(c => tpFetchDown(c.id, depth+1)));
 }
 
-// Compact ancestor subtree width
+// Fetch siblings for all visible ancestors (everyone who appears as father/mother of a loaded person)
+async function tpFetchAncSiblings(focusId){
+  _tS.ancSiblings.clear();
+  // Identify ancestors: persons who appear as father/mother of another loaded person
+  const ancestorIds = new Set();
+  for (const p of _tS.persons.values()){
+    if (p.father && _tS.persons.has(p.father)) ancestorIds.add(p.father);
+    if (p.mother && _tS.persons.has(p.mother)) ancestorIds.add(p.mother);
+  }
+  ancestorIds.delete(focusId); // focus siblings handled by _tS.siblings
+  await Promise.all([...ancestorIds].map(async (ancId) => {
+    const anc = _tS.persons.get(ancId); if (!anc) return;
+    const parentId = anc.father || anc.mother; if (!parentId) return;
+    const children = await getChildren(parentId);
+    const sibs = children.filter(c => c.id !== ancId);
+    if (sibs.length){
+      _tS.ancSiblings.set(ancId, {parentId, sibs});
+      sibs.forEach(s => _tS.persons.set(s.id, s));
+    }
+  }));
+}
+
+// Compact ancestor subtree width — couples always adjacent, subtrees fan above each card
 function _ancW(id, depth){
   if (!id || !_tS.persons.has(id)) return 0;
   if (depth >= 3 || _tS.collapsed.has(id)) return _TW;
@@ -1197,9 +1222,15 @@ function _ancW(id, depth){
   const fW = (p.father && _tS.persons.has(p.father)) ? _ancW(p.father, depth+1) : 0;
   const mW = (p.mother && _tS.persons.has(p.mother)) ? _ancW(p.mother, depth+1) : 0;
   if (!fW && !mW) return _TW;
-  return Math.max(_TW, fW + (fW && mW ? _THG : 0) + mW);
+  if (fW && mW){
+    // Each parent's card is TW/2 + THG/2 from child center; their subtree hangs above.
+    // Worst-case half-span = TW/2 + THG/2 + max(fW,mW)/2
+    return Math.max(_TW, _TW + _THG + Math.max(fW, mW));
+  }
+  return Math.max(_TW, fW || mW);
 }
-// Place ancestor nodes recursively (depth increases going up)
+// Place ancestor nodes recursively (depth increases going up).
+// Couples are always placed adjacent (TW + THG apart); each parent's subtree fans above their own card.
 function _ancPlace(id, depth, cx, nodes, edges, childCX, childY){
   if (!id || !_tS.persons.has(id)) return;
   const p = _tS.persons.get(id);
@@ -1207,19 +1238,19 @@ function _ancPlace(id, depth, cx, nodes, edges, childCX, childY){
   nodes.push({id, x: cx - _TW/2, y, person:p, role: depth===0 ? 'focus' : 'anc', d:depth});
   if (childCX !== null) edges.push({x1:cx, y1:y+_TH, x2:childCX, y2:childY});
   if (depth >= 3 || _tS.collapsed.has(id)) return;
-  const fW = (p.father && _tS.persons.has(p.father)) ? _ancW(p.father, depth+1) : 0;
-  const mW = (p.mother && _tS.persons.has(p.mother)) ? _ancW(p.mother, depth+1) : 0;
-  if (!fW && !mW) return;
-  const total = fW + (fW && mW ? _THG : 0) + mW;
-  let curX = cx - total/2;
-  const fCX = fW ? curX + fW/2 : null;
-  if (fW){ _ancPlace(p.father, depth+1, curX+fW/2, nodes, edges, cx, y); curX += fW + (mW ? _THG : 0); }
-  const mCX = mW ? curX + mW/2 : null;
-  if (mW)  _ancPlace(p.mother, depth+1, curX+mW/2, nodes, edges, cx, y);
-  // Couple connector between parent pair (gold dashed line at card mid-height)
-  if (fCX !== null && mCX !== null){
+  const hasFather = !!(p.father && _tS.persons.has(p.father));
+  const hasMother = !!(p.mother && _tS.persons.has(p.mother));
+  if (!hasFather && !hasMother) return;
+  if (hasFather && hasMother){
+    // Keep couple adjacent — each card offset half a gap from child center
+    const fCX = cx - (_TW/2 + _THG/2);
+    const mCX = cx + (_TW/2 + _THG/2);
+    _ancPlace(p.father, depth+1, fCX, nodes, edges, cx, y);
+    _ancPlace(p.mother, depth+1, mCX, nodes, edges, cx, y);
     const pY = -(depth+1) * (_TH + _TVG);
     edges.push({x1:fCX+_TW/2, y1:pY+_TH/2, x2:mCX-_TW/2, y2:pY+_TH/2, type:'partner'});
+  } else {
+    _ancPlace(hasFather ? p.father : p.mother, depth+1, cx, nodes, edges, cx, y);
   }
 }
 
@@ -1355,6 +1386,49 @@ function tpComputeLayout(){
   // Deduplicate nodes in case a person appears via multiple routes
   const _seen = new Set();
   const uniqueNodes = nodes.filter(n => !_seen.has(n.id) && _seen.add(n.id));
+
+  // Ancestor siblings: place them to the right of the rightmost card in their row,
+  // connected with a T-junction to the shared parent node.
+  if (_tS.ancSiblings.size){
+    // Build row → rightmost x map (mutable)
+    const rowMax = new Map(); // nodeY → maxRight (rightmost x+TW already placed)
+    for (const n of uniqueNodes) rowMax.set(n.y, Math.max(rowMax.get(n.y)||0, n.x+_TW));
+
+    for (const n of uniqueNodes.slice()){ // .slice() so newly pushed sibs don't loop
+      if (n.role !== 'anc') continue;
+      const entry = _tS.ancSiblings.get(n.id); if (!entry) continue;
+      const {parentId, sibs} = entry;
+      const parNode = uniqueNodes.find(m => m.id === parentId);
+      const rowY = n.y;
+      // Collect sibling center Xs for T-junction bus
+      const sibCXs = [];
+      for (const sib of sibs){
+        if (uniqueNodes.some(m => m.id === sib.id)) continue; // already in tree
+        const sx = (rowMax.get(rowY)||0) + _THG;
+        uniqueNodes.push({id:sib.id, x:sx, y:rowY, person:sib, role:'anc-sib', d:n.d});
+        _seen.add(sib.id);
+        rowMax.set(rowY, sx + _TW);
+        sibCXs.push(sx + _TW/2);
+      }
+      // T-junction from parent to ancestor + its siblings
+      if (parNode && sibCXs.length){
+        const parCX = parNode.x + _TW/2, parBot = parNode.y + _TH;
+        const ancCX = n.x + _TW/2;
+        const elbowY = parBot + _TVG * 0.45;
+        const allCXs = [ancCX, ...sibCXs];
+        const minCX = Math.min(...allCXs), maxCX = Math.max(...allCXs);
+        // Remove existing direct edge from parent to this ancestor
+        for (let j = edges.length-1; j >= 0; j--){
+          const e = edges[j];
+          if (!e.type && Math.abs(e.x2 - ancCX) < 2 && Math.abs(e.y2 - rowY) < 2){ edges.splice(j,1); break; }
+        }
+        edges.push({x1:parCX, y1:parBot, x2:parCX, y2:elbowY, type:'straight'});
+        edges.push({x1:minCX, y1:elbowY, x2:maxCX, y2:elbowY, type:'straight'});
+        for (const cx of allCXs) edges.push({x1:cx, y1:elbowY, x2:cx, y2:rowY, type:'straight'});
+      }
+    }
+  }
+
   return {nodes: uniqueNodes, edges};
 }
 
@@ -1385,6 +1459,36 @@ function tpRender(){
     } else {
       svg += `<path d="${_orthoPath(x1,y1,x2,y2)}" stroke="#c4bba8" fill="none" stroke-width="2" stroke-linecap="round"/>`;
     }
+  }
+
+  // Row labels rendered as SVG pills sitting on the connector between rows
+  const focusPerson = _tS.persons.get(_tS.focusId);
+  const rowYPresent = new Set(nodes.map(n => n.y));
+  const _GLEN = _TH + _TVG;
+  const genRows = [
+    {y:-3*_GLEN, label:'Great-grandparents'}, {y:-2*_GLEN, label:'Grandparents'},
+    {y:-_GLEN, label:'Parents'},
+    {y:0, label: focusPerson ? (focusPerson.given_name || focusPerson.display_name || 'You') : 'You'},
+    {y:_GLEN, label:'Children'}, {y:2*_GLEN, label:'Grandchildren'}, {y:3*_GLEN, label:'Great-grandchildren'},
+  ];
+  // Find focus node's center x as the anchor for labels
+  const focNode = nodes.find(n => n.id === _tS.focusId);
+  const labelAnchorX = focNode ? focNode.x + _TW/2 + ox : ox + _TW/2;
+  for (let i = 0; i < genRows.length; i++){
+    const row = genRows[i];
+    if (!rowYPresent.has(row.y)) continue;
+    // Place label in the gap below this row's cards (connector gap below = between this row and next row)
+    const nextRow = genRows[i+1];
+    const gapMidY = nextRow && rowYPresent.has(nextRow.y)
+      ? (row.y + _TH + nextRow.y) / 2 + oy  // midpoint of gap between two populated rows
+      : row.y + _TH/2 + oy;                  // fallback: card midpoint for bottommost row
+    const lbl = row.label.toUpperCase();
+    const lw = Math.min(lbl.length * 6.2 + 14, 160);
+    const lh = 16, lx = labelAnchorX - lw/2, ly = gapMidY - lh/2;
+    svg += `<g pointer-events="none">
+      <rect x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" width="${lw.toFixed(1)}" height="${lh}" rx="4" fill="rgba(237,232,223,0.92)" stroke="#c4bba8" stroke-width="1"/>
+      <text x="${labelAnchorX.toFixed(1)}" y="${(ly+11).toFixed(1)}" text-anchor="middle" font-family="Schibsted Grotesk,system-ui,sans-serif" font-size="8.5" font-weight="700" letter-spacing="0.07em" fill="#8a8070">${lbl}</text>
+    </g>`;
   }
 
   // Node cards
@@ -1419,6 +1523,7 @@ function tpRender(){
     const tcStyle = treeColor ? `;--tc:${treeColor}` : '';
     const cls = ['tn-card', isFocus?'focus':'', n.role==='anc'?'anc':'', n.role==='partner'?'partner':'',
       n.role==='sibling'?'sibling':'', n.role==='sib-partner'?'sib-partner':'',
+      n.role==='anc-sib'?'anc-sib':'',
       isCol?'col':'', dimmed?'dimmed':''].filter(Boolean).join(' ');
     html += `<div class="${cls}" style="left:${nx}px;top:${ny}px${tcStyle}" onclick="tpNodeClick(event,'${n.id}')">
       ${av}<div class="tn-info"><div class="tn-name">${esc(p.display_name)}</div>${years?`<div class="tn-years">${esc(years)}</div>`:''}</div>
@@ -1431,21 +1536,6 @@ function tpRender(){
       const bW = 94, bX = nx + (_TW - bW)/2, bY = ny - 28;
       html += `<div class="tn-branch${isExp?' expanded':''}" style="left:${bX}px;top:${bY}px${tcStyle}" onclick="tpExpandRelated('${n.id}')" title="${isExp?'Collapse':'Expand'} ${esc(p.display_name)}'s family tree">${bLabel}</div>`;
     }
-  }
-
-  // Generation row labels (relationship to focused person)
-  const focusPerson = _tS.persons.get(_tS.focusId);
-  const rowYPresent = new Set(nodes.map(n => n.y));
-  const _GLEN = _TH + _TVG;
-  const genRows = [
-    {y:-3*_GLEN, label:'Great-grandparents'}, {y:-2*_GLEN, label:'Grandparents'},
-    {y:-_GLEN, label:'Parents'},
-    {y:0, label: focusPerson ? (focusPerson.given_name || focusPerson.display_name || 'You') : 'You'},
-    {y:_GLEN, label:'Children'}, {y:2*_GLEN, label:'Grandchildren'}, {y:3*_GLEN, label:'Great-grandchildren'},
-  ];
-  for (const {y, label} of genRows) {
-    if (!rowYPresent.has(y)) continue;
-    html += `<div class="tn-row-label" style="top:${y+oy}px">${esc(label)}</div>`;
   }
 
   inner.style.cssText = `width:${cW}px;height:${cH}px;position:relative`;
