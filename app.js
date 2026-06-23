@@ -1039,7 +1039,8 @@ function dedupeById(arr){
 const _tS = {
   persons: new Map(), childrenOf: new Map(),
   focusId: null, focusPartners: [],
-  collapsed: new Set(),
+  collapsed: new Set(),     // hides a node's parents (ancestor direction)
+  descCollapsed: new Set(), // hides a node's children (descendant direction)
   siblings: [], sibsCollapsed: false, siblingCouples: new Map(),
   ancSiblings: new Map(),
   expandedRelated: new Set(),
@@ -1113,7 +1114,7 @@ SCREENS.tree = function(params){
     </div>
   </div>`);
   _tS.persons.clear(); _tS.childrenOf.clear(); _tS.focusPartners = [];
-  _tS.collapsed.clear(); _tS.ctxId = null; _tS.trees = []; _tS.storedTrees = []; _tS.activeTree = null;
+  _tS.collapsed.clear(); _tS.descCollapsed.clear(); _tS.ctxId = null; _tS.trees = []; _tS.storedTrees = []; _tS.activeTree = null;
   _tS.pan = {x:0,y:0}; _tS.zoom = 1;
   tpLoad((params && params.person) || treeFocusId || null);
 };
@@ -1253,7 +1254,7 @@ function _ancPlace(id, depth, cx, nodes, edges, childCX, childY){
 // Descendant subtree width
 function _descW(id, depth){
   if (!id || !_tS.persons.has(id)) return 0;
-  if (depth >= 3 || _tS.collapsed.has(id)) return _TW;
+  if (depth >= 3 || _tS.descCollapsed.has(id)) return _TW;
   const ch = _tS.childrenOf.get(id) || [];
   if (!ch.length) return _TW;
   return Math.max(_TW, ch.reduce((s,c) => s + _descW(c.id, depth+1) + _THG, -_THG));
@@ -1269,7 +1270,7 @@ function _descPlace(id, depth, cx, nodes, edges, parentCX, parentY, edgeStartY){
     if (parentCX !== null)
       edges.push({x1:parentCX, y1:(edgeStartY !== undefined ? edgeStartY : parentY+_TH), x2:cx, y2:y});
   }
-  if (depth >= 3 || _tS.collapsed.has(id)) return;
+  if (depth >= 3 || _tS.descCollapsed.has(id)) return;
   const ch = _tS.childrenOf.get(id) || [];
   if (!ch.length) return;
   const ws = ch.map(c => _descW(c.id, depth+1));
@@ -1296,58 +1297,69 @@ function tpComputeLayout(){
   const nodes=[], edges=[];
   _ancPlace(_tS.focusId, 0, 0, nodes, edges, null, null);
 
-  // Children edge branches from the couple connector line mid-point
-  const numPartners = _tS.focusPartners.length;
-  const coupleCX = numPartners > 0 ? (_TW + _THG) / 2 : 0; // midpoint between focus(cx=0) and partner(cx=TW+THG)
-  const edgeStartY = numPartners > 0 ? _TH / 2 : undefined; // intersect with couple line
-
-  _descPlace(_tS.focusId, 0, coupleCX, nodes, edges, null, null, edgeStartY);
-
-  // Partners of focus placed to the right
   const foc = nodes.find(n => n.id === _tS.focusId);
+  const focP = _tS.persons.get(_tS.focusId);
+  const focGender = focP ? (focP.gender || 'unknown') : 'unknown';
+  const _birthYr = p => parseInt(_parseYearFromDate(p && p.birth_date)) || 9999;
+
+  // Place partners: male on left, female on right; same-sex: eldest on left
+  let firstPartnerCX = null; // center X of first/only partner
   if (foc && _tS.focusPartners.length){
-    let px = foc.x + _TW + _THG;
+    let leftPx = foc.x;       // next left-partner starts here, steps left
+    let rightPx = foc.x + _TW + _THG; // next right-partner left edge
     for (const p of _tS.focusPartners){
+      const pGender = p.gender || 'unknown';
+      let goLeft;
+      if      (pGender === 'male' && focGender !== 'male') goLeft = true;
+      else if (pGender !== 'male' && focGender === 'male') goLeft = false;
+      else goLeft = _birthYr(p) < _birthYr(focP); // same sex: eldest left
+      let px;
+      if (goLeft){ leftPx -= (_TW + _THG); px = leftPx; }
+      else        { px = rightPx; rightPx += _TW + _THG; }
       nodes.push({id:p.id, x:px, y:0, person:p, role:'partner', d:0});
-      edges.push({x1:foc.x+_TW, y1:_TH/2, x2:px, y2:_TH/2, type:'partner'});
-      px += _TW + _THG;
+      if (goLeft) edges.push({x1:px+_TW, y1:_TH/2, x2:foc.x,      y2:_TH/2, type:'partner'});
+      else        edges.push({x1:foc.x+_TW, y1:_TH/2, x2:px,       y2:_TH/2, type:'partner'});
+      if (firstPartnerCX === null) firstPartnerCX = px + _TW/2;
     }
   }
 
-  // Siblings of focus placed to the left (when expanded), with their first partner
+  // Children branch from couple midpoint
+  const focCX = 0; // focus card center (cx passed to _ancPlace)
+  const coupleCX = firstPartnerCX !== null ? (focCX + firstPartnerCX) / 2 : focCX;
+  const edgeStartY = firstPartnerCX !== null ? _TH / 2 : undefined;
+  _descPlace(_tS.focusId, 0, coupleCX, nodes, edges, null, null, edgeStartY);
+
+  // Siblings of focus: always go left of the leftmost card on the focus row
   if (_tS.siblings.length && !_tS.sibsCollapsed && foc){
     const focPerson = _tS.persons.get(_tS.focusId);
     const parNode = focPerson && (
       nodes.find(n => n.id === focPerson.father) ||
       nodes.find(n => n.id === focPerson.mother)
     );
-    let sx = foc.x;
+    // Start left of whatever is leftmost in the focus row (handles left partner)
+    let sx = Math.min(...nodes.filter(n => n.y === 0).map(n => n.x));
     const sibCXs = [];
     for (let i = _tS.siblings.length - 1; i >= 0; i--){
       const s = _tS.siblings[i];
       sx -= _THG + _TW;
       const sibX = sx, sibCX = sibX + _TW/2;
       nodes.push({id:s.id, x:sibX, y:0, person:s, role:'sibling', d:0});
-      sibCXs.push(sibCX); // collect for T-junction; individual edges added below
+      sibCXs.push(sibCX);
       const sp = _tS.siblingCouples.get(s.id);
       if (sp){
         sx -= _THG + _TW;
-        const spX = sx;
-        nodes.push({id:sp.id, x:spX, y:0, person:sp, role:'sib-partner', d:0});
-        edges.push({x1:spX + _TW, y1:_TH/2, x2:sibX, y2:_TH/2, type:'partner'});
+        nodes.push({id:sp.id, x:sx, y:0, person:sp, role:'sib-partner', d:0});
+        edges.push({x1:sx+_TW, y1:_TH/2, x2:sibX, y2:_TH/2, type:'partner'});
       }
     }
-    // Build T-junction bus line: one vertical stem from parent, horizontal bar, vertical drops
-    if (parNode && sibCXs.length) {
-      // Remove the _ancPlace bezier that went straight from parent to focus
-      for (let j = edges.length - 1; j >= 0; j--) {
+    if (parNode && sibCXs.length){
+      for (let j = edges.length-1; j >= 0; j--){
         const e = edges[j];
-        if (!e.type && e.x2 === 0 && e.y2 === 0) { edges.splice(j, 1); break; }
+        if (!e.type && e.x2 === focCX && e.y2 === 0){ edges.splice(j, 1); break; }
       }
-      const parCX = parNode.x + _TW/2;
-      const parBot = parNode.y + _TH;
+      const parCX = parNode.x + _TW/2, parBot = parNode.y + _TH;
       const elbowY = parBot + _TVG * 0.5;
-      const allCXs = [0, ...sibCXs]; // 0 = focus center X
+      const allCXs = [focCX, ...sibCXs];
       const minCX = Math.min(...allCXs), maxCX = Math.max(...allCXs);
       edges.push({x1:parCX, y1:parBot, x2:parCX, y2:elbowY, type:'straight'});
       edges.push({x1:minCX, y1:elbowY, x2:maxCX, y2:elbowY, type:'straight'});
@@ -1383,43 +1395,50 @@ function tpComputeLayout(){
   const _seen = new Set();
   const uniqueNodes = nodes.filter(n => !_seen.has(n.id) && _seen.add(n.id));
 
-  // Ancestor siblings: place them to the right of the rightmost card in their row,
-  // connected with a T-junction to the shared parent node.
+  // Ancestor siblings: paternal ancestors (cx<0) → siblings extend LEFT; maternal (cx>0) → RIGHT
   if (_tS.ancSiblings.size){
-    // Build row → rightmost x map (mutable)
-    const rowMax = new Map(); // nodeY → maxRight (rightmost x+TW already placed)
-    for (const n of uniqueNodes) rowMax.set(n.y, Math.max(rowMax.get(n.y)||0, n.x+_TW));
-
-    for (const n of uniqueNodes.slice()){ // .slice() so newly pushed sibs don't loop
+    const rowMin = new Map(); // nodeY → leftmost x
+    const rowMax = new Map(); // nodeY → rightmost x+TW
+    for (const n of uniqueNodes){
+      rowMin.set(n.y, Math.min(rowMin.get(n.y) ?? Infinity, n.x));
+      rowMax.set(n.y, Math.max(rowMax.get(n.y) || 0, n.x + _TW));
+    }
+    for (const n of uniqueNodes.slice()){
       if (n.role !== 'anc') continue;
       const entry = _tS.ancSiblings.get(n.id); if (!entry) continue;
       const {parentId, sibs} = entry;
       const parNode = uniqueNodes.find(m => m.id === parentId);
       const rowY = n.y;
-      // Collect sibling center Xs for T-junction bus
+      const ancCX = n.x + _TW/2;
+      // Paternal side (left of center) → sibs go further left; maternal (right) → right
+      const goLeft = ancCX < 0;
       const sibCXs = [];
       for (const sib of sibs){
-        if (uniqueNodes.some(m => m.id === sib.id)) continue; // already in tree
-        const sx = (rowMax.get(rowY)||0) + _THG;
+        if (uniqueNodes.some(m => m.id === sib.id)) continue;
+        let sx;
+        if (goLeft){
+          sx = (rowMin.get(rowY) ?? 0) - _THG - _TW;
+          rowMin.set(rowY, sx);
+          sibCXs.unshift(sx + _TW/2); // prepend → left-to-right order preserved
+        } else {
+          sx = (rowMax.get(rowY) || 0) + _THG;
+          rowMax.set(rowY, sx + _TW);
+          sibCXs.push(sx + _TW/2);
+        }
         uniqueNodes.push({id:sib.id, x:sx, y:rowY, person:sib, role:'anc-sib', d:n.d});
         _seen.add(sib.id);
-        rowMax.set(rowY, sx + _TW);
-        sibCXs.push(sx + _TW/2);
       }
-      // T-junction from parent to ancestor + its siblings
       if (parNode && sibCXs.length){
         const parCX = parNode.x + _TW/2, parBot = parNode.y + _TH;
-        const ancCX = n.x + _TW/2;
         const elbowY = parBot + _TVG * 0.45;
         const allCXs = [ancCX, ...sibCXs];
         const minCX = Math.min(...allCXs), maxCX = Math.max(...allCXs);
-        // Remove existing direct edge from parent to this ancestor
         for (let j = edges.length-1; j >= 0; j--){
           const e = edges[j];
           if (!e.type && Math.abs(e.x2 - ancCX) < 2 && Math.abs(e.y2 - rowY) < 2){ edges.splice(j,1); break; }
         }
         edges.push({x1:parCX, y1:parBot, x2:parCX, y2:elbowY, type:'straight'});
-        edges.push({x1:minCX, y1:elbowY, x2:maxCX, y2:elbowY, type:'straight'});
+        edges.push({x1:Math.min(...allCXs), y1:elbowY, x2:Math.max(...allCXs), y2:elbowY, type:'straight'});
         for (const cx of allCXs) edges.push({x1:cx, y1:elbowY, x2:cx, y2:rowY, type:'straight'});
       }
     }
@@ -1457,34 +1476,65 @@ function tpRender(){
     }
   }
 
-  // Row labels rendered as SVG pills sitting on the connector between rows
+  // Row labels: named interactive chips for the focus's direct connections; generic SVG for ancestor rows
   const focusPerson = _tS.persons.get(_tS.focusId);
+  const focGivenName = focusPerson ? (focusPerson.given_name || focusPerson.display_name.split(' ')[0] || 'Their') : 'Their';
   const rowYPresent = new Set(nodes.map(n => n.y));
   const _GLEN = _TH + _TVG;
-  const genRows = [
-    {y:-3*_GLEN, label:'Great-grandparents'}, {y:-2*_GLEN, label:'Grandparents'},
-    {y:-_GLEN, label:'Parents'},
-    {y:0, label:'Children'},
-    {y:_GLEN, label:'Grandchildren'}, {y:2*_GLEN, label:'Great-grandchildren'},
-  ];
-  // Find focus node's center x as the anchor for labels
   const focNode = nodes.find(n => n.id === _tS.focusId);
   const labelAnchorX = focNode ? focNode.x + _TW/2 + ox : ox + _TW/2;
-  for (let i = 0; i < genRows.length; i++){
-    const row = genRows[i];
+
+  // Generic ancestor-row SVG pills (grandparents and above)
+  const ancRows = [
+    {y:-3*_GLEN, label:'Great-grandparents', nextY:-2*_GLEN},
+    {y:-2*_GLEN, label:'Grandparents',        nextY:-_GLEN},
+    {y:-_GLEN,   label:'Parents',             nextY:0},
+  ];
+  for (const row of ancRows){
     if (!rowYPresent.has(row.y)) continue;
-    // Place label in the gap below this row's cards (connector gap below = between this row and next row)
-    const nextRow = genRows[i+1];
-    const gapMidY = nextRow && rowYPresent.has(nextRow.y)
-      ? (row.y + _TH + nextRow.y) / 2 + oy  // midpoint of gap between two populated rows
-      : row.y + _TH/2 + oy;                  // fallback: card midpoint for bottommost row
+    const nextPresent = rowYPresent.has(row.nextY);
+    const gapMidY = nextPresent
+      ? (row.y + _TH + row.nextY) / 2 + oy
+      : row.y + _TH/2 + oy;
     const lbl = row.label.toUpperCase();
-    const lw = Math.min(lbl.length * 6.2 + 14, 160);
+    const lw = lbl.length * 6.2 + 14;
     const lh = 16, lx = labelAnchorX - lw/2, ly = gapMidY - lh/2;
     svg += `<g pointer-events="none">
       <rect x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" width="${lw.toFixed(1)}" height="${lh}" rx="4" fill="rgba(237,232,223,0.92)" stroke="#c4bba8" stroke-width="1"/>
       <text x="${labelAnchorX.toFixed(1)}" y="${(ly+11).toFixed(1)}" text-anchor="middle" font-family="Schibsted Grotesk,system-ui,sans-serif" font-size="8.5" font-weight="700" letter-spacing="0.07em" fill="#8a8070">${lbl}</text>
     </g>`;
+  }
+
+  // Named interactive chips for focus ↕ connections
+  if (focNode){
+    // "Jennifer's Parents" — on connector above focus, toggles ancestral collapse
+    if (rowYPresent.has(-_GLEN)){
+      const chipY = (-_GLEN + _TH + 0) / 2 + oy; // midpoint of gap parents→focus
+      const isParCol = _tS.collapsed.has(_tS.focusId);
+      const parLabel = `${focGivenName}'s Parents ${isParCol ? '▴' : '▾'}`;
+      html += `<button class="tn-rel-chip${isParCol?' col':''}" style="left:${(labelAnchorX - 70).toFixed(0)}px;top:${(chipY - 12).toFixed(0)}px" onclick="tpToggleCollapse(event,'${_tS.focusId}')">${esc(parLabel)}</button>`;
+    }
+    // "Jennifer's Children" — on connector below focus, toggles descendant collapse
+    if (rowYPresent.has(_GLEN)){
+      const chipY = (0 + _TH + _GLEN) / 2 + oy; // midpoint of gap focus→children
+      const isChiCol = _tS.descCollapsed.has(_tS.focusId);
+      const chiLabel = `${focGivenName}'s Children ${isChiCol ? '▴' : '▾'}`;
+      html += `<button class="tn-rel-chip${isChiCol?' col':''}" style="left:${(labelAnchorX - 70).toFixed(0)}px;top:${(chipY - 12).toFixed(0)}px" onclick="tpToggleCollapse(event,'${_tS.focusId}','desc')">${esc(chiLabel)}</button>`;
+    }
+    // Generic descendant row labels (grandchildren etc)
+    const descRows = [{y:_GLEN, nextY:2*_GLEN, label:'Grandchildren'},{y:2*_GLEN, nextY:3*_GLEN, label:'Great-grandchildren'}];
+    for (const row of descRows){
+      if (!rowYPresent.has(row.y)) continue;
+      const nextPresent = rowYPresent.has(row.nextY);
+      const gapMidY = nextPresent ? (row.y + _TH + row.nextY) / 2 + oy : row.y + _TH/2 + oy;
+      const lbl = row.label.toUpperCase();
+      const lw = lbl.length * 6.2 + 14;
+      const lh = 16, lx = labelAnchorX - lw/2, ly = gapMidY - lh/2;
+      svg += `<g pointer-events="none">
+        <rect x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" width="${lw.toFixed(1)}" height="${lh}" rx="4" fill="rgba(237,232,223,0.92)" stroke="#c4bba8" stroke-width="1"/>
+        <text x="${labelAnchorX.toFixed(1)}" y="${(ly+11).toFixed(1)}" text-anchor="middle" font-family="Schibsted Grotesk,system-ui,sans-serif" font-size="8.5" font-weight="700" letter-spacing="0.07em" fill="#8a8070">${lbl}</text>
+      </g>`;
+    }
   }
 
   // Node cards
@@ -1506,10 +1556,12 @@ function tpRender(){
       ? `<div class="tn-av-band" style="background:${bandColor}"><img class="tn-av-band-img" src="${photoUrl}" alt="" loading="lazy"></div>`
       : `<div class="tn-av-band" style="background:${bandColor}">${personInitials(p)}</div>`;
 
-    // Collapse button: ancestors with known parents, descendants/focus with children
+    // Collapse button: ancestors with known parents (ancestor dir), descendants/focus with children (desc dir)
     const hasUp = n.role==='anc' && n.d < 3 && (p.father || p.mother) && (_tS.persons.has(p.father)||_tS.persons.has(p.mother));
     const hasDown = (n.role==='focus'||n.role==='desc') && (_tS.childrenOf.get(n.id)||[]).length > 0;
-    const isCol = _tS.collapsed.has(n.id);
+    const isColAnc = _tS.collapsed.has(n.id);
+    const isColDesc = _tS.descCollapsed.has(n.id);
+    const isCol = isColAnc || isColDesc;
 
     // "Has more" stub for great-grandparents with parents, or max-depth descendants
     const moreAnc = n.role==='anc' && n.d===3 && (p.father||p.mother);
@@ -1524,12 +1576,15 @@ function tpRender(){
       ${av}<div class="tn-info"><div class="tn-name">${esc(p.display_name)}</div>${years?`<div class="tn-years">${esc(years)}</div>`:''}</div>
       ${moreBtn}</div>`;
     // Collapse button rendered outside the card, on the connector end (leaf position)
-    const leafTitle = isCol ? 'Expand branch' : 'Collapse branch';
-    const leafLabel = isCol ? '+' : '−';
-    const leafCls = `tn-leaf-btn${isCol?' col':''}`;
     const leafX = (nx + _TW/2 - 10).toFixed(0);
-    if (hasUp)   html += `<button class="${leafCls}" style="left:${leafX}px;top:${(ny-10).toFixed(0)}px" onclick="tpToggleCollapse(event,'${n.id}')" title="${leafTitle}">${leafLabel}</button>`;
-    if (hasDown) html += `<button class="${leafCls}" style="left:${leafX}px;top:${(ny+_TH-10).toFixed(0)}px" onclick="tpToggleCollapse(event,'${n.id}')" title="${leafTitle}">${leafLabel}</button>`;
+    if (hasUp){
+      const c = isColAnc?' col':'', lbl = isColAnc?'+':'−';
+      html += `<button class="tn-leaf-btn${c}" style="left:${leafX}px;top:${(ny-10).toFixed(0)}px" onclick="tpToggleCollapse(event,'${n.id}')" title="${isColAnc?'Show parents':'Hide parents'}">${lbl}</button>`;
+    }
+    if (hasDown){
+      const c = isColDesc?' col':'', lbl = isColDesc?'+':'−';
+      html += `<button class="tn-leaf-btn${c}" style="left:${leafX}px;top:${(ny+_TH-10).toFixed(0)}px" onclick="tpToggleCollapse(event,'${n.id}','desc')" title="${isColDesc?'Show children':'Hide children'}">${lbl}</button>`;
+    }
     // Branch pill: expand/collapse partner's ancestry inline
     if ((n.role==='partner' || n.role==='sib-partner') && (p.father || p.mother)){
       const isExp = _tS.expandedRelated.has(n.id);
@@ -1684,7 +1739,7 @@ function tpApplyTransform(){
 
 // Pan / Zoom
 function tpDragStart(e){
-  if (e.button !== 0 || e.target.closest('.tn-card,.tree-ctx,.tc-btn,.tn-leaf-btn')) return;
+  if (e.button !== 0 || e.target.closest('.tn-card,.tree-ctx,.tc-btn,.tn-leaf-btn,.tn-rel-chip')) return;
   _tS.dragging = true; _tS.dragLast = {x:e.clientX, y:e.clientY};
   e.preventDefault();
 }
@@ -1697,7 +1752,7 @@ function tpDragEnd(){ _tS.dragging = false; }
 
 let _tpT0=null, _tpD0=0, _tpZ0=1;
 function tpTouchStart(e){
-  if (e.touches.length===1 && !e.target.closest('.tn-card,.tree-ctx,.tc-btn,.tn-leaf-btn')){
+  if (e.touches.length===1 && !e.target.closest('.tn-card,.tree-ctx,.tc-btn,.tn-leaf-btn,.tn-rel-chip')){
     _tS.dragging=true; _tS.dragLast={x:e.touches[0].clientX, y:e.touches[0].clientY};
   } else if (e.touches.length===2){
     _tS.dragging=false;
@@ -1746,14 +1801,14 @@ function tpNodeClick(e, id){
   m.style.cssText=`left:${mx}px;top:${my}px`;
   const isFocus = id === _tS.focusId;
   const hasChildren = (_tS.childrenOf.get(id)||[]).length > 0;
-  const isCollapsed = _tS.collapsed.has(id);
+  const isCollapsed = _tS.descCollapsed.has(id);
   const hasSibs = isFocus && _tS.siblings.length > 0;
   m.innerHTML=`<div class="ctx-name">${esc(p.display_name||'')}</div>
     <button class="ctx-item" onclick="tpSetFocus('${id}')">⊙ Center on this person</button>
     <button class="ctx-item" onclick="navigate('profile',{id:'${id}'});tpCloseCtx()">☰ View profile</button>
     <button class="ctx-item" onclick="openPersonForm('${id}');tpCloseCtx()">✎ Edit details</button>
     <button class="ctx-item" onclick="openAddRelative('${id}');tpCloseCtx()">＋ Add relative</button>
-    ${hasChildren?`<button class="ctx-item" onclick="tpToggleCollapse(event,'${id}');tpCloseCtx()">${isCollapsed?'▶ Expand children':'▼ Collapse children'}</button>`:''}
+    ${hasChildren?`<button class="ctx-item" onclick="tpToggleCollapse(event,'${id}','desc');tpCloseCtx()">${isCollapsed?'▶ Expand children':'▼ Collapse children'}</button>`:''}
     ${hasSibs?`<button class="ctx-item" onclick="tpToggleSibs();tpCloseCtx()">${_tS.sibsCollapsed?`◀ Show siblings (${_tS.siblings.length})`:'◀ Hide siblings'}</button>`:''}
     ${canClaim?`<button class="ctx-item" onclick="claimPerson('${id}');tpCloseCtx()">★ This is me</button>`:''}
     ${isMe?'<div class="ctx-me">★ This is you</div>':''}`;
@@ -1763,11 +1818,12 @@ function tpNodeClick(e, id){
 function _tpCtxOff(e){ if (!e.target.closest('#tree-ctx')) tpCloseCtx(); }
 function tpCloseCtx(){ const m=el('tree-ctx'); if (m) m.remove(); _tS.ctxId=null; }
 async function tpSetFocus(id){
-  tpCloseCtx(); _tS.collapsed.clear(); await tpLoad(id);
+  tpCloseCtx(); _tS.collapsed.clear(); _tS.descCollapsed.clear(); await tpLoad(id);
 }
-function tpToggleCollapse(e, id){
+function tpToggleCollapse(e, id, dir){
   e.stopPropagation();
-  if (_tS.collapsed.has(id)) _tS.collapsed.delete(id); else _tS.collapsed.add(id);
+  const set = dir === 'desc' ? _tS.descCollapsed : _tS.collapsed;
+  if (set.has(id)) set.delete(id); else set.add(id);
   tpRender(); setTimeout(tpCenterFocus, 50);
 }
 function tpToggleSibs(){
