@@ -1088,11 +1088,6 @@ const _tS = {
 };
 // Surname-based tree color palette (earthy tones complementing the app's warm aesthetic)
 const _TREE_COLORS = ['#7b5ea7','#2c6e49','#1a5276','#a04000','#7d6608','#6e2f1a','#0e6655','#4a235a'];
-const _ANC_PAIR_CENTERS = {
-  1: [0],
-  2: [-282, 282],
-  3: [-564, -188, 188, 564],
-};
 function _treeColorFor(surname){
   if (!surname) return null;
   const t = _tS.trees.find(t => t.name === surname);
@@ -1269,54 +1264,252 @@ async function tpFetchAncSiblings(focusId){
   }));
 }
 
-function _ancPairCenter(depth, slot){
-  const row = _ANC_PAIR_CENTERS[depth] || [];
-  return row[slot] ?? 0;
+function _givenNameFor(p){
+  return p ? (p.given_name || (p.display_name || '').split(' ')[0] || 'Their') : 'Their';
 }
 
-function _ancSibsVisible(id, depth){
+function _relationshipLabelForDepth(givenName, relDepth){
+  const depth = Math.abs(relDepth);
+  if (relDepth < 0) {
+    if (depth === 1) return `${givenName}'s Parents`;
+    if (depth === 2) return `${givenName}'s Grandparents`;
+    return `${givenName}'s ${'Great-'.repeat(depth - 2)}Grandparents`;
+  }
+  if (depth === 1) return `${givenName}'s Children`;
+  if (depth === 2) return `${givenName}'s Grandchildren`;
+  return `${givenName}'s ${'Great-'.repeat(depth - 2)}Grandchildren`;
+}
+
+function _lineageNode({id, cx, y, person, role, relDepth, path, placeholder, placeholderRole, childId}){
+  return {
+    id,
+    x: cx - _TW/2,
+    y,
+    person,
+    role,
+    d: Math.abs(relDepth),
+    relDepth,
+    path: path || [],
+    side: path && path[0] === 'father' ? 'left' : path && path[0] === 'mother' ? 'right' : null,
+    placeholder: !!placeholder,
+    placeholderRole,
+    childId,
+  };
+}
+
+function _parentNodesFor(childNode, nodes){
+  const p = childNode && childNode.person;
+  if (!p) return { fatherNode: null, motherNode: null };
+  return {
+    fatherNode: p.father ? nodes.find(n => n.id === p.father) : null,
+    motherNode: p.mother ? nodes.find(n => n.id === p.mother) : null,
+  };
+}
+
+function _parentUnionFor(childNode, nodes){
+  const {fatherNode, motherNode} = _parentNodesFor(childNode, nodes);
+  const node = fatherNode || motherNode;
+  if (!node) return null;
+  const cx = fatherNode && motherNode
+    ? ((fatherNode.x + _TW/2) + (motherNode.x + _TW/2)) / 2
+    : node.x + _TW/2;
+  return { cx, y: node.y + _TH/2, fatherNode, motherNode };
+}
+
+function _ancestorPathOf(targetId, rootId=_tS.focusId, path=[], seen=new Set()){
+  if (!targetId || !rootId || seen.has(rootId)) return null;
+  if (rootId === targetId) return path;
+  const nextSeen = new Set(seen);
+  nextSeen.add(rootId);
+  const person = _tS.persons.get(rootId);
+  if (!person || path.length >= 3) return null;
+  const fatherPath = person.father ? _ancestorPathOf(targetId, person.father, [...path, 'father'], nextSeen) : null;
+  if (fatherPath) return fatherPath;
+  return person.mother ? _ancestorPathOf(targetId, person.mother, [...path, 'mother'], nextSeen) : null;
+}
+
+function _ancestorSibsDefaultVisible(path){
+  return path && path.length === 1;
+}
+
+function _ancSibsVisible(id){
+  const path = _ancestorPathOf(id);
+  if (!path) return false;
   const toggled = _tS.ancSibsCollapsed.has(id);
-  return depth === 1 ? !toggled : toggled;
+  const defaultVisible = _ancestorSibsDefaultVisible(path);
+  return defaultVisible ? !toggled : toggled;
 }
 
-function _ancBuildDirect(childId, depth, slot, childCX, childTopY, nodes, edges){
-  if (depth >= 3 || _tS.collapsed.has(childId)) return;
+function _setAncestorSibsVisible(id, visible){
+  const path = _ancestorPathOf(id);
+  if (!path) return;
+  const defaultVisible = _ancestorSibsDefaultVisible(path);
+  if (visible === defaultVisible) _tS.ancSibsCollapsed.delete(id);
+  else _tS.ancSibsCollapsed.add(id);
+}
+
+function _hideAncestorSibs(id){
+  _setAncestorSibsVisible(id, false);
+}
+
+function _buildParentLineage(childCtx, nodes, edges, opts={}){
+  const maxDepth = opts.maxDepth || 3;
+  const includePlaceholders = opts.includePlaceholders !== false;
+  const {childId, depth, childCX, childTopY, path} = childCtx;
+  if (depth >= maxDepth || _tS.collapsed.has(childId)) return;
   const child = _tS.persons.get(childId);
   if (!child) return;
 
   const nextDepth = depth + 1;
-  const parentY = -nextDepth * (_TH + _TVG);
-  const pairCX = _ancPairCenter(nextDepth, slot);
-  const fatherCX = pairCX - (_TW + _THG) / 2;
-  const motherCX = pairCX + (_TW + _THG) / 2;
+  const parentY = childTopY - (_TH + _TVG);
+  const pairGap = _TW + _THG;
+  const branchHalf = pairGap / 2;
+  const childRole = path && path.length ? path[path.length - 1] : null;
+  const pairCX = childRole === 'father'
+    ? childCX - branchHalf
+    : childRole === 'mother'
+      ? childCX + branchHalf
+      : childCX;
+  const pairFatherCX = pairCX - branchHalf;
+  const pairMotherCX = pairCX + branchHalf;
   const father = child.father ? _tS.persons.get(child.father) : null;
   const mother = child.mother ? _tS.persons.get(child.mother) : null;
 
   const addParentNode = (person, role, cx, parentId) => {
+    const parentPath = [...(path || []), role];
     if (person) {
-      nodes.push({ id: person.id, x: cx - _TW/2, y: parentY, person, role:'anc', d: nextDepth });
-    } else {
-      nodes.push({
+      nodes.push(_lineageNode({ id: person.id, cx, y: parentY, person, role:'anc', relDepth: -nextDepth, path: parentPath }));
+    } else if (includePlaceholders) {
+      nodes.push(_lineageNode({
         id: `ph:${parentId}:${role}`,
-        x: cx - _TW/2,
+        cx,
         y: parentY,
         person: { display_name: role === 'father' ? 'Add father' : 'Add mother' },
         role:'anc-placeholder',
-        d: nextDepth,
+        relDepth: -nextDepth,
+        path: parentPath,
         placeholder: true,
         placeholderRole: role,
         childId: parentId,
-      });
+      }));
     }
   };
 
-  addParentNode(father, 'father', fatherCX, childId);
-  addParentNode(mother, 'mother', motherCX, childId);
-  edges.push({ x1: fatherCX + _TW/2, y1: parentY + _TH/2, x2: motherCX - _TW/2, y2: parentY + _TH/2, type:'partner' });
-  edges.push({ x1: pairCX, y1: parentY + _TH/2, x2: childCX, y2: childTopY, type:'straight' });
+  const hasFatherNode = !!(father || includePlaceholders);
+  const hasMotherNode = !!(mother || includePlaceholders);
+  const fatherNodeId = father ? father.id : `ph:${childId}:father`;
+  const motherNodeId = mother ? mother.id : `ph:${childId}:mother`;
+  addParentNode(father, 'father', pairFatherCX, childId);
+  addParentNode(mother, 'mother', pairMotherCX, childId);
+  if (hasFatherNode || hasMotherNode) {
+    if (hasFatherNode && hasMotherNode) {
+      edges.push({
+        x1: pairFatherCX + _TW/2,
+        y1: parentY + _TH/2,
+        x2: pairMotherCX - _TW/2,
+        y2: parentY + _TH/2,
+        type:'partner',
+        fromId: fatherNodeId,
+        toId: motherNodeId,
+      });
+    }
+    const unionCX = hasFatherNode && hasMotherNode ? pairCX : hasFatherNode ? pairFatherCX : pairMotherCX;
+    edges.push({
+      x1: unionCX,
+      y1: parentY + _TH/2,
+      x2: childCX,
+      y2: childTopY,
+      type:'lineage',
+      direction:'up',
+      relDepth: -nextDepth,
+      childId,
+      path: path || [],
+      fatherId: hasFatherNode ? fatherNodeId : null,
+      motherId: hasMotherNode ? motherNodeId : null,
+      labelRootId: opts.labelRootId || _tS.focusId,
+      midY: childTopY - _TVG * 0.28,
+    });
+  }
 
-  if (father) _ancBuildDirect(father.id, nextDepth, slot * 2, fatherCX, parentY, nodes, edges);
-  if (mother) _ancBuildDirect(mother.id, nextDepth, slot * 2 + 1, motherCX, parentY, nodes, edges);
+  if (father) _buildParentLineage({ childId: father.id, depth: nextDepth, childCX: pairFatherCX, childTopY: parentY, path: [...(path || []), 'father'] }, nodes, edges, opts);
+  if (mother) _buildParentLineage({ childId: mother.id, depth: nextDepth, childCX: pairMotherCX, childTopY: parentY, path: [...(path || []), 'mother'] }, nodes, edges, opts);
+}
+
+function _nodeCX(n){
+  return n.x + _TW/2;
+}
+
+function _nodeById(nodes, id){
+  return id ? nodes.find(n => n.id === id) : null;
+}
+
+function _refreshLineageEdgePositions(edges, nodes){
+  for (const e of edges){
+    if (e.type === 'partner' && e.fromId && e.toId){
+      const from = _nodeById(nodes, e.fromId);
+      const to = _nodeById(nodes, e.toId);
+      if (!from || !to) continue;
+      const fromLeft = from.x < to.x;
+      e.x1 = fromLeft ? from.x + _TW : from.x;
+      e.y1 = from.y + _TH/2;
+      e.x2 = fromLeft ? to.x : to.x + _TW;
+      e.y2 = to.y + _TH/2;
+    } else if (e.type === 'lineage'){
+      const child = _nodeById(nodes, e.childId);
+      const father = _nodeById(nodes, e.fatherId);
+      const mother = _nodeById(nodes, e.motherId);
+      const parent = father || mother;
+      if (!child || !parent) continue;
+      e.x1 = father && mother ? (_nodeCX(father) + _nodeCX(mother)) / 2 : _nodeCX(parent);
+      e.y1 = parent.y + _TH/2;
+      e.x2 = _nodeCX(child);
+      e.y2 = child.y;
+      e.midY = child.y - _TVG * 0.28;
+    }
+  }
+}
+
+function _enforceAncestorCardSpacing(nodes, edges){
+  const minCenterGap = _TW + _THG;
+  const rows = new Map();
+  for (const n of nodes){
+    if (n.relDepth >= -1) continue;
+    if (!(n.role === 'anc' || n.role === 'anc-placeholder')) continue;
+    if (!rows.has(n.relDepth)) rows.set(n.relDepth, []);
+    rows.get(n.relDepth).push(n);
+  }
+
+  for (const rowNodes of rows.values()){
+    const branches = {
+      left: rowNodes.filter(n => n.side === 'left'),
+      right: rowNodes.filter(n => n.side === 'right'),
+      center: rowNodes.filter(n => !n.side),
+    };
+
+    branches.left
+      .sort((a,b) => _nodeCX(b) - _nodeCX(a))
+      .forEach((n, idx, arr) => {
+        const targetCX = idx === 0 ? Math.min(_nodeCX(n), -minCenterGap/2) : Math.min(_nodeCX(n), _nodeCX(arr[idx-1]) - minCenterGap);
+        n.x += targetCX - _nodeCX(n);
+      });
+
+    branches.right
+      .sort((a,b) => _nodeCX(a) - _nodeCX(b))
+      .forEach((n, idx, arr) => {
+        const targetCX = idx === 0 ? Math.max(_nodeCX(n), minCenterGap/2) : Math.max(_nodeCX(n), _nodeCX(arr[idx-1]) + minCenterGap);
+        n.x += targetCX - _nodeCX(n);
+      });
+
+    branches.center
+      .sort((a,b) => _nodeCX(a) - _nodeCX(b))
+      .forEach((n, idx, arr) => {
+        if (idx === 0) return;
+        const targetCX = Math.max(_nodeCX(n), _nodeCX(arr[idx-1]) + minCenterGap);
+        n.x += targetCX - _nodeCX(n);
+      });
+  }
+
+  _refreshLineageEdgePositions(edges, nodes);
 }
 
 // Descendant subtree width
@@ -1334,7 +1527,7 @@ function _descPlace(id, depth, cx, nodes, edges, parentCX, parentY, edgeStartY){
   const p = _tS.persons.get(id);
   const y = depth * (_TH + _TVG);
   if (depth > 0){
-    nodes.push({id, x: cx-_TW/2, y, person:p, role:'desc', d:depth});
+    nodes.push({id, x: cx-_TW/2, y, person:p, role:'desc', d:depth, relDepth:depth, path:[]});
     if (parentCX !== null)
       edges.push({x1:parentCX, y1:(edgeStartY !== undefined ? edgeStartY : parentY+_TH), x2:cx, y2:y});
   }
@@ -1359,6 +1552,14 @@ function _orthoPath(x1, y1, x2, y2, r=10){
   const ey = Math.round((y1 + y2) / 2);
   const s = dx > 0 ? 1 : -1;
   return `M${x1},${y1} L${x1},${ey-r} Q${x1},${ey} ${x1+s*r},${ey} L${x2-s*r},${ey} Q${x2},${ey} ${x2},${ey+r} L${x2},${y2}`;
+}
+
+function _orthoPathViaY(x1, y1, x2, y2, ey, r=10){
+  const dx = x2 - x1;
+  if (Math.abs(dx) < 2) return `M${x1},${y1} L${x2},${y2}`;
+  const maxR = Math.max(0, Math.min(r, Math.abs(ey - y1), Math.abs(y2 - ey), Math.abs(dx) / 2));
+  const s = dx > 0 ? 1 : -1;
+  return `M${x1},${y1} L${x1},${ey-maxR} Q${x1},${ey} ${x1+s*maxR},${ey} L${x2-s*maxR},${ey} Q${x2},${ey} ${x2},${ey+maxR} L${x2},${y2}`;
 }
 
 function _descBirthYear(p){
@@ -1456,10 +1657,10 @@ function _descPlaceFamily(id, depth, leftX, nodes, edges, incomingCX, parentY, e
     const x = rowStart + i * (_TW + _THG);
     if (p.id === id) {
       selfCX = x + _TW/2;
-      if (depth > 0) nodes.push({ id: p.id, x, y, person: p, role:'desc', d: depth });
+      if (depth > 0) nodes.push({ id: p.id, x, y, person: p, role:'desc', d: depth, relDepth:depth, path:[] });
     } else {
       partnerCX.set(p.id, x + _TW/2);
-      nodes.push({ id: p.id, x, y, person: p, role:'partner', d: depth });
+      nodes.push({ id: p.id, x, y, person: p, role:'partner', d: depth, relDepth:depth, path:[] });
     }
   }
 
@@ -1506,22 +1707,17 @@ function _descPlaceFamily(id, depth, leftX, nodes, edges, incomingCX, parentY, e
 function tpComputeLayout(){
   const nodes=[], edges=[];
   const focusPerson = _tS.persons.get(_tS.focusId);
-  if (focusPerson) nodes.push({ id:_tS.focusId, x:-_TW/2, y:0, person:focusPerson, role:'focus', d:0 });
-  _ancBuildDirect(_tS.focusId, 0, 0, 0, 0, nodes, edges);
+  if (focusPerson) nodes.push(_lineageNode({ id:_tS.focusId, cx:0, y:0, person:focusPerson, role:'focus', relDepth:0, path:[] }));
+  _buildParentLineage({ childId:_tS.focusId, depth:0, childCX:0, childTopY:0, path:[] }, nodes, edges);
 
   const foc = nodes.find(n => n.id === _tS.focusId);
-  const focCX = foc ? (foc.x + _TW/2) : 0;
   const descBlockW = _descFamilyW(_tS.focusId, 0);
   _descPlaceFamily(_tS.focusId, 0, -descBlockW/2, nodes, edges, null, null, undefined);
 
   // Siblings of focus render on the outer side of the focus person's own branch,
   // not on the spouse side. This keeps the row hierarchy closer to Ancestry's layout.
   if (_tS.siblings.length && !_tS.sibsCollapsed && foc){
-    const focPerson = _tS.persons.get(_tS.focusId);
-    const parNode = focPerson && (
-      nodes.find(n => n.id === focPerson.father) ||
-      nodes.find(n => n.id === focPerson.mother)
-    );
+    const parentUnion = _parentUnionFor(foc, nodes);
     const focusPartners = _partnersAround(_tS.focusId);
     const rowNodes = nodes.filter(n => n.y === 0);
     const putRight = focusPartners.left.length > 0 && focusPartners.right.length === 0;
@@ -1535,36 +1731,27 @@ function tpComputeLayout(){
       else sx -= _THG + _TW;
       const sibX = putRight ? sx : sx;
       const sibCX = sibX + _TW/2;
-      nodes.push({id:s.id, x:sibX, y:0, person:s, role:'sibling', d:0});
+      nodes.push({id:s.id, x:sibX, y:0, person:s, role:'sibling', d:0, relDepth:0, path:[]});
       sibCXs.push(sibCX);
       const sp = _tS.siblingCouples.get(s.id);
       if (sp){
         if (putRight){
           const spX = sibX + _TW + _THG;
           sx = spX + _TW;
-          nodes.push({id:sp.id, x:spX, y:0, person:sp, role:'sib-partner', d:0});
+          nodes.push({id:sp.id, x:spX, y:0, person:sp, role:'sib-partner', d:0, relDepth:0, path:[]});
           edges.push({x1:sibX+_TW, y1:_TH/2, x2:spX, y2:_TH/2, type:'partner'});
         } else {
           sx -= _THG + _TW;
-          nodes.push({id:sp.id, x:sx, y:0, person:sp, role:'sib-partner', d:0});
+          nodes.push({id:sp.id, x:sx, y:0, person:sp, role:'sib-partner', d:0, relDepth:0, path:[]});
           edges.push({x1:sx+_TW, y1:_TH/2, x2:sibX, y2:_TH/2, type:'partner'});
         }
       } else if (putRight) {
         sx = sibX + _TW;
       }
     }
-    if (parNode && sibCXs.length){
-      for (let j = edges.length-1; j >= 0; j--){
-        const e = edges[j];
-        if (!e.type && e.x2 === focCX && e.y2 === 0){ edges.splice(j, 1); break; }
-      }
-      const parCX = parNode.x + _TW/2, parBot = parNode.y + _TH;
-      const elbowY = parBot + _TVG * 0.5;
-      const allCXs = [focCX, ...sibCXs];
-      const minCX = Math.min(...allCXs), maxCX = Math.max(...allCXs);
-      edges.push({x1:parCX, y1:parBot, x2:parCX, y2:elbowY, type:'straight'});
-      edges.push({x1:minCX, y1:elbowY, x2:maxCX, y2:elbowY, type:'straight'});
-      for (const cx of allCXs) edges.push({x1:cx, y1:elbowY, x2:cx, y2:0, type:'straight'});
+    if (parentUnion && sibCXs.length){
+      const elbowY = 0 - _TVG * 0.28;
+      for (const cx of sibCXs) edges.push({x1:parentUnion.cx, y1:parentUnion.y, x2:cx, y2:0, type:'bus', midY:elbowY});
     }
   }
 
@@ -1576,27 +1763,16 @@ function tpComputeLayout(){
       const rp = _tS.persons.get(n.id);
       if (!rp) continue;
       const pCX = n.x + _TW/2, pY = n.y;
-      const fW = (rp.father && _tS.persons.has(rp.father)) ? _ancW(rp.father, 1) : 0;
-      const mW = (rp.mother && _tS.persons.has(rp.mother)) ? _ancW(rp.mother, 1) : 0;
-      if (!fW && !mW) continue;
-      const total = fW + (fW && mW ? _THG : 0) + mW;
-      let curX = pCX - total/2;
-      const fCX = fW ? curX + fW/2 : null;
-      if (fW) { _ancPlace(rp.father, 1, curX+fW/2, nodes, edges, pCX, pY); curX += fW+(mW?_THG:0); }
-      const mCX = mW ? curX + mW/2 : null;
-      if (mW) _ancPlace(rp.mother, 1, curX+mW/2, nodes, edges, pCX, pY);
-      if (fCX !== null && mCX !== null) {
-        const ancY = pY - (_TH + _TVG);
-        edges.push({x1:fCX+_TW/2, y1:ancY+_TH/2, x2:mCX-_TW/2, y2:ancY+_TH/2, type:'partner'});
-      }
+      _buildParentLineage({ childId:n.id, depth:0, childCX:pCX, childTopY:pY, path:[] }, nodes, edges, { includePlaceholders:false, labelRootId:n.id });
     }
   }
 
   // Deduplicate nodes in case a person appears via multiple routes
   const _seen = new Set();
   const uniqueNodes = nodes.filter(n => !_seen.has(n.id) && _seen.add(n.id));
+  _enforceAncestorCardSpacing(uniqueNodes, edges);
 
-  // Ancestor siblings: paternal ancestors (cx<0) → siblings extend LEFT; maternal (cx>0) → RIGHT
+  // Ancestor siblings extend outward from the focal-relative branch side.
   if (_tS.ancSiblings.size){
     const rowMin = new Map(); // nodeY → leftmost x
     const rowMax = new Map(); // nodeY → rightmost x+TW
@@ -1607,13 +1783,12 @@ function tpComputeLayout(){
     for (const n of uniqueNodes.slice()){
       if (n.role !== 'anc') continue;
       const entry = _tS.ancSiblings.get(n.id); if (!entry) continue;
-      if (!_ancSibsVisible(n.id, n.d)) continue;
-      const {parentId, sibs} = entry;
-      const parNode = uniqueNodes.find(m => m.id === parentId);
+      if (!_ancSibsVisible(n.id)) continue;
+      const {sibs} = entry;
+      const parentUnion = _parentUnionFor(n, uniqueNodes);
       const rowY = n.y;
       const ancCX = n.x + _TW/2;
-      // Paternal side (left of center) → sibs go further left; maternal (right) → right
-      const goLeft = ancCX < 0;
+      const goLeft = n.side === 'left' || (!n.side && ancCX < 0);
       const sibCXs = [];
       for (const sib of sibs){
         if (uniqueNodes.some(m => m.id === sib.id)) continue;
@@ -1627,26 +1802,50 @@ function tpComputeLayout(){
           rowMax.set(rowY, sx + _TW);
           sibCXs.push(sx + _TW/2);
         }
-        uniqueNodes.push({id:sib.id, x:sx, y:rowY, person:sib, role:'anc-sib', d:n.d});
+        uniqueNodes.push({id:sib.id, x:sx, y:rowY, person:sib, role:'anc-sib', d:n.d, relDepth:n.relDepth, path:n.path, side:n.side});
         _seen.add(sib.id);
       }
-      if (parNode && sibCXs.length){
-        const parCX = parNode.x + _TW/2, parBot = parNode.y + _TH;
-        const elbowY = parBot + _TVG * 0.45;
-        const allCXs = [ancCX, ...sibCXs];
-        const minCX = Math.min(...allCXs), maxCX = Math.max(...allCXs);
-        for (let j = edges.length-1; j >= 0; j--){
-          const e = edges[j];
-          if (!e.type && Math.abs(e.x2 - ancCX) < 2 && Math.abs(e.y2 - rowY) < 2){ edges.splice(j,1); break; }
-        }
-        edges.push({x1:parCX, y1:parBot, x2:parCX, y2:elbowY, type:'straight'});
-        edges.push({x1:Math.min(...allCXs), y1:elbowY, x2:Math.max(...allCXs), y2:elbowY, type:'straight'});
-        for (const cx of allCXs) edges.push({x1:cx, y1:elbowY, x2:cx, y2:rowY, type:'straight'});
+      if (parentUnion && sibCXs.length){
+        const elbowY = rowY - _TVG * 0.28;
+        for (const cx of sibCXs) edges.push({x1:parentUnion.cx, y1:parentUnion.y, x2:cx, y2:rowY, type:'bus', midY:elbowY});
       }
     }
   }
 
   return {nodes: uniqueNodes, edges};
+}
+
+function _relationshipChip(label, cx, y){
+  return `<div class="tn-rel-chip" style="left:${cx.toFixed(0)}px;top:${y.toFixed(0)}px;transform:translateX(-50%)">${esc(label)}</div>`;
+}
+
+function _lineageChipHtml(nodes, edges, ox, oy){
+  const focusPerson = _tS.persons.get(_tS.focusId);
+  const focGivenName = _givenNameFor(focusPerson);
+  let html = '';
+  for (const e of edges){
+    if (e.type !== 'lineage') continue;
+    const labelPerson = e.labelRootId ? _tS.persons.get(e.labelRootId) : focusPerson;
+    const label = _relationshipLabelForDepth(_givenNameFor(labelPerson) || focGivenName, e.relDepth);
+    const labelX = e.x1 + ox;
+    const labelY = e.y1 + (e.midY - e.y1) * 0.58 + oy - 12;
+    html += _relationshipChip(label, labelX, labelY);
+  }
+
+  const focusNode = nodes.find(n => n.id === _tS.focusId);
+  if (!focusNode) return html;
+  const anchorX = focusNode.x + _TW/2 + ox;
+  const rowYByDepth = new Map();
+  for (const n of nodes){
+    if (n.relDepth > 0 && !rowYByDepth.has(n.relDepth)) rowYByDepth.set(n.relDepth, n.y);
+  }
+  for (const depth of [...rowYByDepth.keys()].sort((a,b) => a - b)){
+    const y = rowYByDepth.get(depth);
+    const nextY = rowYByDepth.get(depth + 1);
+    const gapMidY = nextY != null ? (y + _TH + nextY) / 2 + oy : y + _TH/2 + oy;
+    html += _relationshipChip(_relationshipLabelForDepth(focGivenName, depth), anchorX, gapMidY - 30);
+  }
+  return html;
 }
 
 function tpRender(){
@@ -1671,74 +1870,18 @@ function tpRender(){
     const x1=e.x1+ox, y1=e.y1+oy, x2=e.x2+ox, y2=e.y2+oy;
     if (e.type === 'partner'){
       svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--accent-gold)" stroke-dasharray="5 3" stroke-width="2" stroke-linecap="round"/>`;
+    } else if (e.type === 'anc' || e.type === 'lineage'){
+      svg += `<path d="${_orthoPathViaY(x1,y1,x2,y2,e.midY + oy)}" stroke="#c4bba8" fill="none" stroke-width="2" stroke-linecap="round"/>`;
     } else if (e.type === 'straight'){
       svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#c4bba8" stroke-width="2" stroke-linecap="round"/>`;
+    } else if (e.type === 'bus'){
+      svg += `<path d="${_orthoPathViaY(x1,y1,x2,y2,e.midY + oy)}" stroke="#c4bba8" fill="none" stroke-width="2" stroke-linecap="round"/>`;
     } else {
       svg += `<path d="${_orthoPath(x1,y1,x2,y2)}" stroke="#c4bba8" fill="none" stroke-width="2" stroke-linecap="round"/>`;
     }
   }
 
-  // Row labels: named interactive chips for the focus's direct connections; generic SVG for ancestor rows
-  const focusPerson = _tS.persons.get(_tS.focusId);
-  const focGivenName = focusPerson ? (focusPerson.given_name || focusPerson.display_name.split(' ')[0] || 'Their') : 'Their';
-  const rowYPresent = new Set(nodes.map(n => n.y));
-  const _GLEN = _TH + _TVG;
-  const focNode = nodes.find(n => n.id === _tS.focusId);
-  const labelAnchorX = focNode ? focNode.x + _TW/2 + ox : ox + _TW/2;
-
-  // Generic ancestor-row SVG pills (grandparents and above)
-  const ancRows = [
-    {y:-3*_GLEN, label:'Great-grandparents', nextY:-2*_GLEN},
-    {y:-2*_GLEN, label:'Grandparents',        nextY:-_GLEN},
-    {y:-_GLEN,   label:'Parents',             nextY:0},
-  ];
-  for (const row of ancRows){
-    if (!rowYPresent.has(row.y)) continue;
-    const nextPresent = rowYPresent.has(row.nextY);
-    const gapMidY = nextPresent
-      ? (row.y + _TH + row.nextY) / 2 + oy
-      : row.y + _TH/2 + oy;
-    const lbl = row.label.toUpperCase();
-    const lw = lbl.length * 6.2 + 14;
-    const lh = 16, lx = labelAnchorX - lw/2, ly = gapMidY - lh/2;
-    svg += `<g pointer-events="none">
-      <rect x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" width="${lw.toFixed(1)}" height="${lh}" rx="4" fill="rgba(237,232,223,0.92)" stroke="#c4bba8" stroke-width="1"/>
-      <text x="${labelAnchorX.toFixed(1)}" y="${(ly+11).toFixed(1)}" text-anchor="middle" font-family="Schibsted Grotesk,system-ui,sans-serif" font-size="8.5" font-weight="700" letter-spacing="0.07em" fill="#8a8070">${lbl}</text>
-    </g>`;
-  }
-
-  // Named interactive chips for focus ↕ connections (appended to chipHtml, merged into html after declaration)
-  let chipHtml = '';
-  if (focNode){
-    // "Jennifer's Parents" — on connector above focus, toggles ancestral collapse
-    if (rowYPresent.has(-_GLEN)){
-      const chipY = (-_GLEN + _TH + 0) / 2 + oy;
-      const isParCol = _tS.collapsed.has(_tS.focusId);
-      const parLabel = `${focGivenName}'s Parents ${isParCol ? '▴' : '▾'}`;
-      chipHtml += `<button class="tn-rel-chip${isParCol?' col':''}" style="left:${(labelAnchorX - 70).toFixed(0)}px;top:${(chipY - 12).toFixed(0)}px" onclick="tpToggleCollapse(event,'${_tS.focusId}')">${esc(parLabel)}</button>`;
-    }
-    // "Jennifer's Children" — on connector below focus, toggles descendant collapse
-    if (rowYPresent.has(_GLEN)){
-      const chipY = (0 + _TH + _GLEN) / 2 + oy;
-      const isChiCol = _tS.descCollapsed.has(_tS.focusId);
-      const chiLabel = `${focGivenName}'s Children ${isChiCol ? '▴' : '▾'}`;
-      chipHtml += `<button class="tn-rel-chip${isChiCol?' col':''}" style="left:${(labelAnchorX - 70).toFixed(0)}px;top:${(chipY - 12).toFixed(0)}px" onclick="tpToggleCollapse(event,'${_tS.focusId}','desc')">${esc(chiLabel)}</button>`;
-    }
-    // Generic descendant row labels (grandchildren etc)
-    const descRows = [{y:_GLEN, nextY:2*_GLEN, label:'Grandchildren'},{y:2*_GLEN, nextY:3*_GLEN, label:'Great-grandchildren'}];
-    for (const row of descRows){
-      if (!rowYPresent.has(row.y)) continue;
-      const nextPresent = rowYPresent.has(row.nextY);
-      const gapMidY = nextPresent ? (row.y + _TH + row.nextY) / 2 + oy : row.y + _TH/2 + oy;
-      const lbl = row.label.toUpperCase();
-      const lw = lbl.length * 6.2 + 14;
-      const lh = 16, lx = labelAnchorX - lw/2, ly = gapMidY - lh/2;
-      svg += `<g pointer-events="none">
-        <rect x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" width="${lw.toFixed(1)}" height="${lh}" rx="4" fill="rgba(237,232,223,0.92)" stroke="#c4bba8" stroke-width="1"/>
-        <text x="${labelAnchorX.toFixed(1)}" y="${(ly+11).toFixed(1)}" text-anchor="middle" font-family="Schibsted Grotesk,system-ui,sans-serif" font-size="8.5" font-weight="700" letter-spacing="0.07em" fill="#8a8070">${lbl}</text>
-      </g>`;
-    }
-  }
+  const chipHtml = _lineageChipHtml(nodes, edges, ox, oy);
 
   // Node cards
   let html = `<svg class="tree-svg" width="${cW}" height="${cH}" viewBox="0 0 ${cW} ${cH}">${svg}</svg>`;
@@ -1762,12 +1905,12 @@ function tpRender(){
       : `<div class="tn-av-band" style="background:${bandColor}">${personInitials(p)}</div>`;
 
     // Collapse button: ancestors with known parents (ancestor dir), descendants/focus with children (desc dir)
-    const hasUp = n.role==='anc' && n.d < 3 && (p.father || p.mother) && (_tS.persons.has(p.father)||_tS.persons.has(p.mother));
+    const hasUp = n.role==='anc' && n.d < 3;
     const hasDown = (n.role==='focus'||n.role==='desc') && (_tS.childrenOf.get(n.id)||[]).length > 0;
     const hasSideSibs = n.role==='anc' && _tS.ancSiblings.has(n.id);
     const isColAnc = _tS.collapsed.has(n.id);
     const isColDesc = _tS.descCollapsed.has(n.id);
-    const isColSide = !_ancSibsVisible(n.id, n.d);
+    const isColSide = !_ancSibsVisible(n.id);
     const isCol = isColAnc || isColDesc;
 
     // "Has more" stub for great-grandparents with parents, or max-depth descendants
@@ -2064,18 +2207,22 @@ function tpAddAncestor(childId, role){
 }
 function tpToggleAncestorSibs(e, id){
   e.stopPropagation();
-  if (_tS.ancSibsCollapsed.has(id)) _tS.ancSibsCollapsed.delete(id);
-  else _tS.ancSibsCollapsed.add(id);
+  const isVisible = _ancSibsVisible(id);
+  const nextVisible = !isVisible;
+  _setAncestorSibsVisible(id, nextVisible);
+  if (nextVisible) _tS.collapsed.delete(id);
   tpRenderPreserveViewport();
 }
 function tpToggleCollapse(e, id, dir){
   e.stopPropagation();
   const set = dir === 'desc' ? _tS.descCollapsed : _tS.collapsed;
   if (set.has(id)) set.delete(id); else set.add(id);
+  if (dir !== 'desc' && set.has(id)) _hideAncestorSibs(id);
   tpRenderPreserveViewport();
 }
 function tpToggleSibs(){
   _tS.sibsCollapsed = !_tS.sibsCollapsed;
+  if (!_tS.sibsCollapsed) _tS.collapsed.delete(_tS.focusId);
   tpRenderPreserveViewport();
 }
 
