@@ -1043,6 +1043,7 @@ const _tS = {
   descCollapsed: new Set(), // hides a node's children (descendant direction)
   siblings: [], sibsCollapsed: false, siblingCouples: new Map(),
   ancSiblings: new Map(),
+  ancSibsCollapsed: new Set(),
   expandedRelated: new Set(),
   trees: [], storedTrees: [], activeTree: null,
   pan: {x:0,y:0}, zoom: 1,
@@ -1114,7 +1115,7 @@ SCREENS.tree = function(params){
     </div>
   </div>`);
   _tS.persons.clear(); _tS.childrenOf.clear(); _tS.focusPartners = []; _tS.partnersOf.clear();
-  _tS.collapsed.clear(); _tS.descCollapsed.clear(); _tS.ctxId = null; _tS.trees = []; _tS.storedTrees = []; _tS.activeTree = null;
+  _tS.collapsed.clear(); _tS.descCollapsed.clear(); _tS.ancSibsCollapsed.clear(); _tS.ctxId = null; _tS.trees = []; _tS.storedTrees = []; _tS.activeTree = null;
   _tS.pan = {x:0,y:0}; _tS.zoom = 1;
   tpLoad((params && params.person) || treeFocusId || null);
 };
@@ -1142,6 +1143,7 @@ async function tpLoad(focusId){
     _tS.persons.clear(); _tS.childrenOf.clear(); _tS.focusPartners = []; _tS.partnersOf.clear();
     _tS.siblings = []; _tS.sibsCollapsed = false; _tS.siblingCouples = new Map();
     _tS.ancSiblings.clear();
+    _tS.ancSibsCollapsed.clear();
     _tS.expandedRelated.clear();
     await Promise.all([
       tpFetchUp(startId, 0),
@@ -1546,6 +1548,7 @@ function tpComputeLayout(){
     for (const n of uniqueNodes.slice()){
       if (n.role !== 'anc') continue;
       const entry = _tS.ancSiblings.get(n.id); if (!entry) continue;
+      if (_tS.ancSibsCollapsed.has(n.id)) continue;
       const {parentId, sibs} = entry;
       const parNode = uniqueNodes.find(m => m.id === parentId);
       const rowY = n.y;
@@ -1701,8 +1704,10 @@ function tpRender(){
     // Collapse button: ancestors with known parents (ancestor dir), descendants/focus with children (desc dir)
     const hasUp = n.role==='anc' && n.d < 3 && (p.father || p.mother) && (_tS.persons.has(p.father)||_tS.persons.has(p.mother));
     const hasDown = (n.role==='focus'||n.role==='desc') && (_tS.childrenOf.get(n.id)||[]).length > 0;
+    const hasSideSibs = n.role==='anc' && _tS.ancSiblings.has(n.id);
     const isColAnc = _tS.collapsed.has(n.id);
     const isColDesc = _tS.descCollapsed.has(n.id);
+    const isColSide = _tS.ancSibsCollapsed.has(n.id);
     const isCol = isColAnc || isColDesc;
 
     // "Has more" stub for great-grandparents with parents, or max-depth descendants
@@ -1726,6 +1731,14 @@ function tpRender(){
     if (hasDown){
       const c = isColDesc?' col':'', lbl = isColDesc?'+':'−';
       html += `<button class="tn-leaf-btn${c}" style="left:${leafX}px;top:${(ny+_TH-10).toFixed(0)}px" onclick="tpToggleCollapse(event,'${n.id}','desc')" title="${isColDesc?'Show children':'Hide children'}">${lbl}</button>`;
+    }
+    if (hasSideSibs){
+      const sideLeft = (n.x + _TW/2) < 0;
+      const c = isColSide ? ' col' : '';
+      const lbl = isColSide ? '+' : '−';
+      const btnX = sideLeft ? (nx - 10).toFixed(0) : (nx + _TW - 10).toFixed(0);
+      const btnY = (ny + _TH/2 - 10).toFixed(0);
+      html += `<button class="tn-leaf-btn${c}" style="left:${btnX}px;top:${btnY}px" onclick="tpToggleAncestorSibs(event,'${n.id}')" title="${isColSide?'Show siblings':'Hide siblings'}">${lbl}</button>`;
     }
     // Branch pill: expand/collapse partner's ancestry inline
     if ((n.role==='partner' || n.role==='sib-partner') && (p.father || p.mother)){
@@ -1981,6 +1994,12 @@ function _tpCtxOff(e){ if (!e.target.closest('#tree-ctx')) tpCloseCtx(); }
 function tpCloseCtx(){ const m=el('tree-ctx'); if (m) m.remove(); _tS.ctxId=null; }
 async function tpSetFocus(id){
   tpCloseCtx(); _tS.collapsed.clear(); _tS.descCollapsed.clear(); await tpLoad(id);
+}
+function tpToggleAncestorSibs(e, id){
+  e.stopPropagation();
+  if (_tS.ancSibsCollapsed.has(id)) _tS.ancSibsCollapsed.delete(id);
+  else _tS.ancSibsCollapsed.add(id);
+  tpRenderPreserveViewport();
 }
 function tpToggleCollapse(e, id, dir){
   e.stopPropagation();
