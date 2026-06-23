@@ -1,7 +1,72 @@
 from gedcom_sync import (
-    parse_lines, parse_individual, parse_family,
+    parse_lines, parse_individual, parse_family, parse_gedcom_file,
     apply_privacy, fill_blanks, plan_person_write,
 )
+
+
+# ── parse_gedcom_file ────────────────────────────────────────────────────────
+_SAMPLE_GED = """\
+0 HEAD
+1 SOUR MyApp
+0 @I1@ INDI
+1 NAME John /Smith/
+1 SEX M
+1 BIRT
+2 DATE 3 MAR 1947
+1 DEAT
+2 DATE 2020
+0 @I2@ INDI
+1 NAME Jane /Doe/
+1 SEX F
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+1 CHIL @I3@
+1 MARR
+2 DATE 12 JUN 1970
+0 TRLR
+"""
+
+
+def test_parse_gedcom_file_splits_individuals_and_families():
+    indis, fams = parse_gedcom_file(_SAMPLE_GED)
+    assert set(indis.keys()) == {"@I1@", "@I2@"}
+    assert set(fams.keys()) == {"@F1@"}
+
+
+def test_parse_gedcom_file_individual_text_is_parseable():
+    indis, _ = parse_gedcom_file(_SAMPLE_GED)
+    p = parse_individual(indis["@I1@"])
+    assert p["given_name"] == "John"
+    assert p["family_name"] == "Smith"
+    assert p["birth_date"] == "1947-03-03"
+    assert p["death_date"] == "2020"
+
+
+def test_parse_gedcom_file_family_text_is_parseable():
+    _, fams = parse_gedcom_file(_SAMPLE_GED)
+    f = parse_family(fams["@F1@"])
+    assert f["husb"] == "@I1@"
+    assert f["wife"] == "@I2@"
+    assert f["children"] == ["@I3@"]
+    assert f["married_date"] == "1970-06-12"
+
+
+def test_parse_gedcom_file_skips_head_and_trlr():
+    indis, fams = parse_gedcom_file(_SAMPLE_GED)
+    assert "HEAD" not in indis and "HEAD" not in fams
+    assert "TRLR" not in indis and "TRLR" not in fams
+
+
+def test_parse_gedcom_file_utf8_bom():
+    bom_ged = "﻿" + _SAMPLE_GED
+    indis, fams = parse_gedcom_file(bom_ged)
+    assert "@I1@" in indis
+
+
+def test_parse_gedcom_file_empty_gives_empty_dicts():
+    indis, fams = parse_gedcom_file("0 HEAD\n0 TRLR\n")
+    assert indis == {} and fams == {}
 
 
 # ── parse_lines ──────────────────────────────────────────────────────────────

@@ -128,6 +128,56 @@ def parse_family(gedcom_text):
             "married_date": married}
 
 
+# ── GEDCOM file parser ───────────────────────────────────────────────────────
+def parse_gedcom_file(gedcom_text):
+    """Split a .ged file into (individuals, families) dicts of {xref: record_text}.
+
+    Returns the same format as fetch_webtrees() so run() works with either source.
+    xrefs are the full @TAG@ strings (e.g. '@I1@', '@F2@').
+    """
+    individuals = {}
+    families = {}
+    current_xref = None
+    current_tag = None
+    current_lines = []
+
+    def _flush():
+        if not current_xref or not current_lines:
+            return
+        text = "\n".join(current_lines)
+        if current_tag == "INDI":
+            individuals[current_xref] = text
+        elif current_tag == "FAM":
+            families[current_xref] = text
+
+    for raw in gedcom_text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        parts = line.split(" ", 2)
+        if parts[0] != "0":
+            if current_xref is not None:
+                current_lines.append(line)
+            continue
+        # Level-0 record: flush previous, start new
+        _flush()
+        rest = " ".join(parts[1:])
+        if rest.startswith("@") and " " in rest:
+            space = rest.index(" ")
+            xref = rest[:space]       # e.g. "@I1@"
+            tag = rest[space + 1:].strip()  # e.g. "INDI"
+            current_xref = xref
+            current_tag = tag
+            current_lines = [line]
+        else:
+            current_xref = None
+            current_tag = None
+            current_lines = []
+
+    _flush()
+    return individuals, families
+
+
 # ── Privacy + merge logic ────────────────────────────────────────────────────
 def apply_privacy(fields, now_year):
     """Decide living vs deceased and redact living people's sensitive fields.
@@ -259,8 +309,12 @@ def build_person_fields(xref, individuals, now_year):
 
 def run(args):
     pb = PB.login(args.pb_url, args.admin_email, args.admin_password)
-    individuals, families = fetch_webtrees(args.db_host, args.db_name,
-                                           args.db_user, args.db_password)
+    if getattr(args, "gedcom", None):
+        with open(args.gedcom, encoding="utf-8-sig") as fh:
+            individuals, families = parse_gedcom_file(fh.read())
+    else:
+        individuals, families = fetch_webtrees(args.db_host, args.db_name,
+                                               args.db_user, args.db_password)
     now_year = args.now_year
     counts = {"created": 0, "updated": 0, "noop": 0, "couples": 0, "redacted": 0}
     xref_to_pid = {}
@@ -322,7 +376,9 @@ def run(args):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(
-        description="Sync Webtrees MariaDB -> PocketBase persons/couples")
+        description="Sync Webtrees MariaDB (or a .ged file) -> PocketBase persons/couples")
+    ap.add_argument("--gedcom", metavar="FILE",
+                    help="Path to a .ged file. Use instead of Webtrees DB flags.")
     ap.add_argument("--pb-url", default=os.environ.get("PB_URL", "http://192.168.20.14:8094"))
     ap.add_argument("--admin-email", default=os.environ.get("PB_ADMIN_EMAIL"))
     ap.add_argument("--admin-password", default=os.environ.get("PB_ADMIN_PASSWORD"))
@@ -333,8 +389,10 @@ def main(argv=None):
     ap.add_argument("--now-year", type=int, default=2026)
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args(argv)
-    missing = [n for n in ("admin_email", "admin_password", "db_password")
-               if not getattr(args, n)]
+    required = ["admin_email", "admin_password"]
+    if not args.gedcom:
+        required.append("db_password")
+    missing = [n for n in required if not getattr(args, n)]
     if missing:
         print(f"ERROR: missing required config: {missing}", file=sys.stderr)
         return 2
