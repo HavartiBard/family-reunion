@@ -1041,6 +1041,7 @@ const _tS = {
   focusId: null, focusPartners: [],
   collapsed: new Set(),
   siblings: [], sibsCollapsed: true, siblingCouples: new Map(),
+  expandedRelated: new Set(),
   trees: [], storedTrees: [], activeTree: null,
   pan: {x:0,y:0}, zoom: 1,
   dragging: false, dragLast: {x:0,y:0},
@@ -1138,6 +1139,7 @@ async function tpLoad(focusId){
     history.replaceState({}, '', `${location.pathname}?tab=tree&person=${startId}`);
     _tS.persons.clear(); _tS.childrenOf.clear(); _tS.focusPartners = [];
     _tS.siblings = []; _tS.sibsCollapsed = true; _tS.siblingCouples = new Map();
+    _tS.expandedRelated.clear();
     await Promise.all([
       tpFetchUp(startId, 0),
       tpFetchDown(startId, 0),
@@ -1253,6 +1255,16 @@ function _descPlace(id, depth, cx, nodes, edges, parentCX, parentY, edgeStartY){
   }
 }
 
+// Orthogonal stepped connector path with rounded corners.
+// Draws: down from (x1,y1) → elbow at mid-height → across → down to (x2,y2).
+function _orthoPath(x1, y1, x2, y2, r=10){
+  const dx = x2 - x1;
+  if (Math.abs(dx) < 2) return `M${x1},${y1} L${x2},${y2}`;
+  const ey = Math.round((y1 + y2) / 2);
+  const s = dx > 0 ? 1 : -1;
+  return `M${x1},${y1} L${x1},${ey-r} Q${x1},${ey} ${x1+s*r},${ey} L${x2-s*r},${ey} Q${x2},${ey} ${x2},${ey+r} L${x2},${y2}`;
+}
+
 function tpComputeLayout(){
   const nodes=[], edges=[];
   _ancPlace(_tS.focusId, 0, 0, nodes, edges, null, null);
@@ -1316,7 +1328,34 @@ function tpComputeLayout(){
     }
   }
 
-  return {nodes, edges};
+  // Expanded related trees: show partner/sib-partner ancestry inline above their card
+  if (_tS.expandedRelated.size) {
+    for (const n of nodes.slice()) {
+      if (!(n.role === 'partner' || n.role === 'sib-partner')) continue;
+      if (!_tS.expandedRelated.has(n.id)) continue;
+      const rp = _tS.persons.get(n.id);
+      if (!rp) continue;
+      const pCX = n.x + _TW/2, pY = n.y;
+      const fW = (rp.father && _tS.persons.has(rp.father)) ? _ancW(rp.father, 1) : 0;
+      const mW = (rp.mother && _tS.persons.has(rp.mother)) ? _ancW(rp.mother, 1) : 0;
+      if (!fW && !mW) continue;
+      const total = fW + (fW && mW ? _THG : 0) + mW;
+      let curX = pCX - total/2;
+      const fCX = fW ? curX + fW/2 : null;
+      if (fW) { _ancPlace(rp.father, 1, curX+fW/2, nodes, edges, pCX, pY); curX += fW+(mW?_THG:0); }
+      const mCX = mW ? curX + mW/2 : null;
+      if (mW) _ancPlace(rp.mother, 1, curX+mW/2, nodes, edges, pCX, pY);
+      if (fCX !== null && mCX !== null) {
+        const ancY = pY - (_TH + _TVG);
+        edges.push({x1:fCX+_TW/2, y1:ancY+_TH/2, x2:mCX-_TW/2, y2:ancY+_TH/2, type:'partner'});
+      }
+    }
+  }
+
+  // Deduplicate nodes in case a person appears via multiple routes
+  const _seen = new Set();
+  const uniqueNodes = nodes.filter(n => !_seen.has(n.id) && _seen.add(n.id));
+  return {nodes: uniqueNodes, edges};
 }
 
 function tpRender(){
@@ -1344,8 +1383,7 @@ function tpRender(){
     } else if (e.type === 'straight'){
       svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#c4bba8" stroke-width="2" stroke-linecap="round"/>`;
     } else {
-      const my=(y1+y2)/2;
-      svg += `<path d="M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}" stroke="#c4bba8" fill="none" stroke-width="2" stroke-linecap="round"/>`;
+      svg += `<path d="${_orthoPath(x1,y1,x2,y2)}" stroke="#c4bba8" fill="none" stroke-width="2" stroke-linecap="round"/>`;
     }
   }
 
@@ -1385,18 +1423,45 @@ function tpRender(){
     html += `<div class="${cls}" style="left:${nx}px;top:${ny}px${tcStyle}" onclick="tpNodeClick(event,'${n.id}')">
       ${av}<div class="tn-info"><div class="tn-name">${esc(p.display_name)}</div>${years?`<div class="tn-years">${esc(years)}</div>`:''}</div>
       ${expBtn}${moreBtn}</div>`;
-    // Branch indicator: small pill above partner/sib-partner nodes with ancestors
+    // Branch pill: expand/collapse partner's ancestry inline
     if ((n.role==='partner' || n.role==='sib-partner') && (p.father || p.mother)){
+      const isExp = _tS.expandedRelated.has(n.id);
       const bSurname = p.birth_surname || p.family_name;
-      const bLabel = bSurname ? `↑ ${esc(bSurname)}` : '↑ family';
-      const bW = 90, bX = nx + (_TW - bW)/2, bY = ny - 28;
-      html += `<div class="tn-branch" style="left:${bX}px;top:${bY}px${tcStyle}" onclick="tpSetFocus('${n.id}')" title="Explore ${esc(p.display_name)}'s family">${bLabel}</div>`;
+      const bLabel = (bSurname ? `${esc(bSurname)}` : 'family') + (isExp ? ' ▴' : ' ▾');
+      const bW = 94, bX = nx + (_TW - bW)/2, bY = ny - 28;
+      html += `<div class="tn-branch${isExp?' expanded':''}" style="left:${bX}px;top:${bY}px${tcStyle}" onclick="tpExpandRelated('${n.id}')" title="${isExp?'Collapse':'Expand'} ${esc(p.display_name)}'s family tree">${bLabel}</div>`;
     }
+  }
+
+  // Generation row labels (relationship to focused person)
+  const focusPerson = _tS.persons.get(_tS.focusId);
+  const rowYPresent = new Set(nodes.map(n => n.y));
+  const _GLEN = _TH + _TVG;
+  const genRows = [
+    {y:-3*_GLEN, label:'Great-grandparents'}, {y:-2*_GLEN, label:'Grandparents'},
+    {y:-_GLEN, label:'Parents'},
+    {y:0, label: focusPerson ? (focusPerson.given_name || focusPerson.display_name || 'You') : 'You'},
+    {y:_GLEN, label:'Children'}, {y:2*_GLEN, label:'Grandchildren'}, {y:3*_GLEN, label:'Great-grandchildren'},
+  ];
+  for (const {y, label} of genRows) {
+    if (!rowYPresent.has(y)) continue;
+    html += `<div class="tn-row-label" style="top:${y+oy}px">${esc(label)}</div>`;
   }
 
   inner.style.cssText = `width:${cW}px;height:${cH}px;position:relative`;
   inner.innerHTML = html;
   tpRenderSelector();
+}
+
+async function tpExpandRelated(pid){
+  if (_tS.expandedRelated.has(pid)){
+    _tS.expandedRelated.delete(pid);
+    _computeTrees(); tpRender(); return;
+  }
+  // Fetch ancestors for this person up to 3 generations so layout has data
+  await tpFetchUp(pid, 0);
+  _tS.expandedRelated.add(pid);
+  _computeTrees(); tpRender();
 }
 
 function tpRenderSelector(){
