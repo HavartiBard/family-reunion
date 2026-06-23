@@ -28,7 +28,11 @@
     const d = _extractYear(p.death_date);
     if (!b && !d) return '';
     if (d) return `${b || '?'}–${d}`;
-    return b ? `${b}–Living` : '';
+    if (b) {
+      const age = new Date().getFullYear() - parseInt(b);
+      return (p.living && age < 80) ? `${b}–Living` : b;
+    }
+    return '';
   }
 
   function avatarTint(index) {

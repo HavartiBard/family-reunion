@@ -1157,7 +1157,8 @@ async function tpLoad(focusId){
       const sibParentId = focPerson.father || focPerson.mother;
       if (sibParentId) {
         const sibList = await getChildren(sibParentId);
-        _tS.siblings = sibList.filter(s => s.id !== startId);
+        _tS.siblings = sibList.filter(s => s.id !== startId)
+          .sort((a,b) => (parseInt(_parseYearFromDate(a.birth_date))||9999) - (parseInt(_parseYearFromDate(b.birth_date))||9999));
         _tS.siblings.forEach(s => _tS.persons.set(s.id, s));
         await Promise.all(_tS.siblings.map(async s => {
           const couples = await getCouplesFor(s.id);
@@ -1206,7 +1207,8 @@ async function tpFetchAncSiblings(focusId){
     const anc = _tS.persons.get(ancId); if (!anc) return;
     const parentId = anc.father || anc.mother; if (!parentId) return;
     const children = await getChildren(parentId);
-    const sibs = children.filter(c => c.id !== ancId);
+    const sibs = children.filter(c => c.id !== ancId)
+      .sort((a,b) => (parseInt(_parseYearFromDate(a.birth_date))||9999) - (parseInt(_parseYearFromDate(b.birth_date))||9999));
     if (sibs.length){
       _tS.ancSiblings.set(ancId, {parentId, sibs});
       sibs.forEach(s => _tS.persons.set(s.id, s));
@@ -1214,7 +1216,7 @@ async function tpFetchAncSiblings(focusId){
   }));
 }
 
-// Compact ancestor subtree width — couples always adjacent, subtrees fan above each card
+// Compact ancestor subtree width
 function _ancW(id, depth){
   if (!id || !_tS.persons.has(id)) return 0;
   if (depth >= 3 || _tS.collapsed.has(id)) return _TW;
@@ -1222,15 +1224,9 @@ function _ancW(id, depth){
   const fW = (p.father && _tS.persons.has(p.father)) ? _ancW(p.father, depth+1) : 0;
   const mW = (p.mother && _tS.persons.has(p.mother)) ? _ancW(p.mother, depth+1) : 0;
   if (!fW && !mW) return _TW;
-  if (fW && mW){
-    // Each parent's card is TW/2 + THG/2 from child center; their subtree hangs above.
-    // Worst-case half-span = TW/2 + THG/2 + max(fW,mW)/2
-    return Math.max(_TW, _TW + _THG + Math.max(fW, mW));
-  }
-  return Math.max(_TW, fW || mW);
+  return Math.max(_TW, fW + (fW && mW ? _THG : 0) + mW);
 }
-// Place ancestor nodes recursively (depth increases going up).
-// Couples are always placed adjacent (TW + THG apart); each parent's subtree fans above their own card.
+// Place ancestor nodes recursively (depth increases going up)
 function _ancPlace(id, depth, cx, nodes, edges, childCX, childY){
   if (!id || !_tS.persons.has(id)) return;
   const p = _tS.persons.get(id);
@@ -1238,19 +1234,19 @@ function _ancPlace(id, depth, cx, nodes, edges, childCX, childY){
   nodes.push({id, x: cx - _TW/2, y, person:p, role: depth===0 ? 'focus' : 'anc', d:depth});
   if (childCX !== null) edges.push({x1:cx, y1:y+_TH, x2:childCX, y2:childY});
   if (depth >= 3 || _tS.collapsed.has(id)) return;
-  const hasFather = !!(p.father && _tS.persons.has(p.father));
-  const hasMother = !!(p.mother && _tS.persons.has(p.mother));
-  if (!hasFather && !hasMother) return;
-  if (hasFather && hasMother){
-    // Keep couple adjacent — each card offset half a gap from child center
-    const fCX = cx - (_TW/2 + _THG/2);
-    const mCX = cx + (_TW/2 + _THG/2);
-    _ancPlace(p.father, depth+1, fCX, nodes, edges, cx, y);
-    _ancPlace(p.mother, depth+1, mCX, nodes, edges, cx, y);
+  const fW = (p.father && _tS.persons.has(p.father)) ? _ancW(p.father, depth+1) : 0;
+  const mW = (p.mother && _tS.persons.has(p.mother)) ? _ancW(p.mother, depth+1) : 0;
+  if (!fW && !mW) return;
+  const total = fW + (fW && mW ? _THG : 0) + mW;
+  let curX = cx - total/2;
+  const fCX = fW ? curX + fW/2 : null;
+  if (fW){ _ancPlace(p.father, depth+1, curX+fW/2, nodes, edges, cx, y); curX += fW + (mW ? _THG : 0); }
+  const mCX = mW ? curX + mW/2 : null;
+  if (mW)  _ancPlace(p.mother, depth+1, curX+mW/2, nodes, edges, cx, y);
+  // Couple connector between parent pair (gold dashed line at card mid-height)
+  if (fCX !== null && mCX !== null){
     const pY = -(depth+1) * (_TH + _TVG);
     edges.push({x1:fCX+_TW/2, y1:pY+_TH/2, x2:mCX-_TW/2, y2:pY+_TH/2, type:'partner'});
-  } else {
-    _ancPlace(hasFather ? p.father : p.mother, depth+1, cx, nodes, edges, cx, y);
   }
 }
 
@@ -1468,8 +1464,8 @@ function tpRender(){
   const genRows = [
     {y:-3*_GLEN, label:'Great-grandparents'}, {y:-2*_GLEN, label:'Grandparents'},
     {y:-_GLEN, label:'Parents'},
-    {y:0, label: focusPerson ? (focusPerson.given_name || focusPerson.display_name || 'You') : 'You'},
-    {y:_GLEN, label:'Children'}, {y:2*_GLEN, label:'Grandchildren'}, {y:3*_GLEN, label:'Great-grandchildren'},
+    {y:0, label:'Children'},
+    {y:_GLEN, label:'Grandchildren'}, {y:2*_GLEN, label:'Great-grandchildren'},
   ];
   // Find focus node's center x as the anchor for labels
   const focNode = nodes.find(n => n.id === _tS.focusId);
@@ -1514,7 +1510,6 @@ function tpRender(){
     const hasUp = n.role==='anc' && n.d < 3 && (p.father || p.mother) && (_tS.persons.has(p.father)||_tS.persons.has(p.mother));
     const hasDown = (n.role==='focus'||n.role==='desc') && (_tS.childrenOf.get(n.id)||[]).length > 0;
     const isCol = _tS.collapsed.has(n.id);
-    const expBtn = (hasUp||hasDown) ? `<button class="tn-exp-btn${isCol?' col':''}" onclick="tpToggleCollapse(event,'${n.id}')" title="${isCol?'Expand branch':'Collapse branch'}">${isCol?'+':'−'}</button>` : '';
 
     // "Has more" stub for great-grandparents with parents, or max-depth descendants
     const moreAnc = n.role==='anc' && n.d===3 && (p.father||p.mother);
@@ -1527,7 +1522,14 @@ function tpRender(){
       isCol?'col':'', dimmed?'dimmed':''].filter(Boolean).join(' ');
     html += `<div class="${cls}" style="left:${nx}px;top:${ny}px${tcStyle}" onclick="tpNodeClick(event,'${n.id}')">
       ${av}<div class="tn-info"><div class="tn-name">${esc(p.display_name)}</div>${years?`<div class="tn-years">${esc(years)}</div>`:''}</div>
-      ${expBtn}${moreBtn}</div>`;
+      ${moreBtn}</div>`;
+    // Collapse button rendered outside the card, on the connector end (leaf position)
+    const leafTitle = isCol ? 'Expand branch' : 'Collapse branch';
+    const leafLabel = isCol ? '+' : '−';
+    const leafCls = `tn-leaf-btn${isCol?' col':''}`;
+    const leafX = (nx + _TW/2 - 10).toFixed(0);
+    if (hasUp)   html += `<button class="${leafCls}" style="left:${leafX}px;top:${(ny-10).toFixed(0)}px" onclick="tpToggleCollapse(event,'${n.id}')" title="${leafTitle}">${leafLabel}</button>`;
+    if (hasDown) html += `<button class="${leafCls}" style="left:${leafX}px;top:${(ny+_TH-10).toFixed(0)}px" onclick="tpToggleCollapse(event,'${n.id}')" title="${leafTitle}">${leafLabel}</button>`;
     // Branch pill: expand/collapse partner's ancestry inline
     if ((n.role==='partner' || n.role==='sib-partner') && (p.father || p.mother)){
       const isExp = _tS.expandedRelated.has(n.id);
@@ -1682,7 +1684,7 @@ function tpApplyTransform(){
 
 // Pan / Zoom
 function tpDragStart(e){
-  if (e.button !== 0 || e.target.closest('.tn-card,.tree-ctx,.tc-btn,.tn-exp-btn')) return;
+  if (e.button !== 0 || e.target.closest('.tn-card,.tree-ctx,.tc-btn,.tn-leaf-btn')) return;
   _tS.dragging = true; _tS.dragLast = {x:e.clientX, y:e.clientY};
   e.preventDefault();
 }
@@ -1695,7 +1697,7 @@ function tpDragEnd(){ _tS.dragging = false; }
 
 let _tpT0=null, _tpD0=0, _tpZ0=1;
 function tpTouchStart(e){
-  if (e.touches.length===1 && !e.target.closest('.tn-card,.tree-ctx,.tc-btn,.tn-exp-btn')){
+  if (e.touches.length===1 && !e.target.closest('.tn-card,.tree-ctx,.tc-btn,.tn-leaf-btn')){
     _tS.dragging=true; _tS.dragLast={x:e.touches[0].clientX, y:e.touches[0].clientY};
   } else if (e.touches.length===2){
     _tS.dragging=false;
@@ -1857,7 +1859,9 @@ async function savePerson(id){
   fd.append('gender', el('pf-gender').value);
   fd.append('birth_date', _composeDateText('pf-birth'));
   fd.append('death_date', _composeDateText('pf-death'));
-  fd.append('living', _composeDateText('pf-death') ? 'false' : 'true');
+  const _pfBirthY = parseInt(_parseYearFromDate(_composeDateText('pf-birth'))||'0');
+  const _pfOldEnough = _pfBirthY && (new Date().getFullYear() - _pfBirthY >= 80);
+  fd.append('living', (_composeDateText('pf-death') || _pfOldEnough) ? 'false' : 'true');
   fd.append('bio', val('pf-bio'));
   fd.append('updated_by', userId);
   const photo = el('pf-photo').files[0];
