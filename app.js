@@ -340,7 +340,42 @@ function renderSidebar(){
 
 // ── Auth screens ─────────────────────────────────────────────────────────────
 const FALLBACK_SURNAMES = ['Kelsall', 'Warfel', 'Flannigan', 'Hubber'];
+const DEV_LOGIN_ORIGINS = new Set(['http://localhost:4173', 'http://192.168.20.60:4173']);
 let rollerTimer = null;
+
+function isLocalDevOrigin(){
+  return DEV_LOGIN_ORIGINS.has(location.origin);
+}
+
+function getDevLoginConfig(){
+  return {
+    email: localStorage.getItem('kf_dev_login_email') || '',
+    password: localStorage.getItem('kf_dev_login_password') || '',
+  };
+}
+
+function saveDevLoginConfig(email, password){
+  localStorage.setItem('kf_dev_login_email', email);
+  localStorage.setItem('kf_dev_login_password', password);
+}
+
+function clearDevLoginConfig(){
+  localStorage.removeItem('kf_dev_login_email');
+  localStorage.removeItem('kf_dev_login_password');
+}
+
+function devLoginButtons(){
+  if (!isLocalDevOrigin()) return '';
+  const cfg = getDevLoginConfig();
+  const hasCreds = !!(cfg.email && cfg.password);
+  return `
+    <div class="auth-divider">local dev</div>
+    <div style="display:flex;gap:.55rem;margin-bottom:.9rem">
+      <button class="btn btn-outline" style="flex:1;height:48px" onclick="doDevLogin()">${hasCreds ? 'Dev login' : 'Set dev login'}</button>
+      ${hasCreds ? `<button class="btn btn-outline" style="height:48px" onclick="openDevLoginModal()">Edit</button>
+      <button class="btn btn-outline" style="height:48px" onclick="clearDevLogin()">Clear</button>` : ''}
+    </div>`;
+}
 
 function showAuth(mode = 'signin'){
   clearInterval(rollerTimer);
@@ -405,6 +440,7 @@ function signInForm(){
       <svg width="17" height="20" viewBox="0 0 814 1000" fill="white"><path d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76 0-103.7 40.8-165.9 40.8s-105-37.5-150.2-104.5C34.1 752.3 0 665.7 0 582.3c0-165.1 108.9-252.6 214.1-252.6 55.7 0 102.1 36.5 138.2 36.5 34.2 0 87.5-38.8 153.2-38.8 24.7 0 108.2 2.6 168.6 81.2zm-174.5-97.2c31.1-36.9 53.1-88.1 53.1-139.3 0-7.1-.6-14.3-1.9-20.1-50.6 1.9-110.8 33.7-147.1 75.8-28.5 32.4-55.1 83.6-55.1 135.5 0 7.8 1.3 15.6 1.9 18.1 3.2.6 8.4 1.3 13.6 1.3 45.4 0 102.5-30.4 135.5-71.3z"/></svg>
       Sign in with Apple
     </button>
+    ${devLoginButtons()}
     <div class="auth-divider">or with email</div>
     <div class="form-group"><label>Email</label><input id="login-email" type="email" style="height:52px" /></div>
     <div class="form-group"><label>Password</label><input id="login-password" type="password" style="height:52px" /></div>
@@ -454,6 +490,54 @@ function authError(msg){
 }
 
 // ── Auth actions (ported, behavior unchanged) ────────────────────────────────
+function openDevLoginModal(){
+  const cfg = getDevLoginConfig();
+  openModal(`<h2 class="card-title">Local dev login</h2>
+    <div id="dev-login-error" class="alert alert-error" style="display:none"></div>
+    <div class="form-group"><label>Email</label><input id="dev-login-email" type="email" value="${esc(cfg.email)}" /></div>
+    <div class="form-group"><label>Password</label><input id="dev-login-password" type="password" value="${esc(cfg.password)}" /></div>
+    <div style="display:flex;gap:.6rem;margin-top:.75rem">
+      <button class="btn btn-primary" onclick="saveDevLogin()">Save</button>
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    </div>`);
+}
+
+function saveDevLogin(){
+  const email = val('dev-login-email');
+  const password = val('dev-login-password');
+  if (!email || !password) return formErr('dev-login-error', 'Email and password are required.');
+  saveDevLoginConfig(email, password);
+  closeModal();
+  showAuth('signin');
+}
+
+function clearDevLogin(){
+  clearDevLoginConfig();
+  showAuth('signin');
+}
+
+async function doDevLogin(){
+  const cfg = getDevLoginConfig();
+  if (!cfg.email || !cfg.password) {
+    openDevLoginModal();
+    return;
+  }
+  try {
+    const res = await fetch(`${API}/api/collections/users/auth-with-password`, {
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ identity: cfg.email, password: cfg.password })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Dev login failed');
+    setSession(data.token, data.record);
+    if (!currentUser.approved && !currentUser.family_admin) return showPending();
+    enterApp();
+  } catch (e) {
+    authError(e.message);
+    openDevLoginModal();
+  }
+}
+
 async function doLogin(){
   const email = val('login-email'), pw = val('login-password');
   if (!email || !pw) return authError('Email and password are required.');
