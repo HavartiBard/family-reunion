@@ -1449,6 +1449,7 @@ function tpComputeLayout(){
   _ancPlace(_tS.focusId, 0, 0, nodes, edges, null, null);
 
   const foc = nodes.find(n => n.id === _tS.focusId);
+  const focCX = foc ? (foc.x + _TW/2) : 0;
   const descBlockW = _descFamilyW(_tS.focusId, 0);
   _descPlaceFamily(_tS.focusId, 0, -descBlockW/2, nodes, edges, null, null, undefined);
 
