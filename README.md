@@ -43,6 +43,11 @@ If the public frontend or API URLs move, update `FRONTEND_URL` and
 `PUBLIC_API_URL` in the backend environment so the Apple bridge uses the right
 origins and callback URL.
 
+For local frontend iteration against the live API, Apple sign-in can allow extra
+frontend origins via `DEV_FRONTEND_URLS`, for example
+`http://192.168.20.60:4173,http://localhost:4173`. Email/password login does
+not need this bridge override.
+
 ## Family admins
 The `users` auth collection has `approved` and `family_admin` flags. Approved
 family admins see an Admin tab in the SPA where they can approve pending

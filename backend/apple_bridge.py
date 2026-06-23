@@ -12,6 +12,7 @@ from urllib import error, parse, request
 PB_INTERNAL = os.environ.get("PB_INTERNAL_URL", "http://127.0.0.1:8091")
 PUBLIC_API = os.environ.get("PUBLIC_API_URL", "https://reunion-api.klsll.com")
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://reunion.klsll.com/")
+DEV_FRONTEND_URLS = os.environ.get("DEV_FRONTEND_URLS", "")
 LISTEN_HOST = os.environ.get("APPLE_BRIDGE_HOST", "127.0.0.1")
 LISTEN_PORT = int(os.environ.get("APPLE_BRIDGE_PORT", "8092"))
 FLOW_TTL_SECONDS = int(os.environ.get("APPLE_FLOW_TTL_SECONDS", "600"))
@@ -61,20 +62,38 @@ def _json_request(path, method="GET", payload=None):
         return exc.code, data
 
 
-def _cors_origin():
-    parsed = parse.urlparse(FRONTEND_URL)
-    return f"{parsed.scheme}://{parsed.netloc}"
+def _allowed_frontends():
+    urls = [FRONTEND_URL]
+    urls.extend(x.strip() for x in DEV_FRONTEND_URLS.split(",") if x.strip())
+    allowed = []
+    for value in urls:
+        parsed = parse.urlparse(value)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            continue
+        allowed.append({
+            "origin": f"{parsed.scheme}://{parsed.netloc}",
+            "path": parsed.path or "/",
+        })
+    return allowed or [{"origin": "https://reunion.klsll.com", "path": "/"}]
+
+
+def _cors_origin(request_origin=None):
+    allowed = _allowed_frontends()
+    if request_origin and any(item["origin"] == request_origin for item in allowed):
+        return request_origin
+    return allowed[0]["origin"]
 
 
 def _normalize_frontend_url(value):
-    allowed = parse.urlparse(FRONTEND_URL)
     target = value or FRONTEND_URL
     parsed = parse.urlparse(target)
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         return FRONTEND_URL
-    if parsed.scheme != allowed.scheme or parsed.netloc != allowed.netloc:
-        return FRONTEND_URL
-    return f"{allowed.scheme}://{allowed.netloc}{parsed.path or '/'}"
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    for allowed in _allowed_frontends():
+        if origin == allowed["origin"]:
+            return f"{allowed['origin']}{parsed.path or allowed['path']}"
+    return FRONTEND_URL
 
 
 def _pb_apple_provider():
@@ -261,9 +280,10 @@ class AppleBridgeHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _send_cors_headers(self):
-        self.send_header("Access-Control-Allow-Origin", _cors_origin())
+        self.send_header("Access-Control-Allow-Origin", _cors_origin(self.headers.get("Origin")))
         self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Vary", "Origin")
         self.send_header("Cache-Control", "no-store")
 
     def log_message(self, fmt, *args):
