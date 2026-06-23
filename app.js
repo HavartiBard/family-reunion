@@ -1053,6 +1053,13 @@ function _treeColorFor(surname){
   const t = _tS.trees.find(t => t.name === surname);
   return t ? t.color : null;
 }
+// Stable hash → color index so the same surname always gets the same color
+// regardless of which persons happen to be loaded in the current view.
+function _surnameColorIdx(name){
+  let h = 5381;
+  for (let i = 0; i < name.length; i++) h = ((h << 5) + h + name.charCodeAt(i)) >>> 0;
+  return h % _TREE_COLORS.length;
+}
 function _computeTrees(){
   const counts = new Map();
   for (const p of _tS.persons.values()){
@@ -1062,13 +1069,12 @@ function _computeTrees(){
     if (bs && bs !== s) counts.set(bs, (counts.get(bs)||0)+1);
   }
   const sorted = [...counts.entries()].sort((a,b)=>b[1]-a[1]);
-  _tS.trees = sorted.map(([name,count],i) => {
-    // Match stored tree by surname field, then by name
+  _tS.trees = sorted.map(([name,count]) => {
     const stored = _tS.storedTrees.find(t => (t.surname||t.name) === name);
     return {
       name,
       count,
-      color: (stored && stored.color) || _TREE_COLORS[i % _TREE_COLORS.length],
+      color: (stored && stored.color) || _TREE_COLORS[_surnameColorIdx(name)],
       rootPersonId: (stored && stored.root_person) || null,
       id: (stored && stored.id) || null,
     };
@@ -1204,8 +1210,15 @@ function _ancPlace(id, depth, cx, nodes, edges, childCX, childY){
   if (!fW && !mW) return;
   const total = fW + (fW && mW ? _THG : 0) + mW;
   let curX = cx - total/2;
+  const fCX = fW ? curX + fW/2 : null;
   if (fW){ _ancPlace(p.father, depth+1, curX+fW/2, nodes, edges, cx, y); curX += fW + (mW ? _THG : 0); }
+  const mCX = mW ? curX + mW/2 : null;
   if (mW)  _ancPlace(p.mother, depth+1, curX+mW/2, nodes, edges, cx, y);
+  // Couple connector between parent pair (gold dashed line at card mid-height)
+  if (fCX !== null && mCX !== null){
+    const pY = -(depth+1) * (_TH + _TVG);
+    edges.push({x1:fCX+_TW/2, y1:pY+_TH/2, x2:mCX-_TW/2, y2:pY+_TH/2, type:'partner'});
+  }
 }
 
 // Descendant subtree width
