@@ -48,6 +48,11 @@ frontend origins via `DEV_FRONTEND_URLS`, for example
 `http://192.168.20.60:4173,http://localhost:4173`. Email/password login does
 not need this bridge override.
 
+For a one-click local admin login, run `tools/dev_auth_proxy.py` on the same VM
+as the static frontend and point it at a real approved admin account. The SPA
+shows a `Dev login` button only on the local dev origins above and calls the
+proxy on port `4174`, so those credentials stay off the public frontend and API.
+
 ## Family admins
 The `users` auth collection has `approved` and `family_admin` flags. Approved
 family admins see an Admin tab in the SPA where they can approve pending

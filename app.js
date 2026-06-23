@@ -341,39 +341,19 @@ function renderSidebar(){
 // ── Auth screens ─────────────────────────────────────────────────────────────
 const FALLBACK_SURNAMES = ['Kelsall', 'Warfel', 'Flannigan', 'Hubber'];
 const DEV_LOGIN_ORIGINS = new Set(['http://localhost:4173', 'http://192.168.20.60:4173']);
+const DEV_AUTH_URL = `http://${location.hostname || 'localhost'}:4174`;
 let rollerTimer = null;
 
 function isLocalDevOrigin(){
   return DEV_LOGIN_ORIGINS.has(location.origin);
 }
 
-function getDevLoginConfig(){
-  return {
-    email: localStorage.getItem('kf_dev_login_email') || '',
-    password: localStorage.getItem('kf_dev_login_password') || '',
-  };
-}
-
-function saveDevLoginConfig(email, password){
-  localStorage.setItem('kf_dev_login_email', email);
-  localStorage.setItem('kf_dev_login_password', password);
-}
-
-function clearDevLoginConfig(){
-  localStorage.removeItem('kf_dev_login_email');
-  localStorage.removeItem('kf_dev_login_password');
-}
-
 function devLoginButtons(){
   if (!isLocalDevOrigin()) return '';
-  const cfg = getDevLoginConfig();
-  const hasCreds = !!(cfg.email && cfg.password);
   return `
     <div class="auth-divider">local dev</div>
     <div style="display:flex;gap:.55rem;margin-bottom:.9rem">
-      <button class="btn btn-outline" style="flex:1;height:48px" onclick="doDevLogin()">${hasCreds ? 'Dev login' : 'Set dev login'}</button>
-      ${hasCreds ? `<button class="btn btn-outline" style="height:48px" onclick="openDevLoginModal()">Edit</button>
-      <button class="btn btn-outline" style="height:48px" onclick="clearDevLogin()">Clear</button>` : ''}
+      <button class="btn btn-outline" style="flex:1;height:48px" onclick="doDevLogin()">Dev login</button>
     </div>`;
 }
 
@@ -490,42 +470,12 @@ function authError(msg){
 }
 
 // ── Auth actions (ported, behavior unchanged) ────────────────────────────────
-function openDevLoginModal(){
-  const cfg = getDevLoginConfig();
-  openModal(`<h2 class="card-title">Local dev login</h2>
-    <div id="dev-login-error" class="alert alert-error" style="display:none"></div>
-    <div class="form-group"><label>Email</label><input id="dev-login-email" type="email" value="${esc(cfg.email)}" /></div>
-    <div class="form-group"><label>Password</label><input id="dev-login-password" type="password" value="${esc(cfg.password)}" /></div>
-    <div style="display:flex;gap:.6rem;margin-top:.75rem">
-      <button class="btn btn-primary" onclick="saveDevLogin()">Save</button>
-      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
-    </div>`);
-}
-
-function saveDevLogin(){
-  const email = val('dev-login-email');
-  const password = val('dev-login-password');
-  if (!email || !password) return formErr('dev-login-error', 'Email and password are required.');
-  saveDevLoginConfig(email, password);
-  closeModal();
-  showAuth('signin');
-}
-
-function clearDevLogin(){
-  clearDevLoginConfig();
-  showAuth('signin');
-}
-
 async function doDevLogin(){
-  const cfg = getDevLoginConfig();
-  if (!cfg.email || !cfg.password) {
-    openDevLoginModal();
-    return;
-  }
   try {
-    const res = await fetch(`${API}/api/collections/users/auth-with-password`, {
-      method:'POST', headers:{ 'Content-Type':'application/json' },
-      body: JSON.stringify({ identity: cfg.email, password: cfg.password })
+    const res = await fetch(`${DEV_AUTH_URL}/dev-login`, {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ origin: location.origin })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Dev login failed');
@@ -533,8 +483,10 @@ async function doDevLogin(){
     if (!currentUser.approved && !currentUser.family_admin) return showPending();
     enterApp();
   } catch (e) {
-    authError(e.message);
-    openDevLoginModal();
+    const msg = (e && e.message && e.message.includes('Failed to fetch'))
+      ? 'Local dev auth proxy is not running on port 4174.'
+      : e.message;
+    authError(msg);
   }
 }
 
