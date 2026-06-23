@@ -1720,8 +1720,9 @@ function tpRender(){
     const treeColor = _treeColorFor(treeSurname) || _treeColorFor(p.family_name);
     const dimmed = _tS.activeTree && treeSurname !== _tS.activeTree && p.family_name !== _tS.activeTree;
 
-    const photoUrl = p.photo ? `${API}/api/files/persons/${p.id}/${p.photo}?thumb=80x88` : '';
-    const bandColor = treeColor || avatarTint(p.id.charCodeAt(0)%6);
+    const photoUrl = p.photo && p.id ? `${API}/api/files/persons/${p.id}/${p.photo}?thumb=80x88` : '';
+    const tintSeed = String(p.id || n.id || '0');
+    const bandColor = treeColor || avatarTint(tintSeed.charCodeAt(0)%6);
     const av = photoUrl
       ? `<div class="tn-av-band" style="background:${bandColor}"><img class="tn-av-band-img" src="${photoUrl}" alt="" loading="lazy"></div>`
       : `<div class="tn-av-band" style="background:${bandColor}">${personInitials(p)}</div>`;
