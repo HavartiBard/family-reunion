@@ -1505,21 +1505,22 @@ function tpRender(){
     </g>`;
   }
 
-  // Named interactive chips for focus ↕ connections
+  // Named interactive chips for focus ↕ connections (appended to chipHtml, merged into html after declaration)
+  let chipHtml = '';
   if (focNode){
     // "Jennifer's Parents" — on connector above focus, toggles ancestral collapse
     if (rowYPresent.has(-_GLEN)){
-      const chipY = (-_GLEN + _TH + 0) / 2 + oy; // midpoint of gap parents→focus
+      const chipY = (-_GLEN + _TH + 0) / 2 + oy;
       const isParCol = _tS.collapsed.has(_tS.focusId);
       const parLabel = `${focGivenName}'s Parents ${isParCol ? '▴' : '▾'}`;
-      html += `<button class="tn-rel-chip${isParCol?' col':''}" style="left:${(labelAnchorX - 70).toFixed(0)}px;top:${(chipY - 12).toFixed(0)}px" onclick="tpToggleCollapse(event,'${_tS.focusId}')">${esc(parLabel)}</button>`;
+      chipHtml += `<button class="tn-rel-chip${isParCol?' col':''}" style="left:${(labelAnchorX - 70).toFixed(0)}px;top:${(chipY - 12).toFixed(0)}px" onclick="tpToggleCollapse(event,'${_tS.focusId}')">${esc(parLabel)}</button>`;
     }
     // "Jennifer's Children" — on connector below focus, toggles descendant collapse
     if (rowYPresent.has(_GLEN)){
-      const chipY = (0 + _TH + _GLEN) / 2 + oy; // midpoint of gap focus→children
+      const chipY = (0 + _TH + _GLEN) / 2 + oy;
       const isChiCol = _tS.descCollapsed.has(_tS.focusId);
       const chiLabel = `${focGivenName}'s Children ${isChiCol ? '▴' : '▾'}`;
-      html += `<button class="tn-rel-chip${isChiCol?' col':''}" style="left:${(labelAnchorX - 70).toFixed(0)}px;top:${(chipY - 12).toFixed(0)}px" onclick="tpToggleCollapse(event,'${_tS.focusId}','desc')">${esc(chiLabel)}</button>`;
+      chipHtml += `<button class="tn-rel-chip${isChiCol?' col':''}" style="left:${(labelAnchorX - 70).toFixed(0)}px;top:${(chipY - 12).toFixed(0)}px" onclick="tpToggleCollapse(event,'${_tS.focusId}','desc')">${esc(chiLabel)}</button>`;
     }
     // Generic descendant row labels (grandchildren etc)
     const descRows = [{y:_GLEN, nextY:2*_GLEN, label:'Grandchildren'},{y:2*_GLEN, nextY:3*_GLEN, label:'Great-grandchildren'}];
@@ -1539,6 +1540,7 @@ function tpRender(){
 
   // Node cards
   let html = `<svg class="tree-svg" width="${cW}" height="${cH}" viewBox="0 0 ${cW} ${cH}">${svg}</svg>`;
+  html += chipHtml;
   for (const n of nodes){
     const p = n.person;
     const nx = n.x+ox, ny = n.y+oy;
