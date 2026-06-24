@@ -2107,11 +2107,169 @@ async function tpHorizToggleExpand(e, id){
   tpRenderHorizontal();
 }
 
+// Compute SVG arc path for an annulus sector.
+// Angles in math convention: 0°=right, 90°=up, 180°=left (y-axis is flipped for SVG).
+function _fanSector(cx, cy, r1, r2, startDeg, endDeg){
+  const pt = (r, deg) => {
+    const rad = deg * Math.PI / 180;
+    return [cx + r*Math.cos(rad), cy - r*Math.sin(rad)];
+  };
+  const large = endDeg - startDeg > 180 ? 1 : 0;
+  const [isx, isy] = pt(r1, startDeg);
+  const [iex, iey] = pt(r1, endDeg);
+  const [osx, osy] = pt(r2, startDeg);
+  const [oex, oey] = pt(r2, endDeg);
+  const f = v => v.toFixed(2);
+  // Inner arc CCW in screen (sweep=0), outer arc CW back (sweep=1)
+  return `M${f(isx)},${f(isy)} A${r1},${r1} 0 ${large} 0 ${f(iex)},${f(iey)} L${f(oex)},${f(oey)} A${r2},${r2} 0 ${large} 1 ${f(osx)},${f(osy)} Z`;
+}
+
+// x,y of the visual center of an annulus sector
+function _fanSectorCenter(cx, cy, r1, r2, startDeg, endDeg){
+  const mid = (startDeg + endDeg) / 2;
+  const r = (r1 + r2) / 2;
+  const rad = mid * Math.PI / 180;
+  return {x: cx + r*Math.cos(rad), y: cy - r*Math.sin(rad), midAngle: mid};
+}
+
 function tpRenderFan(){
   const inner = el('tree-inner'); if (!inner) return;
-  inner.style.cssText = 'width:0px;height:0px;position:relative';
-  inner.innerHTML = '';
-  _tS._offset = {ox:0, oy:0, cW:1, cH:1};
+  const vp = el('tree-vp');
+  if (!vp){ inner.innerHTML=''; return; }
+  const vpW = vp.clientWidth || 800, vpH = vp.clientHeight || 600;
+
+  // Sizing: outer radius fills viewport, divided into equal rings
+  const R = Math.min(vpW / 2, vpH) * 0.88;
+  const R0 = Math.min(R * 0.13, 58);      // focal circle radius
+  const ringW = (R - R0) / 3;
+  const r = [R0, R0+ringW, R0+2*ringW, R];  // r[0]=focal, r[1]=parents outer, r[2]=gp outer, r[3]=ggp outer
+
+  // SVG dimensions: fan spans (2R wide, R tall) plus padding
+  const PAD = 20;
+  const svgW = 2*R + PAD*2, svgH = R + R0 + PAD*2;
+  // Fan center (focal circle center) in SVG coordinates
+  const cx = svgW / 2, cy = svgH - R0 - PAD;
+
+  _tS._offset = {ox: cx, oy: cy, cW: svgW, cH: svgH};
+
+  // Colors for paternal (left) and maternal (right) halves
+  const PATERNAL_TINT = 'rgba(100,140,180,0.18)';
+  const MATERNAL_TINT = 'rgba(200,130,110,0.18)';
+
+  // Build ancestor map: slot at each depth
+  // depth 1: father=slot 0 (90°-180°), mother=slot 1 (0°-90°)
+  // depth d, slot s: startDeg = 180 - (s+1)*(180/2^d), endDeg = 180 - s*(180/2^d)
+  // i.e. slots go right-to-left (slot 0 is leftmost = paternal)
+  function slotAngles(depth, slot){
+    const total = Math.pow(2, depth);
+    const step = 180 / total;
+    const startDeg = 180 - (slot+1)*step;
+    const endDeg = 180 - slot*step;
+    return {startDeg, endDeg};
+  }
+
+  // Walk the ancestor tree, collecting {person, depth, slot, startDeg, endDeg}
+  const entries = [];
+  function walk(id, depth, slot){
+    if (depth > 3) return;
+    const {startDeg, endDeg} = slotAngles(depth, slot);
+    const p = id ? _tS.persons.get(id) : null;
+    entries.push({id, person:p, depth, slot, startDeg, endDeg});
+    if (depth >= 3) return;
+    // Walk father (left half) and mother (right half)
+    if (p && p.father) walk(p.father, depth+1, slot*2);
+    else entries.push({id:`ph:${id}:father`, person:null, depth:depth+1, slot:slot*2,
+      ...slotAngles(depth+1, slot*2), placeholder:true, placeholderRole:'father', childId:id});
+    if (p && p.mother) walk(p.mother, depth+1, slot*2+1);
+    else entries.push({id:`ph:${id}:mother`, person:null, depth:depth+1, slot:slot*2+1,
+      ...slotAngles(depth+1, slot*2+1), placeholder:true, placeholderRole:'mother', childId:id});
+  }
+
+  const focusPerson = _tS.persons.get(_tS.focusId);
+
+  // Populate entries for all 3 ancestor generations
+  if (focusPerson){
+    if (focusPerson.father) walk(focusPerson.father, 1, 0);
+    else entries.push({id:`ph:${_tS.focusId}:father`, person:null, depth:1, slot:0,
+      ...slotAngles(1,0), placeholder:true, placeholderRole:'father', childId:_tS.focusId});
+    if (focusPerson.mother) walk(focusPerson.mother, 1, 1);
+    else entries.push({id:`ph:${_tS.focusId}:mother`, person:null, depth:1, slot:1,
+      ...slotAngles(1,1), placeholder:true, placeholderRole:'mother', childId:_tS.focusId});
+  }
+
+  let svg = `<svg class="fan-svg" width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}">`;
+
+  // Draw sectors
+  for (const e of entries){
+    const inner_r = r[e.depth-1], outer_r = r[e.depth];
+    const isLeft = (e.startDeg + e.endDeg) / 2 > 90; // paternal side
+    const fill = e.placeholder
+      ? 'rgba(240,236,228,0.6)'
+      : isLeft ? PATERNAL_TINT : MATERNAL_TINT;
+    const stroke = e.placeholder ? '#cdbfa8' : '#c4bba8';
+    const strokeDash = e.placeholder ? '4 3' : 'none';
+    const path = _fanSector(cx, cy, inner_r, outer_r, e.startDeg, e.endDeg);
+    const clickAttr = e.placeholder
+      ? `onclick="tpAddAncestor('${e.childId}','${e.placeholderRole}')"`
+      : `onclick="tpFanClick(event,'${e.id}')"`;
+    svg += `<path d="${path}" fill="${fill}" stroke="${stroke}" stroke-width="1.5" stroke-dasharray="${strokeDash}" cursor="pointer" ${clickAttr}/>`;
+
+    // Text label inside sector
+    if (e.person || e.placeholder){
+      const {x: tx, y: ty, midAngle} = _fanSectorCenter(cx, cy, inner_r, outer_r, e.startDeg, e.endDeg);
+      const name = e.person ? e.person.display_name : (e.placeholderRole==='father'?'Add father':'Add mother');
+      const years = e.person ? personYears(e.person) : '';
+      const arcLen = (outer_r - inner_r === 0 ? 0 : ((e.endDeg - e.startDeg) * Math.PI / 180) * ((inner_r + outer_r)/2));
+      const showYears = arcLen > 80 && years;
+      const rot = midAngle - 90; // rotate text to follow arc tangent
+      const fs = e.depth === 3 ? 9 : e.depth === 2 ? 10 : 12;
+      svg += `<text x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" text-anchor="middle" dominant-baseline="central"
+        font-family="Schibsted Grotesk,system-ui,sans-serif" font-size="${fs}" font-weight="600" fill="${e.placeholder?'#b0a898':'#3d3427'}"
+        transform="rotate(${rot.toFixed(1)},${tx.toFixed(1)},${ty.toFixed(1)})" pointer-events="none">
+        <tspan x="${tx.toFixed(1)}" dy="0">${esc(name.length > 18 ? name.slice(0,16)+'…' : name)}</tspan>
+        ${showYears?`<tspan x="${tx.toFixed(1)}" dy="${fs+2}" font-size="${fs-1}" fill="#8a8070">${esc(years)}</tspan>`:''}
+      </text>`;
+    }
+  }
+
+  // Focal person circle
+  if (focusPerson){
+    const years = personYears(focusPerson);
+    svg += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${R0}" fill="#fffaf0" stroke="var(--accent-gold)" stroke-width="2" cursor="pointer" onclick="tpFanClick(event,'${_tS.focusId}')"/>`;
+    svg += `<text x="${cx.toFixed(1)}" y="${(cy - (years?8:0)).toFixed(1)}" text-anchor="middle" dominant-baseline="central"
+      font-family="Schibsted Grotesk,system-ui,sans-serif" font-size="11" font-weight="700" fill="#3d3427" pointer-events="none">
+      ${esc(focusPerson.display_name.length>14?focusPerson.display_name.slice(0,12)+'…':focusPerson.display_name)}
+    </text>`;
+    if (years) svg += `<text x="${cx.toFixed(1)}" y="${(cy+12).toFixed(1)}" text-anchor="middle" dominant-baseline="central"
+      font-family="Schibsted Grotesk,system-ui,sans-serif" font-size="9" fill="#8a8070" pointer-events="none">${esc(years)}</text>`;
+  }
+
+  // Outer dashed arc indicating more ancestors may exist
+  svg += `<path d="M${(cx-R).toFixed(1)},${cy.toFixed(1)} A${R},${R} 0 0 0 ${(cx+R).toFixed(1)},${cy.toFixed(1)}"
+    fill="none" stroke="#c4bba8" stroke-width="1" stroke-dasharray="4 4" opacity="0.5" pointer-events="none"/>`;
+
+  svg += `</svg>`;
+
+  inner.style.cssText = `width:${svgW}px;height:${svgH}px;position:relative`;
+  inner.innerHTML = svg;
+  tpRenderSelector();
+}
+
+function tpFanClick(e, id){
+  e.stopPropagation();
+  // Build a synthetic currentTarget with a bounding rect from click position so tpNodeClick can position the menu
+  const vp = el('tree-vp'); if (!vp) return;
+  // Fake element bounding rect centered on click point
+  const fake = {
+    getBoundingClientRect: () => ({
+      left: e.clientX - 80, right: e.clientX + 80,
+      top: e.clientY - 20, bottom: e.clientY + 4,
+      width: 160, height: 24,
+    }),
+  };
+  // Temporarily replace currentTarget via a proxy call
+  const synth = {currentTarget: fake, stopPropagation: ()=>{}, ...e};
+  tpNodeClick(synth, id);
 }
 
 function tpRenderAll(){
