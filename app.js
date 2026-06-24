@@ -1079,6 +1079,7 @@ const _tS = {
   descCollapsed: new Set(), // hides a node's children (descendant direction)
   siblings: [], sibsCollapsed: false, siblingCouples: new Map(),
   ancSiblings: new Map(),
+  ancOtherChildren: new Map(), // ancId → [{otherParent, children}] — non-lineage children of ancestors
   ancSibsCollapsed: new Set(),
   expandedRelated: new Set(),
   trees: [], storedTrees: [], activeTree: null,
@@ -1187,6 +1188,7 @@ async function tpLoad(focusId){
     _tS.persons.clear(); _tS.childrenOf.clear(); _tS.focusPartners = []; _tS.partnersOf.clear();
     _tS.siblings = []; _tS.sibsCollapsed = false; _tS.siblingCouples = new Map();
     _tS.ancSiblings.clear();
+    _tS.ancOtherChildren.clear();
     _tS.ancSibsCollapsed.clear();
     _tS.expandedRelated.clear();
     _tS.horizExpanded.clear();
@@ -1215,6 +1217,7 @@ async function tpLoad(focusId){
       }
     }
     await tpFetchAncSiblings(startId);
+    await tpFetchAncOtherChildren();
     await tpLoadStoredTrees();
     _computeTrees();
     tpRenderAll(); tpCenterFocus();
@@ -1270,6 +1273,39 @@ async function tpFetchAncSiblings(focusId){
       _tS.ancSiblings.set(ancId, {parentId, sibs});
       sibs.forEach(s => _tS.persons.set(s.id, s));
     }
+  }));
+}
+
+// For each ancestor, fetch children they had with a partner NOT already in the main lineage.
+// These are half-siblings of the lineage child in that generation.
+async function tpFetchAncOtherChildren(){
+  _tS.ancOtherChildren.clear();
+  const ancestorIds = new Set();
+  for (const p of _tS.persons.values()){
+    if (p.father && _tS.persons.has(p.father)) ancestorIds.add(p.father);
+    if (p.mother && _tS.persons.has(p.mother)) ancestorIds.add(p.mother);
+  }
+  await Promise.all([...ancestorIds].map(async (ancId) => {
+    const children = await getChildren(ancId);
+    const otherKids = children.filter(c => !_tS.persons.has(c.id));
+    if (!otherKids.length) return;
+    // Group by other parent
+    const byOtherParent = new Map();
+    for (const c of otherKids){
+      const opId = (c.father === ancId) ? (c.mother || null) : (c.father || null);
+      const key = opId || '__none__';
+      if (!byOtherParent.has(key)) byOtherParent.set(key, { opId, kids: [] });
+      byOtherParent.get(key).kids.push(c);
+    }
+    const groups = [];
+    for (const {opId, kids} of byOtherParent.values()){
+      const otherParent = opId ? await getPerson(opId) : null;
+      if (otherParent) _tS.persons.set(otherParent.id, otherParent);
+      kids.forEach(k => _tS.persons.set(k.id, k));
+      kids.sort((a,b) => (parseInt(_parseYearFromDate(a.birth_date))||9999) - (parseInt(_parseYearFromDate(b.birth_date))||9999));
+      groups.push({ otherParent, children: kids });
+    }
+    _tS.ancOtherChildren.set(ancId, groups);
   }));
 }
 
@@ -1765,54 +1801,13 @@ function tpComputeLayout(){
     }
   }
 
-  // Expanded related trees: paternal (male) side goes left, maternal (female) side goes right
-  if (_tS.expandedRelated.size) {
-    let leftBoundary = nodes.length ? Math.min(...nodes.map(n => n.x)) : 0;
-    let rightBoundary = nodes.length ? Math.max(...nodes.map(n => n.x + _TW)) : 0;
-    const GAP = _TW + _THG;
-    for (const n of nodes.slice()) {
-      if (!(n.role === 'partner' || n.role === 'sib-partner')) continue;
-      if (!_tS.expandedRelated.has(n.id)) continue;
-      const rp = _tS.persons.get(n.id);
-      if (!rp) continue;
-      // Build subtree in temporary arrays, centered at x=0 at partner's y level
-      const tempNodes = [], tempEdges = [];
-      _buildParentLineage({ childId:n.id, depth:0, childCX:0, childTopY:n.y, path:[] }, tempNodes, tempEdges, { includePlaceholders:false, labelRootId:n.id });
-      if (!tempNodes.length) continue;
-      // Maternal (female) side opens right; paternal (male/unknown) side opens left
-      const goRight = rp.gender === 'female';
-      let dx;
-      if (goRight) {
-        const subMinX = Math.min(...tempNodes.map(m => m.x));
-        dx = rightBoundary + GAP - subMinX;
-      } else {
-        const subMaxX = Math.max(...tempNodes.map(m => m.x + _TW));
-        dx = leftBoundary - GAP - subMaxX;
-      }
-      // Mark nodes so _enforceAncestorCardSpacing skips them (avoids mixing with main tree rows)
-      for (const m of tempNodes) nodes.push({ ...m, x: m.x + dx, relatedExpanded: true });
-      // Skip depth-0 lineage edge (goes to virtual child in empty space) and suppress chip labels.
-      // A single gold elbow replaces it, running all the way from the parent union to the partner card.
-      for (const e of tempEdges) {
-        if (e.x2 === 0 && e.y2 === n.y) continue;
-        edges.push({ ...e, x1: e.x1 + dx, x2: e.x2 + dx, skipLabel: true });
-      }
-      const unionY = n.y - _TH/2 - _TVG;
-      edges.push({ x1: dx, y1: unionY, x2: n.x + _TW/2, y2: n.y, type:'rel-link', midY: n.y - _TVG * 0.28 });
-      if (goRight) {
-        rightBoundary = Math.max(rightBoundary, Math.max(...tempNodes.map(m => m.x + dx + _TW)));
-      } else {
-        leftBoundary = Math.min(leftBoundary, Math.min(...tempNodes.map(m => m.x + dx)));
-      }
-    }
-  }
-
   // Deduplicate nodes in case a person appears via multiple routes
   const _seen = new Set();
   const uniqueNodes = nodes.filter(n => !_seen.has(n.id) && _seen.add(n.id));
   _enforceAncestorCardSpacing(uniqueNodes, edges);
 
   // Ancestor siblings extend outward from the focal-relative branch side.
+  // Must run before expanded related trees so the boundary includes sibling nodes.
   if (_tS.ancSiblings.size){
     const rowMin = new Map(); // nodeY → leftmost x
     const rowMax = new Map(); // nodeY → rightmost x+TW
@@ -1848,6 +1843,105 @@ function tpComputeLayout(){
       if (parentUnion && sibCXs.length){
         const elbowY = rowY - _TVG * 0.28;
         for (const cx of sibCXs) edges.push({x1:parentUnion.cx, y1:parentUnion.y, x2:cx, y2:rowY, type:'bus', midY:elbowY});
+      }
+    }
+  }
+
+  // Ancestor other-children: children an ancestor had with a partner outside the main lineage.
+  // These appear as half-siblings of the lineage child in that generation.
+  if (_tS.ancOtherChildren.size) {
+    const rowMin = new Map(), rowMax = new Map();
+    for (const n of uniqueNodes){
+      rowMin.set(n.y, Math.min(rowMin.get(n.y) ?? Infinity, n.x));
+      rowMax.set(n.y, Math.max(rowMax.get(n.y) || 0, n.x + _TW));
+    }
+    for (const n of uniqueNodes.slice()){
+      if (n.role !== 'anc') continue;
+      const groups = _tS.ancOtherChildren.get(n.id);
+      if (!groups) continue;
+      for (const {otherParent, children} of groups){
+        const rowY = n.y;
+        const ancCX = n.x + _TW/2;
+        const goLeft = n.side === 'left' || (!n.side && ancCX < 0);
+        // Place other parent outside current row boundary
+        let opX;
+        if (goLeft){
+          opX = (rowMin.get(rowY) ?? n.x) - _THG - _TW;
+          rowMin.set(rowY, opX);
+        } else {
+          opX = (rowMax.get(rowY) ?? n.x + _TW) + _THG;
+          rowMax.set(rowY, opX + _TW);
+        }
+        const opCX = opX + _TW/2;
+        if (otherParent && !uniqueNodes.some(m => m.id === otherParent.id)){
+          uniqueNodes.push({id:otherParent.id, x:opX, y:rowY, person:otherParent, role:'anc-sib', d:n.d, relDepth:n.relDepth, path:n.path});
+          _seen.add(otherParent.id);
+          // Gray dashed edge for non-marriage union
+          const ey = rowY + _TH/2;
+          const ex1 = goLeft ? n.x : n.x + _TW;
+          const ex2 = goLeft ? opX + _TW : opX;
+          edges.push({x1:ex1, y1:ey, x2:ex2, y2:ey, type:'other-union'});
+        }
+        // Union midpoint for child connectors
+        const unionCX = otherParent ? (ancCX + opCX) / 2 : ancCX;
+        const childRowY = rowY + _TH + _TVG;
+        const busY = childRowY - _TVG * 0.35;
+        const totalW = children.length * _TW + Math.max(0, children.length - 1) * _THG;
+        const startX = unionCX - totalW / 2;
+        for (let i = 0; i < children.length; i++){
+          const c = children[i];
+          if (uniqueNodes.some(m => m.id === c.id)) continue;
+          const cx = startX + i * (_TW + _THG);
+          const childCX = cx + _TW/2;
+          uniqueNodes.push({id:c.id, x:cx, y:childRowY, person:c, role:'anc-sib', d:n.d+1, relDepth:n.relDepth-1, path:n.path});
+          _seen.add(c.id);
+          rowMin.set(childRowY, Math.min(rowMin.get(childRowY) ?? Infinity, cx));
+          rowMax.set(childRowY, Math.max(rowMax.get(childRowY) || 0, cx + _TW));
+          edges.push({x1:unionCX, y1:rowY+_TH, x2:childCX, y2:childRowY, type:'bus', midY:busY});
+        }
+      }
+    }
+  }
+
+  // Expanded related trees: paternal (male) side goes left, maternal (female) side goes right.
+  // Runs after sibling expansion so the boundary accounts for sibling nodes.
+  if (_tS.expandedRelated.size) {
+    let leftBoundary = uniqueNodes.length ? Math.min(...uniqueNodes.map(n => n.x)) : 0;
+    let rightBoundary = uniqueNodes.length ? Math.max(...uniqueNodes.map(n => n.x + _TW)) : 0;
+    const GAP = _TW + _THG;
+    for (const n of uniqueNodes.slice()) {
+      if (!(n.role === 'partner' || n.role === 'sib-partner')) continue;
+      if (!_tS.expandedRelated.has(n.id)) continue;
+      const rp = _tS.persons.get(n.id);
+      if (!rp) continue;
+      // Build subtree in temporary arrays, centered at x=0 at partner's y level
+      const tempNodes = [], tempEdges = [];
+      _buildParentLineage({ childId:n.id, depth:0, childCX:0, childTopY:n.y, path:[] }, tempNodes, tempEdges, { includePlaceholders:false, labelRootId:n.id });
+      if (!tempNodes.length) continue;
+      // Maternal (female) side opens right; paternal (male/unknown) side opens left
+      const goRight = rp.gender === 'female';
+      let dx;
+      if (goRight) {
+        const subMinX = Math.min(...tempNodes.map(m => m.x));
+        dx = rightBoundary + GAP - subMinX;
+      } else {
+        const subMaxX = Math.max(...tempNodes.map(m => m.x + _TW));
+        dx = leftBoundary - GAP - subMaxX;
+      }
+      // Mark nodes so _enforceAncestorCardSpacing skips them (avoids mixing with main tree rows)
+      for (const m of tempNodes) uniqueNodes.push({ ...m, x: m.x + dx, relatedExpanded: true });
+      // Skip depth-0 lineage edge (goes to virtual child in empty space) and suppress chip labels.
+      // A single gold elbow replaces it, running all the way from the parent union to the partner card.
+      for (const e of tempEdges) {
+        if (e.x2 === 0 && e.y2 === n.y) continue;
+        edges.push({ ...e, x1: e.x1 + dx, x2: e.x2 + dx, skipLabel: true });
+      }
+      const unionY = n.y - _TH/2 - _TVG;
+      edges.push({ x1: dx, y1: unionY, x2: n.x + _TW/2, y2: n.y, type:'rel-link', midY: n.y - _TVG * 0.28 });
+      if (goRight) {
+        rightBoundary = Math.max(rightBoundary, Math.max(...tempNodes.map(m => m.x + dx + _TW)));
+      } else {
+        leftBoundary = Math.min(leftBoundary, Math.min(...tempNodes.map(m => m.x + dx)));
       }
     }
   }
@@ -1917,6 +2011,8 @@ function tpRender(){
       svg += `<path d="${_orthoPathViaY(x1,y1,x2,y2,e.midY + oy)}" stroke="#c4bba8" fill="none" stroke-width="2" stroke-linecap="round"/>`;
     } else if (e.type === 'rel-link'){
       svg += `<path d="${_orthoPathViaY(x1,y1,x2,y2,e.midY+oy)}" stroke="var(--accent-gold)" fill="none" stroke-dasharray="6 4" stroke-width="1.5" stroke-linecap="round" opacity="0.85"/>`;
+    } else if (e.type === 'other-union'){
+      svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#c4bba8" stroke-dasharray="5 4" stroke-width="1.5" stroke-linecap="round"/>`;
     } else if (e.type === 'straight'){
       svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#c4bba8" stroke-width="2" stroke-linecap="round"/>`;
     } else if (e.type === 'bus'){
@@ -3218,7 +3314,50 @@ async function _fetchSiblings(p){
   if (!filters.length) return [];
   const f = encodeURIComponent(`(${filters.join(' || ')}) && id!="${p.id}"`);
   const r = await apiFetch(`/api/collections/persons/records?filter=${f}&perPage=100&sort=birth_date`);
-  return r.ok ? (await r.json()).items || [] : [];
+  const persons = r.ok ? (await r.json()).items || [] : [];
+  // Tag half-siblings: share only one biological parent
+  return persons.map(s => ({
+    ...s,
+    _halfSibling: !!(p.father && p.mother && (s.father !== p.father || s.mother !== p.mother))
+  }));
+}
+
+// Step-parents: partners of each biological parent who are not the other biological parent
+async function _fetchStepParents(p){
+  const parentIds = [p.father, p.mother].filter(Boolean);
+  if (!parentIds.length) return [];
+  const seen = new Set([p.father, p.mother, p.id].filter(Boolean));
+  const results = [];
+  await Promise.all(parentIds.map(async parentId => {
+    const couples = await getCouplesFor(parentId);
+    await Promise.all(couples.map(async c => {
+      const spId = c.partner_a === parentId ? c.partner_b : c.partner_a;
+      if (seen.has(spId)) return;
+      seen.add(spId);
+      const sp = await getPerson(spId);
+      if (sp) results.push({ ...sp, _stepVia: parentId });
+    }));
+  }));
+  return results;
+}
+
+// Step-children: partners' children who don't have me as a biological parent
+async function _fetchStepChildren(personId, ownChildIds){
+  const couples = await getCouplesFor(personId);
+  if (!couples.length) return [];
+  const seen = new Set([personId, ...ownChildIds]);
+  const results = [];
+  await Promise.all(couples.map(async c => {
+    const partnerId = c.partner_a === personId ? c.partner_b : c.partner_a;
+    const partnerChildren = await getChildren(partnerId);
+    for (const ch of partnerChildren){
+      if (seen.has(ch.id)) continue;
+      if (ch.father === personId || ch.mother === personId) continue;
+      seen.add(ch.id);
+      results.push(ch);
+    }
+  }));
+  return results;
 }
 
 async function _fetchFamilyFacts(relatives){
@@ -3238,8 +3377,13 @@ async function _fetchFamilyFacts(relatives){
 }
 
 function _relGenderLabel(person, role){
-  if (role === 'sibling') return person.gender==='female'?'Sister':person.gender==='male'?'Brother':'Sibling';
+  if (role === 'sibling'){
+    const pre = person._halfSibling ? 'Half-' : '';
+    return person.gender==='female'?`${pre}Sister`:person.gender==='male'?`${pre}Brother`:`${pre}Sibling`;
+  }
   if (role === 'child')   return person.gender==='female'?'Daughter':person.gender==='male'?'Son':'Child';
+  if (role === 'step-parent') return person.gender==='female'?'Step-mother':person.gender==='male'?'Step-father':'Step-parent';
+  if (role === 'step-child')  return person.gender==='female'?'Step-daughter':person.gender==='male'?'Step-son':'Step-child';
   return { father:'Father', mother:'Mother', partner:'Spouse' }[role] || role;
 }
 
@@ -3333,7 +3477,7 @@ function _addRelBtn(personId, role, label){
   return `<button class="btn btn-outline btn-sm rel-add-btn" onclick="openProfileRelativeModal('${personId}','${role}')">+ ${label}</button>`;
 }
 
-function _renderRelationshipsPanel(personId, p, ex, siblings, partners, children, canEdit){
+function _renderRelationshipsPanel(personId, p, ex, siblings, partners, children, canEdit, stepParents = [], stepChildren = []){
   const hasFather = !!p.father;
   const hasMother = !!p.mother;
 
@@ -3348,9 +3492,13 @@ function _renderRelationshipsPanel(personId, p, ex, siblings, partners, children
     [ex.father && _relPersonRow(ex.father, 'Father'), ex.mother && _relPersonRow(ex.mother, 'Mother')].filter(Boolean).join(''),
     [!hasFather && _addRelBtn(personId,'father','Add father'), !hasMother && _addRelBtn(personId,'mother','Add mother')].filter(Boolean).join(''));
 
-  const sibs = section('Siblings',
-    siblings.map(s => _relPersonRow(s, _relGenderLabel(s,'sibling'))).join(''),
-    _addRelBtn(personId,'sibling','Add sibling'));
+  const fullSibs = siblings.filter(s => !s._halfSibling);
+  const halfSibs = siblings.filter(s => s._halfSibling);
+  const sibRows = [
+    ...fullSibs.map(s => _relPersonRow(s, _relGenderLabel(s,'sibling'))),
+    ...halfSibs.map(s => _relPersonRow(s, _relGenderLabel(s,'sibling'))),
+  ].join('');
+  const sibs = section('Siblings', sibRows, _addRelBtn(personId,'sibling','Add sibling'));
 
   const spouses = section('Spouse / Partner',
     partners.map(pt => _relPersonRow(pt, 'Partner')).join(''),
@@ -3360,7 +3508,15 @@ function _renderRelationshipsPanel(personId, p, ex, siblings, partners, children
     children.map(ch => _relPersonRow(ch, _relGenderLabel(ch,'child'))).join(''),
     [_addRelBtn(personId,'son','Add son'), _addRelBtn(personId,'daughter','Add daughter')].join(''));
 
-  return `<div class="card">${parents}${sibs}${spouses}${kids}</div>`;
+  const stepParentSection = stepParents.length
+    ? section('Step-parents', stepParents.map(sp => _relPersonRow(sp, _relGenderLabel(sp,'step-parent'))).join(''))
+    : '';
+
+  const stepChildSection = stepChildren.length
+    ? section('Step-children', stepChildren.map(ch => _relPersonRow(ch, _relGenderLabel(ch,'step-child'))).join(''))
+    : '';
+
+  return `<div class="card">${parents}${stepParentSection}${sibs}${spouses}${kids}${stepChildSection}</div>`;
 }
 
 // ── Profile: add-relative modal (profile context — reloads profile not tree) ──
@@ -3426,7 +3582,7 @@ SCREENS.profile = async function(params){
   if (!id) id = await myPersonId();
   if (!id) { mountMain('<div class="screen-pad"><div class="empty-state"><div class="emoji">👤</div><p>No profile linked yet. Open the tree and use "This is me".</p></div></div>'); return; }
 
-  let p, facts = [], photos = [], siblings = [], partners = [], children = [], familyFacts = [];
+  let p, facts = [], photos = [], siblings = [], partners = [], children = [], familyFacts = [], stepParents = [], stepChildren = [];
   try {
     // Phase 1: core data in parallel
     const [personRes, factsRes, phRes] = await Promise.all([
@@ -3449,6 +3605,10 @@ SCREENS.profile = async function(params){
     children = childrenData;
     const partnerIds = couplesData.map(c => c.partner_a === id ? c.partner_b : c.partner_a);
     partners = (await Promise.all(partnerIds.map(getPerson))).filter(Boolean);
+    const [stepParents, stepChildren] = await Promise.all([
+      _fetchStepParents(p),
+      _fetchStepChildren(id, children.map(c => c.id)),
+    ]);
 
     // Phase 3: family facts (need all relatives first)
     const ex0 = p.expand || {};
@@ -3503,7 +3663,7 @@ SCREENS.profile = async function(params){
       </div>
 
       <aside class="profile-sidebar">
-        ${_renderRelationshipsPanel(id, p, ex, siblings, partners, children, canEdit)}
+        ${_renderRelationshipsPanel(id, p, ex, siblings, partners, children, canEdit, stepParents, stepChildren)}
 
         ${p.bio ? `<div class="card">
           <div class="section-label" style="margin-bottom:.7rem">About</div>
