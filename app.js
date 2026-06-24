@@ -1129,6 +1129,7 @@ async function tpLoadStoredTrees(){
   } catch(e){ _tS.storedTrees = []; }
 }
 const _TW = 160, _TH = 88, _THG = 28, _TVG = 100; // node w/h, h-gap, v-gap
+const _H_TW = 200, _H_TH = 60, _H_THG = 24, _H_TVG = 8; // horiz-tree card dims (wider, shorter, tighter)
 
 SCREENS.tree = function(params){
   mountMain(`<div class="tree-screen">
@@ -2008,8 +2009,8 @@ function tpRender(){
 
 function tpComputeHorizLayout(){
   const nodes = [], edges = [];
-  const COL_W = _TW + _THG;
-  const SLOT_H = _TH + _TVG;
+  const COL_W = _H_TW + _H_THG;
+  const SLOT_H = _H_TH + _H_TVG;
 
   // Stop expanding ancestors of `id` at `depth` if it's a generation boundary and not manually expanded
   function isBoundary(id, depth){
@@ -2030,9 +2031,9 @@ function tpComputeHorizLayout(){
   function placeNode(id, depth, topY, spanH){
     const p = id ? _tS.persons.get(id) : null;
     const x = depth * COL_W;
-    const y = topY + spanH/2 - _TH/2;
-    const midY = y + _TH/2;
-    const cx = x + _TW/2;
+    const y = topY + spanH/2 - _H_TH/2;
+    const midY = y + _H_TH/2;
+    const cx = x + _H_TW/2;
 
     if (p){
       const showCaret = isBoundary(id, depth) && !!(p.father || p.mother);
@@ -2047,7 +2048,7 @@ function tpComputeHorizLayout(){
     const total = fCount + mCount;
     if (!total) return;
 
-    const busX = (depth+1)*COL_W - _THG/2;
+    const busX = (depth+1)*COL_W - _H_THG/2;
     // Horizontal from this node's right to the vertical bus
     edges.push({x1:cx, y1:midY, x2:busX, y2:midY, type:'horiz-line'});
 
@@ -2085,9 +2086,9 @@ function tpRenderHorizontal(){
 
   const PAD = 60;
   const minX = -PAD;
-  const maxX = Math.max(...nodes.map(n => n.x + _TW)) + PAD;
+  const maxX = Math.max(...nodes.map(n => n.x + _H_TW)) + PAD;
   const minY = Math.min(...nodes.map(n => n.y)) - PAD;
-  const maxY = Math.max(...nodes.map(n => n.y + _TH)) + PAD;
+  const maxY = Math.max(...nodes.map(n => n.y + _H_TH)) + PAD;
   const cW = maxX - minX, cH = maxY - minY;
   const ox = -minX, oy = -minY;
   _tS._offset = {ox, oy, cW, cH};
@@ -2115,13 +2116,13 @@ function tpRenderHorizontal(){
       ? `<div class="tn-av-band" style="background:${bandColor}"><img class="tn-av-band-img" src="${photoUrl}" alt="" loading="lazy"></div>`
       : `<div class="tn-av-band" style="background:${bandColor}">${personInitials(p)}</div>`;
     const tcStyle = treeColor ? `;--tc:${treeColor}` : '';
-    const cls = ['tn-card', isFocus?'focus':'', n.role==='anc'?'anc':''].filter(Boolean).join(' ');
+    const cls = ['tn-card', 'horiz', isFocus?'focus':'', n.role==='anc'?'anc':''].filter(Boolean).join(' ');
     html += `<div class="${cls}" style="left:${nx}px;top:${ny}px${tcStyle}" onclick="tpNodeClick(event,'${n.id}')">
       ${av}<div class="tn-info"><div class="tn-name">${esc(p.display_name)}</div>${years?`<div class="tn-years">${esc(years)}</div>`:''}</div>
     </div>`;
     if (n.showCaret){
       const icon = n.caretExpanded ? '‹' : '›';
-      html += `<button class="tn-horiz-caret" style="left:${(nx+_TW-9).toFixed(0)}px;top:${(ny+_TH/2-9).toFixed(0)}px"
+      html += `<button class="tn-horiz-caret" style="left:${(nx+_H_TW-9).toFixed(0)}px;top:${(ny+_H_TH/2-9).toFixed(0)}px"
         onclick="tpHorizToggleExpand(event,'${n.id}')" title="${n.caretExpanded?'Collapse':'Expand'} ancestors">${icon}</button>`;
     }
   }
@@ -2135,12 +2136,12 @@ async function tpHorizToggleExpand(e, id){
   e.stopPropagation();
   if (_tS.horizExpanded.has(id)){
     _tS.horizExpanded.delete(id);
-    tpRenderHorizontal();
+    tpRenderPreserveViewport();
     return;
   }
   await tpFetchUp(id, 0); // fetch 3 more ancestor generations for this branch
   _tS.horizExpanded.add(id);
-  tpRenderHorizontal();
+  tpRenderPreserveViewport();
 }
 
 // Compute SVG arc path for an annulus sector.
