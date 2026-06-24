@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import MagicMock, patch, call
 import httpx
 
-from server import PBClient, FACT_TYPES, _list_persons, _search_persons
+from server import PBClient, FACT_TYPES, _list_persons, _search_persons, _get_person
 
 
 class TestPBClientAuth(unittest.TestCase):
@@ -119,6 +119,102 @@ class TestSearchPersons(unittest.TestCase):
         _search_persons(pb, "Smith")
         filter_arg = pb.get.call_args_list[0][1].get("filter", "")
         self.assertIn("Smith", filter_arg)
+
+
+class TestGetPerson(unittest.TestCase):
+    def _make_pb(self, person=None, children=None, couples=None, facts=None):
+        pb = MagicMock(spec=PBClient)
+        # Calls in order: get_person record, children, couples, facts
+        pb.get.side_effect = [
+            person,
+            {"items": children or []},
+            {"items": couples or []},
+            {"items": facts or []},
+        ]
+        return pb
+
+    def test_not_found_returns_error(self):
+        pb = MagicMock(spec=PBClient)
+        pb.get.return_value = None
+        result = _get_person(pb, "missing")
+        self.assertEqual(result["error"], "person not found")
+        self.assertEqual(result["id"], "missing")
+
+    def test_returns_core_identity_fields(self):
+        person_record = {
+            "id": "p1", "display_name": "Harold Klassen",
+            "given_name": "Harold", "middle_name": "James",
+            "family_name": "Klassen", "birth_surname": None,
+            "gender": "male", "birth_date": "1947-03-12",
+            "death_date": None, "living": True, "bio": "Farmer.",
+            "expand": {},
+        }
+        pb = self._make_pb(person=person_record)
+        result = _get_person(pb, "p1")
+        self.assertEqual(result["id"], "p1")
+        self.assertEqual(result["given_name"], "Harold")
+        self.assertEqual(result["birth_date"], "1947-03-12")
+        self.assertEqual(result["bio"], "Farmer.")
+
+    def test_resolves_parents_from_expand(self):
+        person_record = {
+            "id": "p1", "display_name": "Harold Klassen",
+            "given_name": "Harold", "middle_name": None,
+            "family_name": "Klassen", "birth_surname": None,
+            "gender": "male", "birth_date": "1947", "death_date": None,
+            "living": True, "bio": None,
+            "expand": {
+                "father": {"id": "f1", "display_name": "John Klassen"},
+                "mother": {"id": "m1", "display_name": "Mary Klassen"},
+            },
+        }
+        pb = self._make_pb(person=person_record)
+        result = _get_person(pb, "p1")
+        relations = {r["relation"]: r for r in result["parents"]}
+        self.assertEqual(relations["father"]["id"], "f1")
+        self.assertEqual(relations["mother"]["display_name"], "Mary Klassen")
+
+    def test_resolves_spouse_from_couples(self):
+        person_record = {
+            "id": "p1", "display_name": "Harold Klassen",
+            "given_name": "Harold", "middle_name": None,
+            "family_name": "Klassen", "birth_surname": None,
+            "gender": "male", "birth_date": "1947", "death_date": None,
+            "living": True, "bio": None, "expand": {},
+        }
+        couple = {
+            "partner_a": "p1", "partner_b": "s1",
+            "status": "married", "married_date": "1971",
+            "expand": {
+                "partner_a": {"id": "p1", "display_name": "Harold Klassen"},
+                "partner_b": {"id": "s1", "display_name": "Dorothy Smith"},
+            },
+        }
+        pb = self._make_pb(person=person_record, couples=[couple])
+        result = _get_person(pb, "p1")
+        self.assertEqual(len(result["spouses"]), 1)
+        self.assertEqual(result["spouses"][0]["display_name"], "Dorothy Smith")
+        self.assertEqual(result["spouses"][0]["status"], "married")
+
+    def test_includes_facts_with_verification_flags(self):
+        person_record = {
+            "id": "p1", "display_name": "Harold Klassen",
+            "given_name": "Harold", "middle_name": None,
+            "family_name": "Klassen", "birth_surname": None,
+            "gender": "male", "birth_date": "1947", "death_date": None,
+            "living": True, "bio": None, "expand": {},
+        }
+        fact = {
+            "fact_type": "occupation", "value": "Farmer",
+            "date_text": "1970s", "place": "Manitoba",
+            "description": None, "source": None,
+            "verified": True, "ai_generated": False,
+        }
+        pb = self._make_pb(person=person_record, facts=[fact])
+        result = _get_person(pb, "p1")
+        self.assertEqual(len(result["facts"]), 1)
+        self.assertTrue(result["facts"][0]["verified"])
+        self.assertFalse(result["facts"][0]["ai_generated"])
 
 
 if __name__ == "__main__":

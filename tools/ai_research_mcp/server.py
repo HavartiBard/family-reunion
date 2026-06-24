@@ -114,3 +114,92 @@ def _search_persons(pb: PBClient, query: str) -> list:
     )
     researched_ids = _researched_person_ids(pb)
     return [_shape_list_item(p, researched_ids) for p in (resp or {}).get("items", [])]
+
+
+def _get_person(pb: PBClient, person_id: str) -> dict:
+    person = pb.get(
+        f"/api/collections/persons/records/{person_id}",
+        expand="father,mother",
+    )
+    if person is None:
+        return {"error": "person not found", "id": person_id}
+
+    children_resp = pb.get(
+        "/api/collections/persons/records",
+        filter=f"(father='{person_id}'||mother='{person_id}')",
+        perPage=200,
+        fields="id,display_name",
+    )
+    couples_resp = pb.get(
+        "/api/collections/couples/records",
+        filter=f"(partner_a='{person_id}'||partner_b='{person_id}')",
+        expand="partner_a,partner_b",
+        perPage=50,
+    )
+    facts_resp = pb.get(
+        "/api/collections/person_facts/records",
+        filter=f"(person='{person_id}')",
+        perPage=500,
+        sort="sort_year",
+    )
+
+    expand = person.get("expand") or {}
+    parents = []
+    if expand.get("father"):
+        f = expand["father"]
+        parents.append({"id": f["id"], "display_name": f["display_name"], "relation": "father"})
+    if expand.get("mother"):
+        m = expand["mother"]
+        parents.append({"id": m["id"], "display_name": m["display_name"], "relation": "mother"})
+
+    children = [
+        {"id": c["id"], "display_name": c["display_name"]}
+        for c in (children_resp or {}).get("items", [])
+    ]
+
+    spouses = []
+    for couple in (couples_resp or {}).get("items", []):
+        ce = couple.get("expand") or {}
+        if couple.get("partner_a") == person_id:
+            partner = ce.get("partner_b")
+        else:
+            partner = ce.get("partner_a")
+        if partner:
+            spouses.append({
+                "id": partner["id"],
+                "display_name": partner["display_name"],
+                "status": couple.get("status"),
+                "married_date": couple.get("married_date"),
+            })
+
+    facts = [
+        {
+            "fact_type": f.get("fact_type"),
+            "value": f.get("value"),
+            "date_text": f.get("date_text"),
+            "place": f.get("place"),
+            "description": f.get("description"),
+            "source": f.get("source"),
+            "verified": f.get("verified", False),
+            "ai_generated": f.get("ai_generated", False),
+        }
+        for f in (facts_resp or {}).get("items", [])
+    ]
+
+    return {
+        "id": person["id"],
+        "display_name": person.get("display_name"),
+        "given_name": person.get("given_name"),
+        "middle_name": person.get("middle_name"),
+        "family_name": person.get("family_name"),
+        "birth_surname": person.get("birth_surname"),
+        "gender": person.get("gender"),
+        "birth_date": person.get("birth_date"),
+        "death_date": person.get("death_date"),
+        "living": person.get("living"),
+        "bio": person.get("bio"),
+        "parents": parents,
+        "children": children,
+        "spouses": spouses,
+        "facts": facts,
+    }
