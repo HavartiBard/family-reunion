@@ -1085,6 +1085,8 @@ const _tS = {
   pan: {x:0,y:0}, zoom: 1,
   dragging: false, dragLast: {x:0,y:0},
   ctxId: null, _offset: null, loading: false,
+  viewMode: localStorage.getItem('treeViewMode') || 'standard',
+  horizExpanded: new Set(),
 };
 // Surname-based tree color palette (earthy tones complementing the app's warm aesthetic)
 const _TREE_COLORS = ['#7b5ea7','#2c6e49','#1a5276','#a04000','#7d6608','#6e2f1a','#0e6655','#4a235a'];
@@ -1133,6 +1135,11 @@ SCREENS.tree = function(params){
     <div class="tree-hdr">
       <h1 class="tree-title">Family Tree</h1>
       <div class="tree-hdr-right">
+        <div class="tree-view-switcher">
+          <button class="tree-view-btn${_tS.viewMode==='standard'?' active':''}" data-mode="standard" onclick="tpSetViewMode('standard')" title="Standard tree">⧉ Standard</button>
+          <button class="tree-view-btn${_tS.viewMode==='horizontal'?' active':''}" data-mode="horizontal" onclick="tpSetViewMode('horizontal')" title="Horizontal pedigree">↦ Horizontal</button>
+          <button class="tree-view-btn${_tS.viewMode==='fan'?' active':''}" data-mode="fan" onclick="tpSetViewMode('fan')" title="Fan chart">◉ Fan</button>
+        </div>
         <div id="tree-selector" class="tree-selector"></div>
         <button class="btn btn-outline btn-sm" onclick="openPersonForm()">+ Add person</button>
       </div>
@@ -1181,6 +1188,7 @@ async function tpLoad(focusId){
     _tS.ancSiblings.clear();
     _tS.ancSibsCollapsed.clear();
     _tS.expandedRelated.clear();
+    _tS.horizExpanded.clear();
     await Promise.all([
       tpFetchUp(startId, 0),
       tpFetchDown(startId, 0),
@@ -1208,7 +1216,7 @@ async function tpLoad(focusId){
     await tpFetchAncSiblings(startId);
     await tpLoadStoredTrees();
     _computeTrees();
-    tpRender(); tpCenterFocus();
+    tpRenderAll(); tpCenterFocus();
   } finally { _tS.loading = false; }
 }
 
@@ -1962,15 +1970,333 @@ function tpRender(){
   tpRenderSelector();
 }
 
+function tpComputeHorizLayout(){
+  const nodes = [], edges = [];
+  const COL_W = _TW + _THG;
+  const SLOT_H = _TH + _TVG;
+
+  // Stop expanding ancestors of `id` at `depth` if it's a generation boundary and not manually expanded
+  function isBoundary(id, depth){
+    return depth > 0 && depth % 3 === 0 && !_tS.horizExpanded.has(id);
+  }
+
+  // Count the leaf slots (minimum 1) needed to render `id`'s ancestor subtree from `depth`
+  function leafCount(id, depth){
+    if (!id) return 0;
+    const p = _tS.persons.get(id);
+    if (!p || isBoundary(id, depth)) return 1;
+    const f = p.father ? leafCount(p.father, depth+1) : 0;
+    const m = p.mother ? leafCount(p.mother, depth+1) : 0;
+    return Math.max(f + m, 1);
+  }
+
+  // Place `id` at `depth`, occupying vertical range [topY, topY+spanH]
+  function placeNode(id, depth, topY, spanH){
+    const p = id ? _tS.persons.get(id) : null;
+    const x = depth * COL_W;
+    const y = topY + spanH/2 - _TH/2;
+    const midY = y + _TH/2;
+    const cx = x + _TW/2;
+
+    if (p){
+      const showCaret = isBoundary(id, depth) && !!(p.father || p.mother);
+      nodes.push({id, x, y, person:p, role:depth===0?'focus':'anc', d:depth,
+        relDepth:-depth, path:[], showCaret, caretExpanded:_tS.horizExpanded.has(id)});
+    }
+
+    if (!p || !id || isBoundary(id, depth)) return;
+
+    const fCount = p.father ? leafCount(p.father, depth+1) : 0;
+    const mCount = p.mother ? leafCount(p.mother, depth+1) : 0;
+    const total = fCount + mCount;
+    if (!total) return;
+
+    const busX = (depth+1)*COL_W - _THG/2;
+    // Horizontal from this node's right to the vertical bus
+    edges.push({x1:cx, y1:midY, x2:busX, y2:midY, type:'horiz-line'});
+
+    let curY = topY;
+    if (p.father && fCount){
+      const fSpan = (fCount/total)*spanH;
+      const fMidY = curY + fSpan/2;
+      edges.push({x1:busX, y1:midY, x2:busX, y2:fMidY, type:'horiz-line'});
+      edges.push({x1:busX, y1:fMidY, x2:(depth+1)*COL_W, y2:fMidY, type:'horiz-line'});
+      placeNode(p.father, depth+1, curY, fSpan);
+      curY += fSpan;
+    }
+    if (p.mother && mCount){
+      const mSpan = (mCount/total)*spanH;
+      const mMidY = curY + mSpan/2;
+      edges.push({x1:busX, y1:midY, x2:busX, y2:mMidY, type:'horiz-line'});
+      edges.push({x1:busX, y1:mMidY, x2:(depth+1)*COL_W, y2:mMidY, type:'horiz-line'});
+      placeNode(p.mother, depth+1, curY, mSpan);
+    }
+  }
+
+  const totalLeaves = Math.max(leafCount(_tS.focusId, 0), 1);
+  const totalH = totalLeaves * SLOT_H;
+  placeNode(_tS.focusId, 0, 0, totalH);
+  return {nodes, edges, totalH};
+}
+
+function tpRenderHorizontal(){
+  const inner = el('tree-inner'); if (!inner) return;
+  const {nodes, edges, totalH} = tpComputeHorizLayout();
+  if (!nodes.length){
+    inner.innerHTML = '<div class="empty-state" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)"><div style="font-size:3rem">🌱</div><p>No relatives yet.</p></div>';
+    return;
+  }
+
+  const PAD = 60;
+  const minX = -PAD;
+  const maxX = Math.max(...nodes.map(n => n.x + _TW)) + PAD;
+  const minY = Math.min(...nodes.map(n => n.y)) - PAD;
+  const maxY = Math.max(...nodes.map(n => n.y + _TH)) + PAD;
+  const cW = maxX - minX, cH = maxY - minY;
+  const ox = -minX, oy = -minY;
+  _tS._offset = {ox, oy, cW, cH};
+
+  // SVG connector lines
+  let svg = '';
+  for (const e of edges){
+    const x1=e.x1+ox, y1=e.y1+oy, x2=e.x2+ox, y2=e.y2+oy;
+    svg += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="#c4bba8" stroke-width="2" stroke-linecap="round"/>`;
+  }
+
+  let html = `<svg class="tree-svg" width="${cW}" height="${cH}" viewBox="0 0 ${cW} ${cH}">${svg}</svg>`;
+
+  for (const n of nodes){
+    const p = n.person;
+    const nx = n.x + ox, ny = n.y + oy;
+    const isFocus = n.id === _tS.focusId;
+    const years = personYears(p);
+    const treeSurname = p.birth_surname || p.family_name;
+    const treeColor = _treeColorFor(treeSurname) || _treeColorFor(p.family_name);
+    const tintSeed = String(p.id || n.id || '0');
+    const bandColor = treeColor || avatarTint(tintSeed.charCodeAt(0) % 6);
+    const photoUrl = p.photo && p.id ? `${API}/api/files/persons/${p.id}/${p.photo}?thumb=80x88` : '';
+    const av = photoUrl
+      ? `<div class="tn-av-band" style="background:${bandColor}"><img class="tn-av-band-img" src="${photoUrl}" alt="" loading="lazy"></div>`
+      : `<div class="tn-av-band" style="background:${bandColor}">${personInitials(p)}</div>`;
+    const tcStyle = treeColor ? `;--tc:${treeColor}` : '';
+    const cls = ['tn-card', isFocus?'focus':'', n.role==='anc'?'anc':''].filter(Boolean).join(' ');
+    html += `<div class="${cls}" style="left:${nx}px;top:${ny}px${tcStyle}" onclick="tpNodeClick(event,'${n.id}')">
+      ${av}<div class="tn-info"><div class="tn-name">${esc(p.display_name)}</div>${years?`<div class="tn-years">${esc(years)}</div>`:''}</div>
+    </div>`;
+    if (n.showCaret){
+      const icon = n.caretExpanded ? '‹' : '›';
+      html += `<button class="tn-horiz-caret" style="left:${(nx+_TW-9).toFixed(0)}px;top:${(ny+_TH/2-9).toFixed(0)}px"
+        onclick="tpHorizToggleExpand(event,'${n.id}')" title="${n.caretExpanded?'Collapse':'Expand'} ancestors">${icon}</button>`;
+    }
+  }
+
+  inner.style.cssText = `width:${cW}px;height:${cH}px;position:relative`;
+  inner.innerHTML = html;
+  tpRenderSelector();
+}
+
+async function tpHorizToggleExpand(e, id){
+  e.stopPropagation();
+  if (_tS.horizExpanded.has(id)){
+    _tS.horizExpanded.delete(id);
+    tpRenderHorizontal();
+    return;
+  }
+  await tpFetchUp(id, 0); // fetch 3 more ancestor generations for this branch
+  _tS.horizExpanded.add(id);
+  tpRenderHorizontal();
+}
+
+// Compute SVG arc path for an annulus sector.
+// Angles in math convention: 0°=right, 90°=up, 180°=left (y-axis is flipped for SVG).
+function _fanSector(cx, cy, r1, r2, startDeg, endDeg){
+  const pt = (r, deg) => {
+    const rad = deg * Math.PI / 180;
+    return [cx + r*Math.cos(rad), cy - r*Math.sin(rad)];
+  };
+  const large = endDeg - startDeg > 180 ? 1 : 0;
+  const [isx, isy] = pt(r1, startDeg);
+  const [iex, iey] = pt(r1, endDeg);
+  const [osx, osy] = pt(r2, startDeg);
+  const [oex, oey] = pt(r2, endDeg);
+  const f = v => v.toFixed(2);
+  // Inner arc CCW in screen (sweep=0), outer arc CW back (sweep=1)
+  return `M${f(isx)},${f(isy)} A${r1},${r1} 0 ${large} 0 ${f(iex)},${f(iey)} L${f(oex)},${f(oey)} A${r2},${r2} 0 ${large} 1 ${f(osx)},${f(osy)} Z`;
+}
+
+// x,y of the visual center of an annulus sector
+function _fanSectorCenter(cx, cy, r1, r2, startDeg, endDeg){
+  const mid = (startDeg + endDeg) / 2;
+  const r = (r1 + r2) / 2;
+  const rad = mid * Math.PI / 180;
+  return {x: cx + r*Math.cos(rad), y: cy - r*Math.sin(rad), midAngle: mid};
+}
+
+function tpRenderFan(){
+  const inner = el('tree-inner'); if (!inner) return;
+  const vp = el('tree-vp');
+  if (!vp){ inner.innerHTML=''; return; }
+  const vpW = vp.clientWidth || 800, vpH = vp.clientHeight || 600;
+
+  // Sizing: outer radius fills viewport, divided into equal rings
+  const R = Math.min(vpW / 2, vpH) * 0.88;
+  const R0 = Math.min(R * 0.13, 58);      // focal circle radius
+  const ringW = (R - R0) / 3;
+  const r = [R0, R0+ringW, R0+2*ringW, R];  // r[0]=focal, r[1]=parents outer, r[2]=gp outer, r[3]=ggp outer
+
+  // SVG dimensions: fan spans (2R wide, R tall) plus padding
+  const PAD = 20;
+  const svgW = 2*R + PAD*2, svgH = R + R0 + PAD*2;
+  // Fan center (focal circle center) in SVG coordinates
+  const cx = svgW / 2, cy = svgH - R0 - PAD;
+
+  _tS._offset = {ox: cx, oy: cy, cW: svgW, cH: svgH};
+
+  // Colors for paternal (left) and maternal (right) halves
+  const PATERNAL_TINT = 'rgba(100,140,180,0.18)';
+  const MATERNAL_TINT = 'rgba(200,130,110,0.18)';
+
+  // Build ancestor map: slot at each depth
+  // depth 1: father=slot 0 (90°-180°), mother=slot 1 (0°-90°)
+  // depth d, slot s: startDeg = 180 - (s+1)*(180/2^d), endDeg = 180 - s*(180/2^d)
+  // i.e. slots go right-to-left (slot 0 is leftmost = paternal)
+  function slotAngles(depth, slot){
+    const total = Math.pow(2, depth);
+    const step = 180 / total;
+    const startDeg = 180 - (slot+1)*step;
+    const endDeg = 180 - slot*step;
+    return {startDeg, endDeg};
+  }
+
+  // Walk the ancestor tree, collecting {person, depth, slot, startDeg, endDeg}
+  const entries = [];
+  function walk(id, depth, slot){
+    if (depth > 3) return;
+    const {startDeg, endDeg} = slotAngles(depth, slot);
+    const p = id ? _tS.persons.get(id) : null;
+    entries.push({id, person:p, depth, slot, startDeg, endDeg});
+    if (depth >= 3) return;
+    // Walk father (left half) and mother (right half)
+    if (p && p.father) walk(p.father, depth+1, slot*2);
+    else entries.push({id:`ph:${id}:father`, person:null, depth:depth+1, slot:slot*2,
+      ...slotAngles(depth+1, slot*2), placeholder:true, placeholderRole:'father', childId:id});
+    if (p && p.mother) walk(p.mother, depth+1, slot*2+1);
+    else entries.push({id:`ph:${id}:mother`, person:null, depth:depth+1, slot:slot*2+1,
+      ...slotAngles(depth+1, slot*2+1), placeholder:true, placeholderRole:'mother', childId:id});
+  }
+
+  const focusPerson = _tS.persons.get(_tS.focusId);
+
+  // Populate entries for all 3 ancestor generations
+  if (focusPerson){
+    if (focusPerson.father) walk(focusPerson.father, 1, 0);
+    else entries.push({id:`ph:${_tS.focusId}:father`, person:null, depth:1, slot:0,
+      ...slotAngles(1,0), placeholder:true, placeholderRole:'father', childId:_tS.focusId});
+    if (focusPerson.mother) walk(focusPerson.mother, 1, 1);
+    else entries.push({id:`ph:${_tS.focusId}:mother`, person:null, depth:1, slot:1,
+      ...slotAngles(1,1), placeholder:true, placeholderRole:'mother', childId:_tS.focusId});
+  }
+
+  let svg = `<svg class="fan-svg" width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}">`;
+
+  // Draw sectors
+  for (const e of entries){
+    const inner_r = r[e.depth-1], outer_r = r[e.depth];
+    const isLeft = (e.startDeg + e.endDeg) / 2 > 90; // paternal side
+    const fill = e.placeholder
+      ? 'rgba(240,236,228,0.6)'
+      : isLeft ? PATERNAL_TINT : MATERNAL_TINT;
+    const stroke = e.placeholder ? '#cdbfa8' : '#c4bba8';
+    const strokeDash = e.placeholder ? '4 3' : '';
+    const path = _fanSector(cx, cy, inner_r, outer_r, e.startDeg, e.endDeg);
+    const clickAttr = e.placeholder
+      ? `onclick="tpAddAncestor('${e.childId}','${e.placeholderRole}')"`
+      : `onclick="tpFanClick(event,'${e.id}')"`;
+    const dashAttr = strokeDash ? ` stroke-dasharray="${strokeDash}"` : '';
+    svg += `<path d="${path}" fill="${fill}" stroke="${stroke}" stroke-width="1.5"${dashAttr} cursor="pointer" ${clickAttr}/>`;
+
+    // Text label inside sector
+    if (e.person || e.placeholder){
+      const {x: tx, y: ty, midAngle} = _fanSectorCenter(cx, cy, inner_r, outer_r, e.startDeg, e.endDeg);
+      const name = e.person ? e.person.display_name : (e.placeholderRole==='father'?'Add father':'Add mother');
+      const years = e.person ? personYears(e.person) : '';
+      const arcLen = (outer_r - inner_r === 0 ? 0 : ((e.endDeg - e.startDeg) * Math.PI / 180) * ((inner_r + outer_r)/2));
+      const showYears = arcLen > 80 && years;
+      const rot = midAngle - 90; // rotate text to follow arc tangent
+      const fs = e.depth === 3 ? 9 : e.depth === 2 ? 10 : 12;
+      svg += `<text x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" text-anchor="middle" dominant-baseline="central"
+        font-family="Schibsted Grotesk,system-ui,sans-serif" font-size="${fs}" font-weight="600" fill="${e.placeholder?'#b0a898':'#3d3427'}"
+        transform="rotate(${rot.toFixed(1)},${tx.toFixed(1)},${ty.toFixed(1)})" pointer-events="none">
+        <tspan x="${tx.toFixed(1)}" dy="0">${esc(name.length > 18 ? name.slice(0,16)+'…' : name)}</tspan>
+        ${showYears?`<tspan x="${tx.toFixed(1)}" dy="${fs+2}" font-size="${fs-1}" fill="#8a8070">${esc(years)}</tspan>`:''}
+      </text>`;
+    }
+  }
+
+  // Focal person circle
+  if (focusPerson){
+    const years = personYears(focusPerson);
+    svg += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${R0}" fill="#fffaf0" stroke="var(--accent-gold)" stroke-width="2" cursor="pointer" onclick="tpFanClick(event,'${_tS.focusId}')"/>`;
+    svg += `<text x="${cx.toFixed(1)}" y="${(cy - (years?8:0)).toFixed(1)}" text-anchor="middle" dominant-baseline="central"
+      font-family="Schibsted Grotesk,system-ui,sans-serif" font-size="11" font-weight="700" fill="#3d3427" pointer-events="none">
+      ${esc(focusPerson.display_name.length>14?focusPerson.display_name.slice(0,12)+'…':focusPerson.display_name)}
+    </text>`;
+    if (years) svg += `<text x="${cx.toFixed(1)}" y="${(cy+12).toFixed(1)}" text-anchor="middle" dominant-baseline="central"
+      font-family="Schibsted Grotesk,system-ui,sans-serif" font-size="9" fill="#8a8070" pointer-events="none">${esc(years)}</text>`;
+  }
+
+  // Outer dashed arc indicating more ancestors may exist
+  svg += `<path d="M${(cx-R).toFixed(1)},${cy.toFixed(1)} A${R},${R} 0 0 0 ${(cx+R).toFixed(1)},${cy.toFixed(1)}"
+    fill="none" stroke="#c4bba8" stroke-width="1" stroke-dasharray="4 4" opacity="0.5" pointer-events="none"/>`;
+
+  svg += `</svg>`;
+
+  inner.style.cssText = `width:${svgW}px;height:${svgH}px;position:relative`;
+  inner.innerHTML = svg;
+  tpRenderSelector();
+}
+
+function tpFanClick(e, id){
+  e.stopPropagation();
+  // Build a synthetic currentTarget with a bounding rect from click position so tpNodeClick can position the menu
+  const vp = el('tree-vp'); if (!vp) return;
+  // Fake element bounding rect centered on click point
+  const fake = {
+    getBoundingClientRect: () => ({
+      left: e.clientX - 80, right: e.clientX + 80,
+      top: e.clientY - 20, bottom: e.clientY + 4,
+      width: 160, height: 24,
+    }),
+  };
+  // Temporarily replace currentTarget via a proxy call
+  const synth = {currentTarget: fake, stopPropagation: ()=>{}, ...e};
+  tpNodeClick(synth, id);
+}
+
+function tpRenderAll(){
+  if (_tS.viewMode === 'horizontal') tpRenderHorizontal();
+  else if (_tS.viewMode === 'fan') tpRenderFan();
+  else tpRender();
+}
+
+function tpSetViewMode(mode){
+  _tS.viewMode = mode;
+  localStorage.setItem('treeViewMode', mode);
+  document.querySelectorAll('.tree-view-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.mode === mode));
+  tpRenderAll();
+  tpCenterFocus();
+}
+
 async function tpExpandRelated(pid){
   if (_tS.expandedRelated.has(pid)){
     _tS.expandedRelated.delete(pid);
-    _computeTrees(); tpRender(); return;
+    _computeTrees(); tpRenderAll(); return;
   }
   // Fetch ancestors for this person up to 3 generations so layout has data
   await tpFetchUp(pid, 0);
   _tS.expandedRelated.add(pid);
-  _computeTrees(); tpRender();
+  _computeTrees(); tpRenderAll();
 }
 
 function tpRenderSelector(){
@@ -2052,7 +2378,7 @@ async function tpSaveTree(existingId){
     const saved = await res.json();
     const idx = _tS.storedTrees.findIndex(t=>t.id===existingId);
     if (idx>=0) _tS.storedTrees[idx]=saved; else _tS.storedTrees.push(saved);
-    _computeTrees(); closeModal(); toast('Tree saved.','success'); tpRender();
+    _computeTrees(); closeModal(); toast('Tree saved.','success'); tpRenderAll();
   } catch(e){ formErr('te-error',e.message); }
 }
 async function tpDeleteTree(treeId, surname){
@@ -2061,13 +2387,13 @@ async function tpDeleteTree(treeId, surname){
   if (res.ok||res.status===404){
     _tS.storedTrees = _tS.storedTrees.filter(t=>t.id!==treeId);
     if (_tS.activeTree===surname) _tS.activeTree=null;
-    _computeTrees(); closeModal(); toast('Tree deleted.','success'); tpRender();
+    _computeTrees(); closeModal(); toast('Tree deleted.','success'); tpRenderAll();
   } else { toast('Delete failed.','error'); }
 }
 
 async function tpSelectTree(surname){
   _tS.activeTree = surname || null;
-  if (!surname){ tpRender(); return; }
+  if (!surname){ tpRenderAll(); return; }
   // Use stored root_person if set
   const tree = _tS.trees.find(t => t.name === surname);
   if (tree && tree.rootPersonId){
@@ -2076,7 +2402,7 @@ async function tpSelectTree(surname){
   }
   // Fall back to oldest known ancestor with this surname in the current view
   const candidates = [..._tS.persons.values()].filter(p => p.family_name === surname);
-  if (!candidates.length){ tpRender(); return; }
+  if (!candidates.length){ tpRenderAll(); return; }
   const root = candidates.sort((a,b) => {
     const ya = parseInt(_parseYearFromDate(a.birth_date))||9999;
     const yb = parseInt(_parseYearFromDate(b.birth_date))||9999;
@@ -2089,9 +2415,21 @@ function tpCenterFocus(){
   const vp = el('tree-vp'); if (!vp || !_tS._offset) return;
   const {ox, oy, cW, cH} = _tS._offset;
   const vpW = vp.clientWidth, vpH = vp.clientHeight;
-  _tS.zoom = Math.max(0.2, Math.min(1, (vpW-80)/cW, (vpH-80)/cH));
-  _tS.pan.x = vpW/2 - (ox+_TW/2)*_tS.zoom;
-  _tS.pan.y = vpH/2 - (oy+_TH/2)*_tS.zoom;
+  if (_tS.viewMode === 'fan'){
+    // fan center (focal circle) is at (ox, oy) in layout space — center it at bottom-middle of viewport
+    _tS.zoom = Math.max(0.15, Math.min(1.5, (vpW - 40) / cW, (vpH - 40) / cH));
+    _tS.pan.x = vpW/2 - ox * _tS.zoom;
+    _tS.pan.y = vpH - 20 - oy * _tS.zoom;
+  } else if (_tS.viewMode === 'horizontal'){
+    // focus card is at layout (0, cH/2 - TH/2); center it vertically, pin left edge to ~20px
+    _tS.zoom = Math.max(0.15, Math.min(1, (vpH - 80) / cH));
+    _tS.pan.x = 20 - (ox - _TW) * _tS.zoom;
+    _tS.pan.y = vpH/2 - (cH/2) * _tS.zoom;
+  } else {
+    _tS.zoom = Math.max(0.2, Math.min(1, (vpW-80)/cW, (vpH-80)/cH));
+    _tS.pan.x = vpW/2 - (ox+_TW/2)*_tS.zoom;
+    _tS.pan.y = vpH/2 - (oy+_TH/2)*_tS.zoom;
+  }
   tpApplyTransform();
 }
 
@@ -2106,7 +2444,7 @@ function tpRenderPreserveViewport(){
         y: ((vpH / 2) - _tS.pan.y) / _tS.zoom - prevOffset.oy,
       }
     : null;
-  tpRender();
+  tpRenderAll();
   if (vp && anchor && _tS._offset) {
     _tS.pan.x = vpW / 2 - (anchor.x + _tS._offset.ox) * _tS.zoom;
     _tS.pan.y = vpH / 2 - (anchor.y + _tS._offset.oy) * _tS.zoom;
