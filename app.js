@@ -2207,12 +2207,13 @@ function tpRenderFan(){
       ? 'rgba(240,236,228,0.6)'
       : isLeft ? PATERNAL_TINT : MATERNAL_TINT;
     const stroke = e.placeholder ? '#cdbfa8' : '#c4bba8';
-    const strokeDash = e.placeholder ? '4 3' : 'none';
+    const strokeDash = e.placeholder ? '4 3' : '';
     const path = _fanSector(cx, cy, inner_r, outer_r, e.startDeg, e.endDeg);
     const clickAttr = e.placeholder
       ? `onclick="tpAddAncestor('${e.childId}','${e.placeholderRole}')"`
       : `onclick="tpFanClick(event,'${e.id}')"`;
-    svg += `<path d="${path}" fill="${fill}" stroke="${stroke}" stroke-width="1.5" stroke-dasharray="${strokeDash}" cursor="pointer" ${clickAttr}/>`;
+    const dashAttr = strokeDash ? ` stroke-dasharray="${strokeDash}"` : '';
+    svg += `<path d="${path}" fill="${fill}" stroke="${stroke}" stroke-width="1.5"${dashAttr} cursor="pointer" ${clickAttr}/>`;
 
     // Text label inside sector
     if (e.person || e.placeholder){
