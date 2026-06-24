@@ -30,7 +30,7 @@
     if (d) return `${b || '?'}–${d}`;
     if (b) {
       const age = new Date().getFullYear() - parseInt(b);
-      return (p.living && age < 80) ? `${b}–Living` : b;
+      return (p.living !== false && (p.living === true || age < 80)) ? `${b}–Living` : b;
     }
     return '';
   }
