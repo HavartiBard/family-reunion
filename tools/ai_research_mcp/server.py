@@ -57,3 +57,60 @@ class PBClient:
 
     def post(self, path: str, body: dict) -> dict:
         return self._request("POST", path, json=body, timeout=10)
+
+
+# ── Shared helpers ───────────────────────────────────────────────────────────
+
+def _researched_person_ids(pb: PBClient) -> set:
+    """Return person IDs that have at least one verified fact."""
+    resp = pb.get(
+        "/api/collections/person_facts/records",
+        filter="(verified=true)",
+        fields="person",
+        perPage=500,
+    )
+    return {item["person"] for item in (resp or {}).get("items", [])}
+
+
+def _shape_list_item(p: dict, researched_ids: set) -> dict:
+    return {
+        "id": p["id"],
+        "display_name": p.get("display_name"),
+        "birth_date": p.get("birth_date"),
+        "death_date": p.get("death_date"),
+        "living": p.get("living"),
+        "needs_research": p["id"] not in researched_ids,
+    }
+
+
+# ── Tool implementations ─────────────────────────────────────────────────────
+
+def _list_persons(pb: PBClient, page: int = 1, per_page: int = 50,
+                  needs_research: bool = False) -> list:
+    resp = pb.get(
+        "/api/collections/persons/records",
+        page=page,
+        perPage=per_page,
+        sort="family_name,given_name",
+    )
+    researched_ids = _researched_person_ids(pb)
+    items = [_shape_list_item(p, researched_ids) for p in (resp or {}).get("items", [])]
+    if needs_research:
+        items = [i for i in items if i["needs_research"]]
+    return items
+
+
+def _search_persons(pb: PBClient, query: str) -> list:
+    q = query.replace("'", "\\'")
+    filter_str = (
+        f"(display_name~'{q}'||given_name~'{q}'"
+        f"||family_name~'{q}'||birth_surname~'{q}')"
+    )
+    resp = pb.get(
+        "/api/collections/persons/records",
+        filter=filter_str,
+        perPage=50,
+        sort="family_name,given_name",
+    )
+    researched_ids = _researched_person_ids(pb)
+    return [_shape_list_item(p, researched_ids) for p in (resp or {}).get("items", [])]
