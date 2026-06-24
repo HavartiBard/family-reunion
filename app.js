@@ -1970,11 +1970,141 @@ function tpRender(){
   tpRenderSelector();
 }
 
+function tpComputeHorizLayout(){
+  const nodes = [], edges = [];
+  const COL_W = _TW + _THG;
+  const SLOT_H = _TH + _TVG;
+
+  // Stop expanding ancestors of `id` at `depth` if it's a generation boundary and not manually expanded
+  function isBoundary(id, depth){
+    return depth > 0 && depth % 3 === 0 && !_tS.horizExpanded.has(id);
+  }
+
+  // Count the leaf slots (minimum 1) needed to render `id`'s ancestor subtree from `depth`
+  function leafCount(id, depth){
+    if (!id) return 0;
+    const p = _tS.persons.get(id);
+    if (!p || isBoundary(id, depth)) return 1;
+    const f = p.father ? leafCount(p.father, depth+1) : 0;
+    const m = p.mother ? leafCount(p.mother, depth+1) : 0;
+    return Math.max(f + m, 1);
+  }
+
+  // Place `id` at `depth`, occupying vertical range [topY, topY+spanH]
+  function placeNode(id, depth, topY, spanH){
+    const p = id ? _tS.persons.get(id) : null;
+    const x = depth * COL_W;
+    const y = topY + spanH/2 - _TH/2;
+    const midY = y + _TH/2;
+    const cx = x + _TW/2;
+
+    if (p){
+      const showCaret = isBoundary(id, depth) && !!(p.father || p.mother);
+      nodes.push({id, x, y, person:p, role:depth===0?'focus':'anc', d:depth,
+        relDepth:-depth, path:[], showCaret, caretExpanded:_tS.horizExpanded.has(id)});
+    }
+
+    if (!p || !id || isBoundary(id, depth)) return;
+
+    const fCount = p.father ? leafCount(p.father, depth+1) : 0;
+    const mCount = p.mother ? leafCount(p.mother, depth+1) : 0;
+    const total = fCount + mCount;
+    if (!total) return;
+
+    const busX = (depth+1)*COL_W - _THG/2;
+    // Horizontal from this node's right to the vertical bus
+    edges.push({x1:cx, y1:midY, x2:busX, y2:midY, type:'horiz-line'});
+
+    let curY = topY;
+    if (p.father && fCount){
+      const fSpan = (fCount/total)*spanH;
+      const fMidY = curY + fSpan/2;
+      edges.push({x1:busX, y1:midY, x2:busX, y2:fMidY, type:'horiz-line'});
+      edges.push({x1:busX, y1:fMidY, x2:(depth+1)*COL_W, y2:fMidY, type:'horiz-line'});
+      placeNode(p.father, depth+1, curY, fSpan);
+      curY += fSpan;
+    }
+    if (p.mother && mCount){
+      const mSpan = (mCount/total)*spanH;
+      const mMidY = curY + mSpan/2;
+      edges.push({x1:busX, y1:midY, x2:busX, y2:mMidY, type:'horiz-line'});
+      edges.push({x1:busX, y1:mMidY, x2:(depth+1)*COL_W, y2:mMidY, type:'horiz-line'});
+      placeNode(p.mother, depth+1, curY, mSpan);
+    }
+  }
+
+  const totalLeaves = Math.max(leafCount(_tS.focusId, 0), 1);
+  const totalH = totalLeaves * SLOT_H;
+  placeNode(_tS.focusId, 0, 0, totalH);
+  return {nodes, edges, totalH};
+}
+
 function tpRenderHorizontal(){
   const inner = el('tree-inner'); if (!inner) return;
-  inner.style.cssText = 'width:0px;height:0px;position:relative';
-  inner.innerHTML = '';
-  _tS._offset = {ox:0, oy:0, cW:1, cH:1};
+  const {nodes, edges, totalH} = tpComputeHorizLayout();
+  if (!nodes.length){
+    inner.innerHTML = '<div class="empty-state" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)"><div style="font-size:3rem">🌱</div><p>No relatives yet.</p></div>';
+    return;
+  }
+
+  const PAD = 60;
+  const minX = -PAD;
+  const maxX = Math.max(...nodes.map(n => n.x + _TW)) + PAD;
+  const minY = Math.min(...nodes.map(n => n.y)) - PAD;
+  const maxY = Math.max(...nodes.map(n => n.y + _TH)) + PAD;
+  const cW = maxX - minX, cH = maxY - minY;
+  const ox = -minX, oy = -minY;
+  _tS._offset = {ox, oy, cW, cH};
+
+  // SVG connector lines
+  let svg = '';
+  for (const e of edges){
+    const x1=e.x1+ox, y1=e.y1+oy, x2=e.x2+ox, y2=e.y2+oy;
+    svg += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="#c4bba8" stroke-width="2" stroke-linecap="round"/>`;
+  }
+
+  let html = `<svg class="tree-svg" width="${cW}" height="${cH}" viewBox="0 0 ${cW} ${cH}">${svg}</svg>`;
+
+  for (const n of nodes){
+    const p = n.person;
+    const nx = n.x + ox, ny = n.y + oy;
+    const isFocus = n.id === _tS.focusId;
+    const years = personYears(p);
+    const treeSurname = p.birth_surname || p.family_name;
+    const treeColor = _treeColorFor(treeSurname) || _treeColorFor(p.family_name);
+    const tintSeed = String(p.id || n.id || '0');
+    const bandColor = treeColor || avatarTint(tintSeed.charCodeAt(0) % 6);
+    const photoUrl = p.photo && p.id ? `${API}/api/files/persons/${p.id}/${p.photo}?thumb=80x88` : '';
+    const av = photoUrl
+      ? `<div class="tn-av-band" style="background:${bandColor}"><img class="tn-av-band-img" src="${photoUrl}" alt="" loading="lazy"></div>`
+      : `<div class="tn-av-band" style="background:${bandColor}">${personInitials(p)}</div>`;
+    const tcStyle = treeColor ? `;--tc:${treeColor}` : '';
+    const cls = ['tn-card', isFocus?'focus':'', n.role==='anc'?'anc':''].filter(Boolean).join(' ');
+    html += `<div class="${cls}" style="left:${nx}px;top:${ny}px${tcStyle}" onclick="tpNodeClick(event,'${n.id}')">
+      ${av}<div class="tn-info"><div class="tn-name">${esc(p.display_name)}</div>${years?`<div class="tn-years">${esc(years)}</div>`:''}</div>
+    </div>`;
+    if (n.showCaret){
+      const icon = n.caretExpanded ? '‹' : '›';
+      html += `<button class="tn-horiz-caret" style="left:${(nx+_TW-9).toFixed(0)}px;top:${(ny+_TH/2-9).toFixed(0)}px"
+        onclick="tpHorizToggleExpand(event,'${n.id}')" title="${n.caretExpanded?'Collapse':'Expand'} ancestors">${icon}</button>`;
+    }
+  }
+
+  inner.style.cssText = `width:${cW}px;height:${cH}px;position:relative`;
+  inner.innerHTML = html;
+  tpRenderSelector();
+}
+
+async function tpHorizToggleExpand(e, id){
+  e.stopPropagation();
+  if (_tS.horizExpanded.has(id)){
+    _tS.horizExpanded.delete(id);
+    tpRenderHorizontal();
+    return;
+  }
+  await tpFetchUp(id, 0); // fetch 3 more ancestor generations for this branch
+  _tS.horizExpanded.add(id);
+  tpRenderHorizontal();
 }
 
 function tpRenderFan(){
