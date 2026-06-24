@@ -15,7 +15,7 @@ ALLOWED_ORIGINS = {
     origin.strip()
     for origin in os.environ.get(
         "DEV_FRONTEND_ORIGINS",
-        "http://localhost:4173,http://192.168.20.60:4173",
+        "http://localhost:4173,http://192.168.20.60:4173,http://localhost:8080,http://192.168.20.60:8080,http://dev.klsll.com:8080",
     ).split(",")
     if origin.strip()
 }

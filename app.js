@@ -340,7 +340,7 @@ function renderSidebar(){
 
 // ── Auth screens ─────────────────────────────────────────────────────────────
 const FALLBACK_SURNAMES = ['Kelsall', 'Warfel', 'Flannigan', 'Hubber'];
-const DEV_LOGIN_ORIGINS = new Set(['http://localhost:4173', 'http://192.168.20.60:4173']);
+const DEV_LOGIN_ORIGINS = new Set(['http://localhost:4173', 'http://192.168.20.60:4173', 'http://localhost:8080', 'http://192.168.20.60:8080', 'http://dev.klsll.com:8080']);
 const DEV_AUTH_URL = `http://${location.hostname || 'localhost'}:4174`;
 let rollerTimer = null;
 
@@ -1483,6 +1483,7 @@ function _enforceAncestorCardSpacing(nodes, edges){
   for (const n of nodes){
     if (n.relDepth >= -1) continue;
     if (!(n.role === 'anc' || n.role === 'anc-placeholder')) continue;
+    if (n.relatedExpanded) continue;
     if (!rows.has(n.relDepth)) rows.set(n.relDepth, []);
     rows.get(n.relDepth).push(n);
   }
@@ -1763,15 +1764,33 @@ function tpComputeLayout(){
     }
   }
 
-  // Expanded related trees: show partner/sib-partner ancestry inline above their card
+  // Expanded related trees: place far to the left of the main tree so they don't overlap
   if (_tS.expandedRelated.size) {
+    let leftBoundary = nodes.length ? Math.min(...nodes.map(n => n.x)) : 0;
     for (const n of nodes.slice()) {
       if (!(n.role === 'partner' || n.role === 'sib-partner')) continue;
       if (!_tS.expandedRelated.has(n.id)) continue;
       const rp = _tS.persons.get(n.id);
       if (!rp) continue;
-      const pCX = n.x + _TW/2, pY = n.y;
-      _buildParentLineage({ childId:n.id, depth:0, childCX:pCX, childTopY:pY, path:[] }, nodes, edges, { includePlaceholders:false, labelRootId:n.id });
+      // Build subtree in temporary arrays, centered at x=0 at partner's y level
+      const tempNodes = [], tempEdges = [];
+      _buildParentLineage({ childId:n.id, depth:0, childCX:0, childTopY:n.y, path:[] }, tempNodes, tempEdges, { includePlaceholders:false, labelRootId:n.id });
+      if (!tempNodes.length) continue;
+      // Shift the subtree so its right edge is one card-gap left of the current left boundary
+      const subMaxX = Math.max(...tempNodes.map(m => m.x + _TW));
+      const GAP = _TW + _THG;
+      const dx = leftBoundary - GAP - subMaxX;
+      // Mark nodes so _enforceAncestorCardSpacing skips them (avoids mixing with main tree rows)
+      for (const m of tempNodes) nodes.push({ ...m, x: m.x + dx, relatedExpanded: true });
+      // Skip depth-0 lineage edge (goes to virtual child in empty space) and suppress chip labels.
+      // A single gold elbow replaces it, running all the way from the parent union to the partner card.
+      for (const e of tempEdges) {
+        if (e.x2 === 0 && e.y2 === n.y) continue;
+        edges.push({ ...e, x1: e.x1 + dx, x2: e.x2 + dx, skipLabel: true });
+      }
+      const unionY = n.y - _TH/2 - _TVG; // parentY + TH/2
+      edges.push({ x1: dx, y1: unionY, x2: n.x + _TW/2, y2: n.y, type:'rel-link', midY: n.y - _TVG * 0.28 });
+      leftBoundary = Math.min(leftBoundary, Math.min(...tempNodes.map(m => m.x + dx)));
     }
   }
 
@@ -1833,6 +1852,7 @@ function _lineageChipHtml(nodes, edges, ox, oy){
   let html = '';
   for (const e of edges){
     if (e.type !== 'lineage') continue;
+    if (e.skipLabel) continue;
     const labelPerson = e.labelRootId ? _tS.persons.get(e.labelRootId) : focusPerson;
     const label = _relationshipLabelForDepth(_givenNameFor(labelPerson) || focGivenName, e.relDepth);
     const labelX = e.x1 + ox;
@@ -1844,14 +1864,16 @@ function _lineageChipHtml(nodes, edges, ox, oy){
   if (!focusNode) return html;
   const anchorX = focusNode.x + _TW/2 + ox;
   const rowYByDepth = new Map();
+  rowYByDepth.set(0, focusNode.y);
   for (const n of nodes){
     if (n.relDepth > 0 && !rowYByDepth.has(n.relDepth)) rowYByDepth.set(n.relDepth, n.y);
   }
-  for (const depth of [...rowYByDepth.keys()].sort((a,b) => a - b)){
+  for (const depth of [...rowYByDepth.keys()].filter(d => d > 0).sort((a,b) => a - b)){
     const y = rowYByDepth.get(depth);
-    const nextY = rowYByDepth.get(depth + 1);
-    const gapMidY = nextY != null ? (y + _TH + nextY) / 2 + oy : y + _TH/2 + oy;
-    html += _relationshipChip(_relationshipLabelForDepth(focGivenName, depth), anchorX, gapMidY - 30);
+    const prevY = rowYByDepth.get(depth - 1);
+    const gapTop = prevY != null ? prevY + _TH : y - _TVG;
+    const chipY = gapTop + (y - gapTop) / 2 + oy - 12;
+    html += _relationshipChip(_relationshipLabelForDepth(focGivenName, depth), anchorX, chipY);
   }
   return html;
 }
@@ -1880,6 +1902,8 @@ function tpRender(){
       svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--accent-gold)" stroke-dasharray="5 3" stroke-width="2" stroke-linecap="round"/>`;
     } else if (e.type === 'anc' || e.type === 'lineage'){
       svg += `<path d="${_orthoPathViaY(x1,y1,x2,y2,e.midY + oy)}" stroke="#c4bba8" fill="none" stroke-width="2" stroke-linecap="round"/>`;
+    } else if (e.type === 'rel-link'){
+      svg += `<path d="${_orthoPathViaY(x1,y1,x2,y2,e.midY+oy)}" stroke="var(--accent-gold)" fill="none" stroke-dasharray="6 4" stroke-width="1.5" stroke-linecap="round" opacity="0.85"/>`;
     } else if (e.type === 'straight'){
       svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#c4bba8" stroke-width="2" stroke-linecap="round"/>`;
     } else if (e.type === 'bus'){
@@ -2291,12 +2315,12 @@ function tpSetViewMode(mode){
 async function tpExpandRelated(pid){
   if (_tS.expandedRelated.has(pid)){
     _tS.expandedRelated.delete(pid);
-    _computeTrees(); tpRenderAll(); return;
+    _computeTrees(); tpRenderPreserveViewport(); return;
   }
   // Fetch ancestors for this person up to 3 generations so layout has data
   await tpFetchUp(pid, 0);
   _tS.expandedRelated.add(pid);
-  _computeTrees(); tpRenderAll();
+  _computeTrees(); tpRenderPreserveViewport();
 }
 
 function tpRenderSelector(){
