@@ -63,13 +63,23 @@ class PBClient:
 
 def _researched_person_ids(pb: PBClient) -> set:
     """Return person IDs that have at least one verified fact."""
-    resp = pb.get(
-        "/api/collections/person_facts/records",
-        filter="(verified=true)",
-        fields="person",
-        perPage=500,
-    )
-    return {item["person"] for item in (resp or {}).get("items", [])}
+    ids: set = set()
+    page = 1
+    while True:
+        resp = pb.get(
+            "/api/collections/person_facts/records",
+            filter="(verified=true)",
+            fields="person",
+            perPage=500,
+            page=page,
+        )
+        items = (resp or {}).get("items", [])
+        ids.update(item["person"] for item in items)
+        total_pages = (resp or {}).get("totalPages", 1)
+        if page >= total_pages:
+            break
+        page += 1
+    return ids
 
 
 def _shape_list_item(p: dict, researched_ids: set) -> dict:
@@ -101,6 +111,7 @@ def _list_persons(pb: PBClient, page: int = 1, per_page: int = 50,
 
 
 def _search_persons(pb: PBClient, query: str) -> list:
+    query = re.sub(r"[^\w\s\-]", "", query)
     q = query.replace("'", "\\'")
     filter_str = (
         f"(display_name~'{q}'||given_name~'{q}'"
@@ -117,6 +128,8 @@ def _search_persons(pb: PBClient, query: str) -> list:
 
 
 def _get_person(pb: PBClient, person_id: str) -> dict:
+    if not re.match(r'^[a-zA-Z0-9]{1,50}$', person_id):
+        return {"error": "invalid person_id", "id": person_id}
     person = pb.get(
         f"/api/collections/persons/records/{person_id}",
         expand="father,mother",

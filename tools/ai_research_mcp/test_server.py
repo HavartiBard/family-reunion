@@ -59,7 +59,7 @@ class TestListPersons(unittest.TestCase):
         pb = MagicMock(spec=PBClient)
         pb.get.side_effect = [
             {"items": persons_items},
-            {"items": facts_items or []},
+            {"items": facts_items or [], "totalPages": 1},
         ]
         return pb
 
@@ -107,7 +107,7 @@ class TestSearchPersons(unittest.TestCase):
         pb.get.side_effect = [
             {"items": [{"id": "p1", "display_name": "Harold Klassen",
                         "birth_date": "1947", "death_date": None, "living": True}]},
-            {"items": []},  # _researched_person_ids
+            {"items": [], "totalPages": 1},  # _researched_person_ids
         ]
         result = _search_persons(pb, "Harold")
         self.assertEqual(len(result), 1)
@@ -115,7 +115,7 @@ class TestSearchPersons(unittest.TestCase):
 
     def test_passes_query_in_filter(self):
         pb = MagicMock(spec=PBClient)
-        pb.get.side_effect = [{"items": []}, {"items": []}]
+        pb.get.side_effect = [{"items": []}, {"items": [], "totalPages": 1}]
         _search_persons(pb, "Smith")
         filter_arg = pb.get.call_args_list[0][1].get("filter", "")
         self.assertIn("Smith", filter_arg)
