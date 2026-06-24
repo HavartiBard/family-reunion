@@ -1764,9 +1764,11 @@ function tpComputeLayout(){
     }
   }
 
-  // Expanded related trees: place far to the left of the main tree so they don't overlap
+  // Expanded related trees: paternal (male) side goes left, maternal (female) side goes right
   if (_tS.expandedRelated.size) {
     let leftBoundary = nodes.length ? Math.min(...nodes.map(n => n.x)) : 0;
+    let rightBoundary = nodes.length ? Math.max(...nodes.map(n => n.x + _TW)) : 0;
+    const GAP = _TW + _THG;
     for (const n of nodes.slice()) {
       if (!(n.role === 'partner' || n.role === 'sib-partner')) continue;
       if (!_tS.expandedRelated.has(n.id)) continue;
@@ -1776,10 +1778,16 @@ function tpComputeLayout(){
       const tempNodes = [], tempEdges = [];
       _buildParentLineage({ childId:n.id, depth:0, childCX:0, childTopY:n.y, path:[] }, tempNodes, tempEdges, { includePlaceholders:false, labelRootId:n.id });
       if (!tempNodes.length) continue;
-      // Shift the subtree so its right edge is one card-gap left of the current left boundary
-      const subMaxX = Math.max(...tempNodes.map(m => m.x + _TW));
-      const GAP = _TW + _THG;
-      const dx = leftBoundary - GAP - subMaxX;
+      // Maternal (female) side opens right; paternal (male/unknown) side opens left
+      const goRight = rp.gender === 'female';
+      let dx;
+      if (goRight) {
+        const subMinX = Math.min(...tempNodes.map(m => m.x));
+        dx = rightBoundary + GAP - subMinX;
+      } else {
+        const subMaxX = Math.max(...tempNodes.map(m => m.x + _TW));
+        dx = leftBoundary - GAP - subMaxX;
+      }
       // Mark nodes so _enforceAncestorCardSpacing skips them (avoids mixing with main tree rows)
       for (const m of tempNodes) nodes.push({ ...m, x: m.x + dx, relatedExpanded: true });
       // Skip depth-0 lineage edge (goes to virtual child in empty space) and suppress chip labels.
@@ -1788,9 +1796,13 @@ function tpComputeLayout(){
         if (e.x2 === 0 && e.y2 === n.y) continue;
         edges.push({ ...e, x1: e.x1 + dx, x2: e.x2 + dx, skipLabel: true });
       }
-      const unionY = n.y - _TH/2 - _TVG; // parentY + TH/2
+      const unionY = n.y - _TH/2 - _TVG;
       edges.push({ x1: dx, y1: unionY, x2: n.x + _TW/2, y2: n.y, type:'rel-link', midY: n.y - _TVG * 0.28 });
-      leftBoundary = Math.min(leftBoundary, Math.min(...tempNodes.map(m => m.x + dx)));
+      if (goRight) {
+        rightBoundary = Math.max(rightBoundary, Math.max(...tempNodes.map(m => m.x + dx + _TW)));
+      } else {
+        leftBoundary = Math.min(leftBoundary, Math.min(...tempNodes.map(m => m.x + dx)));
+      }
     }
   }
 
