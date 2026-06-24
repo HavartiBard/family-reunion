@@ -232,3 +232,53 @@ def _add_fact(pb: PBClient, person_id: str, fact_type: str, value: str,
     }
     result = pb.post("/api/collections/person_facts/records", body)
     return {"id": result["id"], "person": person_id, "fact_type": fact_type, "status": "created"}
+
+
+# ── MCP server ───────────────────────────────────────────────────────────────
+
+mcp = FastMCP("Family Research")
+_pb_client: PBClient | None = None
+
+
+def _pb() -> PBClient:
+    global _pb_client
+    if _pb_client is None:
+        _pb_client = PBClient(
+            base_url=os.environ["PB_URL"],
+            admin_email=os.environ["PB_ADMIN_EMAIL"],
+            admin_password=os.environ["PB_ADMIN_PASSWORD"],
+        )
+    return _pb_client
+
+
+@mcp.tool()
+def list_persons(page: int = 1, per_page: int = 50, needs_research: bool = False) -> list:
+    """List persons. Set needs_research=true to get only those with no verified facts."""
+    return _list_persons(_pb(), page, per_page, needs_research)
+
+
+@mcp.tool()
+def get_person(id: str) -> dict:
+    """Get full research profile: identity, relationships, known facts, bio."""
+    return _get_person(_pb(), id)
+
+
+@mcp.tool()
+def search_persons(query: str) -> list:
+    """Search persons by name (display_name, given_name, family_name, birth_surname)."""
+    return _search_persons(_pb(), query)
+
+
+@mcp.tool()
+def add_fact(person_id: str, fact_type: str, value: str,
+             date_text: str = "", place: str = "",
+             description: str = "", source: str = "") -> dict:
+    """Write a research finding as an unverified AI fact. Always flagged for human review."""
+    return _add_fact(_pb(), person_id, fact_type, value, date_text, place, description, source)
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", "8765"))
+    mcp.settings.port = port
+    mcp.settings.host = "0.0.0.0"
+    mcp.run(transport="sse")
