@@ -1085,6 +1085,8 @@ const _tS = {
   pan: {x:0,y:0}, zoom: 1,
   dragging: false, dragLast: {x:0,y:0},
   ctxId: null, _offset: null, loading: false,
+  viewMode: localStorage.getItem('treeViewMode') || 'standard',
+  horizExpanded: new Set(),
 };
 // Surname-based tree color palette (earthy tones complementing the app's warm aesthetic)
 const _TREE_COLORS = ['#7b5ea7','#2c6e49','#1a5276','#a04000','#7d6608','#6e2f1a','#0e6655','#4a235a'];
@@ -1133,6 +1135,11 @@ SCREENS.tree = function(params){
     <div class="tree-hdr">
       <h1 class="tree-title">Family Tree</h1>
       <div class="tree-hdr-right">
+        <div class="tree-view-switcher">
+          <button class="tree-view-btn${_tS.viewMode==='standard'?' active':''}" data-mode="standard" onclick="tpSetViewMode('standard')" title="Standard tree">⧉ Standard</button>
+          <button class="tree-view-btn${_tS.viewMode==='horizontal'?' active':''}" data-mode="horizontal" onclick="tpSetViewMode('horizontal')" title="Horizontal pedigree">↦ Horizontal</button>
+          <button class="tree-view-btn${_tS.viewMode==='fan'?' active':''}" data-mode="fan" onclick="tpSetViewMode('fan')" title="Fan chart">◉ Fan</button>
+        </div>
         <div id="tree-selector" class="tree-selector"></div>
         <button class="btn btn-outline btn-sm" onclick="openPersonForm()">+ Add person</button>
       </div>
@@ -1181,6 +1188,7 @@ async function tpLoad(focusId){
     _tS.ancSiblings.clear();
     _tS.ancSibsCollapsed.clear();
     _tS.expandedRelated.clear();
+    _tS.horizExpanded.clear();
     await Promise.all([
       tpFetchUp(startId, 0),
       tpFetchDown(startId, 0),
@@ -1208,7 +1216,7 @@ async function tpLoad(focusId){
     await tpFetchAncSiblings(startId);
     await tpLoadStoredTrees();
     _computeTrees();
-    tpRender(); tpCenterFocus();
+    tpRenderAll(); tpCenterFocus();
   } finally { _tS.loading = false; }
 }
 
@@ -1962,15 +1970,44 @@ function tpRender(){
   tpRenderSelector();
 }
 
+function tpRenderHorizontal(){
+  const inner = el('tree-inner'); if (!inner) return;
+  inner.style.cssText = 'width:0px;height:0px;position:relative';
+  inner.innerHTML = '';
+  _tS._offset = {ox:0, oy:0, cW:1, cH:1};
+}
+
+function tpRenderFan(){
+  const inner = el('tree-inner'); if (!inner) return;
+  inner.style.cssText = 'width:0px;height:0px;position:relative';
+  inner.innerHTML = '';
+  _tS._offset = {ox:0, oy:0, cW:1, cH:1};
+}
+
+function tpRenderAll(){
+  if (_tS.viewMode === 'horizontal') tpRenderHorizontal();
+  else if (_tS.viewMode === 'fan') tpRenderFan();
+  else tpRender();
+}
+
+function tpSetViewMode(mode){
+  _tS.viewMode = mode;
+  localStorage.setItem('treeViewMode', mode);
+  document.querySelectorAll('.tree-view-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.mode === mode));
+  tpRenderAll();
+  tpCenterFocus();
+}
+
 async function tpExpandRelated(pid){
   if (_tS.expandedRelated.has(pid)){
     _tS.expandedRelated.delete(pid);
-    _computeTrees(); tpRender(); return;
+    _computeTrees(); tpRenderAll(); return;
   }
   // Fetch ancestors for this person up to 3 generations so layout has data
   await tpFetchUp(pid, 0);
   _tS.expandedRelated.add(pid);
-  _computeTrees(); tpRender();
+  _computeTrees(); tpRenderAll();
 }
 
 function tpRenderSelector(){
@@ -2052,7 +2089,7 @@ async function tpSaveTree(existingId){
     const saved = await res.json();
     const idx = _tS.storedTrees.findIndex(t=>t.id===existingId);
     if (idx>=0) _tS.storedTrees[idx]=saved; else _tS.storedTrees.push(saved);
-    _computeTrees(); closeModal(); toast('Tree saved.','success'); tpRender();
+    _computeTrees(); closeModal(); toast('Tree saved.','success'); tpRenderAll();
   } catch(e){ formErr('te-error',e.message); }
 }
 async function tpDeleteTree(treeId, surname){
@@ -2061,13 +2098,13 @@ async function tpDeleteTree(treeId, surname){
   if (res.ok||res.status===404){
     _tS.storedTrees = _tS.storedTrees.filter(t=>t.id!==treeId);
     if (_tS.activeTree===surname) _tS.activeTree=null;
-    _computeTrees(); closeModal(); toast('Tree deleted.','success'); tpRender();
+    _computeTrees(); closeModal(); toast('Tree deleted.','success'); tpRenderAll();
   } else { toast('Delete failed.','error'); }
 }
 
 async function tpSelectTree(surname){
   _tS.activeTree = surname || null;
-  if (!surname){ tpRender(); return; }
+  if (!surname){ tpRenderAll(); return; }
   // Use stored root_person if set
   const tree = _tS.trees.find(t => t.name === surname);
   if (tree && tree.rootPersonId){
@@ -2076,7 +2113,7 @@ async function tpSelectTree(surname){
   }
   // Fall back to oldest known ancestor with this surname in the current view
   const candidates = [..._tS.persons.values()].filter(p => p.family_name === surname);
-  if (!candidates.length){ tpRender(); return; }
+  if (!candidates.length){ tpRenderAll(); return; }
   const root = candidates.sort((a,b) => {
     const ya = parseInt(_parseYearFromDate(a.birth_date))||9999;
     const yb = parseInt(_parseYearFromDate(b.birth_date))||9999;
@@ -2089,9 +2126,21 @@ function tpCenterFocus(){
   const vp = el('tree-vp'); if (!vp || !_tS._offset) return;
   const {ox, oy, cW, cH} = _tS._offset;
   const vpW = vp.clientWidth, vpH = vp.clientHeight;
-  _tS.zoom = Math.max(0.2, Math.min(1, (vpW-80)/cW, (vpH-80)/cH));
-  _tS.pan.x = vpW/2 - (ox+_TW/2)*_tS.zoom;
-  _tS.pan.y = vpH/2 - (oy+_TH/2)*_tS.zoom;
+  if (_tS.viewMode === 'fan'){
+    // fan center (focal circle) is at (ox, oy) in layout space — center it at bottom-middle of viewport
+    _tS.zoom = Math.max(0.15, Math.min(1.5, (vpW - 40) / cW, (vpH - 40) / cH));
+    _tS.pan.x = vpW/2 - ox * _tS.zoom;
+    _tS.pan.y = vpH - 20 - oy * _tS.zoom;
+  } else if (_tS.viewMode === 'horizontal'){
+    // focus card is at layout (0, cH/2 - TH/2); center it vertically, pin left edge to ~20px
+    _tS.zoom = Math.max(0.15, Math.min(1, (vpH - 80) / cH));
+    _tS.pan.x = 20 - (ox - _TW) * _tS.zoom;
+    _tS.pan.y = vpH/2 - (cH/2) * _tS.zoom;
+  } else {
+    _tS.zoom = Math.max(0.2, Math.min(1, (vpW-80)/cW, (vpH-80)/cH));
+    _tS.pan.x = vpW/2 - (ox+_TW/2)*_tS.zoom;
+    _tS.pan.y = vpH/2 - (oy+_TH/2)*_tS.zoom;
+  }
   tpApplyTransform();
 }
 
@@ -2106,7 +2155,7 @@ function tpRenderPreserveViewport(){
         y: ((vpH / 2) - _tS.pan.y) / _tS.zoom - prevOffset.oy,
       }
     : null;
-  tpRender();
+  tpRenderAll();
   if (vp && anchor && _tS._offset) {
     _tS.pan.x = vpW / 2 - (anchor.x + _tS._offset.ox) * _tS.zoom;
     _tS.pan.y = vpH / 2 - (anchor.y + _tS._offset.oy) * _tS.zoom;

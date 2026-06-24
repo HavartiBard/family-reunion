@@ -311,6 +311,23 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
   .tn-av-band{width:44px;clip-path:path('M 0 0 L 38 0 Q 45 19 38 38 Q 31 57 38 76 L 0 76 Z')}
 }
 
+/* Tree view mode switcher */
+.tree-view-switcher{display:flex;border:1.5px solid var(--border-input);border-radius:9px;overflow:hidden;flex-shrink:0}
+.tree-view-btn{height:32px;padding:0 11px;font-size:.78rem;font-weight:600;background:transparent;
+  border:none;border-right:1px solid var(--border-input);cursor:pointer;color:var(--text-muted);
+  transition:background .15s,color .15s;white-space:nowrap}
+.tree-view-btn:last-child{border-right:none}
+.tree-view-btn:hover:not(.active){background:var(--bg-hover);color:var(--text-primary)}
+.tree-view-btn.active{background:var(--accent-gold);color:#fff}
+/* Horizontal pedigree caret */
+.tn-horiz-caret{position:absolute;width:18px;height:18px;border-radius:4px;
+  border:1.5px solid var(--border-default);background:#f5f2ec;
+  font-size:13px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  color:var(--text-muted);transition:background .12s,border-color .12s;padding:0;z-index:5}
+.tn-horiz-caret:hover{background:var(--accent-gold);color:#fff;border-color:var(--accent-gold)}
+/* Fan chart */
+.fan-svg{display:block}
+
 /* ── Events ─────────────────────────────────────────────────────────────── */
 .events-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem}
 .event-card{cursor:pointer;border-radius:14px;overflow:hidden;border:1px solid var(--border-default);
