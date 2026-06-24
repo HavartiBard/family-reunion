@@ -203,3 +203,32 @@ def _get_person(pb: PBClient, person_id: str) -> dict:
         "spouses": spouses,
         "facts": facts,
     }
+
+
+def _extract_sort_year(date_text: str) -> int | None:
+    m = re.search(r'\b(\d{4})\b', date_text or "")
+    return int(m.group(1)) if m else None
+
+
+def _add_fact(pb: PBClient, person_id: str, fact_type: str, value: str,
+              date_text: str = "", place: str = "",
+              description: str = "", source: str = "") -> dict:
+    if fact_type not in FACT_TYPES:
+        return {
+            "error": f"Invalid fact_type '{fact_type}'.",
+            "valid_types": FACT_TYPES,
+        }
+    body = {
+        "person": person_id,
+        "fact_type": fact_type,
+        "value": value,
+        "date_text": date_text,
+        "sort_year": _extract_sort_year(date_text),
+        "place": place,
+        "description": description,
+        "source": source,
+        "ai_generated": True,
+        "verified": False,
+    }
+    result = pb.post("/api/collections/person_facts/records", body)
+    return {"id": result["id"], "person": person_id, "fact_type": fact_type, "status": "created"}

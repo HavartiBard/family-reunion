@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import MagicMock, patch, call
 import httpx
 
-from server import PBClient, FACT_TYPES, _list_persons, _search_persons, _get_person
+from server import PBClient, FACT_TYPES, _list_persons, _search_persons, _get_person, _add_fact
 
 
 class TestPBClientAuth(unittest.TestCase):
@@ -215,6 +215,44 @@ class TestGetPerson(unittest.TestCase):
         self.assertEqual(len(result["facts"]), 1)
         self.assertTrue(result["facts"][0]["verified"])
         self.assertFalse(result["facts"][0]["ai_generated"])
+
+
+class TestAddFact(unittest.TestCase):
+    def test_happy_path_writes_with_ai_flags(self):
+        pb = MagicMock(spec=PBClient)
+        pb.post.return_value = {"id": "fact1"}
+
+        result = _add_fact(pb, "p1", "occupation", "Farmer",
+                           date_text="1970s", place="Manitoba")
+
+        self.assertEqual(result["status"], "created")
+        self.assertEqual(result["id"], "fact1")
+        body = pb.post.call_args[0][1]
+        self.assertTrue(body["ai_generated"])
+        self.assertFalse(body["verified"])
+        self.assertEqual(body["fact_type"], "occupation")
+        self.assertEqual(body["value"], "Farmer")
+
+    def test_rejects_invalid_fact_type(self):
+        pb = MagicMock(spec=PBClient)
+        result = _add_fact(pb, "p1", "not_a_real_type", "some value")
+        self.assertIn("error", result)
+        self.assertIn("valid_types", result)
+        pb.post.assert_not_called()
+
+    def test_extracts_sort_year_from_date_text(self):
+        pb = MagicMock(spec=PBClient)
+        pb.post.return_value = {"id": "fact2"}
+        _add_fact(pb, "p1", "birth", "Born", date_text="March 1947")
+        body = pb.post.call_args[0][1]
+        self.assertEqual(body["sort_year"], 1947)
+
+    def test_sort_year_none_when_no_year_in_date_text(self):
+        pb = MagicMock(spec=PBClient)
+        pb.post.return_value = {"id": "fact3"}
+        _add_fact(pb, "p1", "note", "Something", date_text="spring")
+        body = pb.post.call_args[0][1]
+        self.assertIsNone(body["sort_year"])
 
 
 if __name__ == "__main__":
