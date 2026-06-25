@@ -38,3 +38,51 @@ def make_tool_call(call_id, name, arguments: dict):
     tc.id = call_id
     tc.function = fn
     return tc
+
+
+# ── searxng_search ────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_searxng_search_returns_formatted_results():
+    from tools import searxng_search
+    mock_response = MagicMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json.return_value = {
+        "results": [
+            {"title": "John Smith Obituary", "url": "https://example.com/obit", "content": "Passed away 1985."},
+            {"title": "John Smith 1920 Census", "url": "https://ancestry.com/census", "content": "Listed as farmer."},
+        ]
+    }
+    with patch("httpx.AsyncClient") as MockClient:
+        MockClient.return_value.__aenter__ = AsyncMock(return_value=MockClient.return_value)
+        MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
+        MockClient.return_value.get = AsyncMock(return_value=mock_response)
+        result = await searxng_search("John Smith obituary 1985", "http://searxng:8888")
+    assert "John Smith Obituary" in result
+    assert "https://example.com/obit" in result
+    assert "Passed away 1985." in result
+
+
+@pytest.mark.asyncio
+async def test_searxng_search_no_results():
+    from tools import searxng_search
+    mock_response = MagicMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json.return_value = {"results": []}
+    with patch("httpx.AsyncClient") as MockClient:
+        MockClient.return_value.__aenter__ = AsyncMock(return_value=MockClient.return_value)
+        MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
+        MockClient.return_value.get = AsyncMock(return_value=mock_response)
+        result = await searxng_search("nobody", "http://searxng:8888")
+    assert result == "No results found."
+
+
+@pytest.mark.asyncio
+async def test_searxng_search_http_error():
+    from tools import searxng_search
+    with patch("httpx.AsyncClient") as MockClient:
+        MockClient.return_value.__aenter__ = AsyncMock(return_value=MockClient.return_value)
+        MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
+        MockClient.return_value.get = AsyncMock(side_effect=Exception("connection refused"))
+        result = await searxng_search("test", "http://searxng:8888")
+    assert "Error" in result
