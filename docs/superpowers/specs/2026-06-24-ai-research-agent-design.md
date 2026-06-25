@@ -115,7 +115,7 @@ tools/ai_research_agent/
 | SearXNG unreachable | `web_search` tool returns error string; model proceeds without web results |
 | Model returns malformed tool call | Log and skip; continue loop |
 | `add_fact` rejected by MCP server (invalid fact_type) | Tool result propagated to model as error; model tries alternative |
-| `finish_reason == "length"` | Log warning (context exceeded), mark person as partially researched, continue to next |
+| `finish_reason == "length"` | Log warning (context exceeded), skip to next person — any facts already written via `add_fact` are retained |
 
 ## Testing
 

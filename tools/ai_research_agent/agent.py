@@ -93,7 +93,11 @@ async def batch_research(
         "list_persons", {"needs_research": True, "per_page": n}
     )
     texts = [block.text for block in result.content if hasattr(block, "text")]
-    items = json.loads("\n".join(texts)) if texts else []
+    try:
+        items = json.loads("\n".join(texts)) if texts else []
+    except json.JSONDecodeError as exc:
+        print(f"Error parsing list_persons response: {exc}")
+        return
     if not items:
         print("No persons in the research queue.")
         return

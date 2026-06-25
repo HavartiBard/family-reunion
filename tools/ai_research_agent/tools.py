@@ -156,5 +156,8 @@ async def execute_tool(
                 f"Choose a non-sensitive fact type instead."
             )
 
-    result = await session.call_tool(name, args)
-    return _mcp_result_to_str(result)
+    try:
+        result = await session.call_tool(name, args)
+        return _mcp_result_to_str(result)
+    except Exception as exc:
+        return f"Error calling MCP tool '{name}': {exc}"
