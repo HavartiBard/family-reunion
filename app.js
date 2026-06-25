@@ -1820,17 +1820,46 @@ function tpComputeLayout(){
       const entry = _tS.ancSiblings.get(n.id); if (!entry) continue;
       if (!_ancSibsVisible(n.id)) continue;
       const {sibs} = entry;
-      const parentUnion = _parentUnionFor(n, uniqueNodes);
       const rowY = n.y;
       // Direction is position-based (path), not sex-based — works for same-sex couples.
       // 'father' slot = left card of couple → expand left; 'mother' slot = right card → expand right.
       const lastStep = n.path && n.path.length ? n.path[n.path.length - 1] : null;
       const goLeft = lastStep === 'father' || (!lastStep && n.x + _TW/2 < 0);
+      const newSibs = sibs.filter(s => !uniqueNodes.some(m => m.id === s.id));
+      if (!newSibs.length) continue;
+
+      // Shift existing nodes and edges to open space adjacent to this ancestor.
+      const spaceNeeded = newSibs.length * (_TW + _THG);
+      if (goLeft) {
+        const thresh = n.x; // left edge of anchor
+        for (const node of uniqueNodes) {
+          if (node.x + _TW <= thresh) node.x -= spaceNeeded;
+        }
+        for (const edge of edges) {
+          if (edge.x1 < thresh) edge.x1 -= spaceNeeded;
+          if (edge.x2 < thresh) edge.x2 -= spaceNeeded;
+        }
+      } else {
+        const thresh = n.x + _TW; // right edge of anchor
+        for (const node of uniqueNodes) {
+          if (node.x >= thresh && node.id !== n.id) node.x += spaceNeeded;
+        }
+        for (const edge of edges) {
+          if (edge.x1 >= thresh) edge.x1 += spaceNeeded;
+          if (edge.x2 >= thresh) edge.x2 += spaceNeeded;
+        }
+      }
+      // Recompute row bounds after shift
+      rowMin.clear(); rowMax.clear();
+      for (const node of uniqueNodes) {
+        rowMin.set(node.y, Math.min(rowMin.get(node.y) ?? Infinity, node.x));
+        rowMax.set(node.y, Math.max(rowMax.get(node.y) || 0, node.x + _TW));
+      }
+
+      const parentUnion = _parentUnionFor(n, uniqueNodes);
       const sibCXs = [];
-      // Start adjacent to this ancestor's own edge, not the global row boundary.
       let curX = goLeft ? n.x : n.x + _TW;
-      for (const sib of sibs){
-        if (uniqueNodes.some(m => m.id === sib.id)) continue;
+      for (const sib of newSibs){
         let sx;
         if (goLeft){
           curX -= (_THG + _TW);
