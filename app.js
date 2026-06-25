@@ -1846,14 +1846,20 @@ function tpComputeLayout(){
         return sum + (partnerNew ? 2 : 1) * (_TW + _THG);
       }, 0);
 
-      // Shift same-row nodes to open space adjacent to this ancestor.
-      // Spatial threshold is sufficient — no branch filter needed, which would prevent
-      // a maternal-position ancestor from shifting its own couple partner when expanding right.
+      // Shift same-row nodes to create room. Branch filter (path[0]) ensures a paternal
+      // expansion never touches maternal nodes, and vice versa.
+      // For a right-card ancestor (goRight) on a branch whose couple is already the rightmost
+      // same-branch pair at this row, there are no same-branch nodes to push right. In that
+      // case we pull the whole same-branch row LEFT instead, making room to the anchor's right
+      // without disturbing the opposite branch. aboveDelta follows the actual shift direction.
+      const branchRoot = n.path.length ? n.path[0] : null;
       const shiftedSameRowIds = new Set();
+      let shiftDirLeft = goLeft; // actual direction; may differ from goLeft for right-card fallback
       if (goLeft) {
         const thresh = n.x;
         for (const node of uniqueNodes) {
-          if (node.y === n.y && node.x + _TW <= thresh) {
+          if (node.y === n.y && node.x + _TW <= thresh &&
+              (!branchRoot || !node.path.length || node.path[0] === branchRoot)) {
             node.x -= spaceNeeded;
             shiftedSameRowIds.add(node.id);
           }
@@ -1865,20 +1871,37 @@ function tpComputeLayout(){
       } else {
         const thresh = n.x + _TW;
         for (const node of uniqueNodes) {
-          if (node.y === n.y && node.x >= thresh && node.id !== n.id) {
+          if (node.y === n.y && node.x >= thresh && node.id !== n.id &&
+              (!branchRoot || !node.path.length || node.path[0] === branchRoot)) {
             node.x += spaceNeeded;
             shiftedSameRowIds.add(node.id);
           }
         }
-        for (const edge of edges) {
-          if (edge.y1 === n.y && edge.x1 >= thresh) edge.x1 += spaceNeeded;
-          if (edge.y2 === n.y && edge.x2 >= thresh) edge.x2 += spaceNeeded;
+        if (shiftedSameRowIds.size > 0) {
+          for (const edge of edges) {
+            if (edge.y1 === n.y && edge.x1 >= thresh) edge.x1 += spaceNeeded;
+            if (edge.y2 === n.y && edge.x2 >= thresh) edge.x2 += spaceNeeded;
+          }
+        } else {
+          // No same-branch room to the right: pull same-branch row (including anchor) left.
+          shiftDirLeft = true;
+          for (const node of uniqueNodes) {
+            if (node.y === n.y &&
+                (!branchRoot || !node.path.length || node.path[0] === branchRoot)) {
+              node.x -= spaceNeeded;
+              shiftedSameRowIds.add(node.id);
+            }
+          }
+          for (const edge of edges) {
+            if (edge.y1 === n.y && edge.x1 < thresh) edge.x1 -= spaceNeeded;
+            if (edge.y2 === n.y && edge.x2 < thresh) edge.x2 -= spaceNeeded;
+          }
         }
       }
 
-      // When a same-row node shifts (e.g. Roger Barrett when Joann's siblings expand),
-      // its ancestors must follow. Excludes n's own ancestors — those are handled by centering.
-      const aboveDelta = goLeft ? -spaceNeeded : spaceNeeded;
+      // When a same-row node shifts, its ancestors must follow.
+      // Excludes n's own ancestors — those are handled by the centering step below.
+      const aboveDelta = shiftDirLeft ? -spaceNeeded : spaceNeeded;
       const shiftedAboveIds = new Set();
       for (const srid of shiftedSameRowIds) {
         const srNode = uniqueNodes.find(nd => nd.id === srid);
