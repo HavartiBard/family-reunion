@@ -218,3 +218,43 @@ async def test_research_person_handles_length_gracefully():
 
     # Should not raise
     await research_person("p1", openai_client, mcp_session, "http://sx:8888", "llama3")
+
+
+# ── batch_research ────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_batch_research_calls_research_person_for_each_queued_item():
+    from agent import batch_research
+
+    persons = [
+        {"id": "p1", "display_name": "Alice"},
+        {"id": "p2", "display_name": "Bob"},
+    ]
+    mcp_session = MagicMock()
+    mcp_session.call_tool = AsyncMock(return_value=make_mcp_result(persons))
+
+    openai_client = MagicMock()
+
+    with patch("agent.research_person", new=AsyncMock()) as mock_research:
+        await batch_research(5, openai_client, mcp_session, "http://sx:8888", "llama3")
+
+    assert mock_research.call_count == 2
+    calls = [c.args[0] for c in mock_research.call_args_list]
+    assert "p1" in calls
+    assert "p2" in calls
+
+
+@pytest.mark.asyncio
+async def test_batch_research_respects_size_limit():
+    """list_persons is called with the requested batch size."""
+    from agent import batch_research
+
+    mcp_session = MagicMock()
+    mcp_session.call_tool = AsyncMock(return_value=make_mcp_result([]))
+
+    with patch("agent.research_person", new=AsyncMock()):
+        await batch_research(3, MagicMock(), mcp_session, "http://sx:8888", "llama3")
+
+    mcp_session.call_tool.assert_called_once_with(
+        "list_persons", {"needs_research": True, "per_page": 3}
+    )
