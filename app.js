@@ -1270,7 +1270,16 @@ async function tpFetchAncSiblings(focusId){
     const sibs = children.filter(c => c.id !== ancId)
       .sort((a,b) => (parseInt(_parseYearFromDate(a.birth_date))||9999) - (parseInt(_parseYearFromDate(b.birth_date))||9999));
     if (sibs.length){
-      _tS.ancSiblings.set(ancId, {parentId, sibs});
+      const sibPartners = new Map();
+      await Promise.all(sibs.map(async s => {
+        const couples = await getCouplesFor(s.id);
+        const pid = couples.length ? (couples[0].partner_a === s.id ? couples[0].partner_b : couples[0].partner_a) : null;
+        if (pid) {
+          const partner = await getPerson(pid);
+          if (partner) { sibPartners.set(s.id, partner); _tS.persons.set(partner.id, partner); }
+        }
+      }));
+      _tS.ancSiblings.set(ancId, {parentId, sibs, sibPartners});
       sibs.forEach(s => _tS.persons.set(s.id, s));
     }
   }));
@@ -1819,28 +1828,32 @@ function tpComputeLayout(){
       if (n.role !== 'anc') continue;
       const entry = _tS.ancSiblings.get(n.id); if (!entry) continue;
       if (!_ancSibsVisible(n.id)) continue;
-      const {sibs} = entry;
+      const {sibs, sibPartners = new Map()} = entry;
       const rowY = n.y;
-      // Direction is branch-based (path[0]), not couple-card position (path[last]).
-      // Paternal branch (path[0]='father') always expands LEFT; maternal branch RIGHT.
-      // This prevents a right-card paternal ancestor from expanding into the maternal branch.
-      const branchDir = n.path && n.path.length ? n.path[0] : null;
-      const goLeft = branchDir === 'father' || (!branchDir && n.x + _TW/2 < 0);
+      // Direction based on position within couple (path[last]):
+      // 'father' = left card → siblings expand left; 'mother' = right card → right.
+      // Single ancestors (no couple) use the same rule since their path ends in their own role.
+      const posInCouple = n.path && n.path.length ? n.path[n.path.length - 1] : null;
+      const goLeft = posInCouple === 'father' || (!posInCouple && n.x + _TW/2 < 0);
       const newSibs = sibs.filter(s => !uniqueNodes.some(m => m.id === s.id));
       if (!newSibs.length) continue;
 
-      // Shift same-row nodes to open space adjacent to this ancestor.
-      // Only touch nodes at exactly n's row so conduits to descendant rows stay intact.
-      // Filter by path[0] so a paternal expansion never touches the maternal branch.
-      const spaceNeeded = newSibs.length * (_TW + _THG);
-      const branchRoot = n.path.length ? n.path[0] : null; // 'father' | 'mother' | null
+      // Space needed: 1 slot per sib plus 1 extra slot if their partner isn't already placed.
       const ancPath = n.path;
+      const spaceNeeded = newSibs.reduce((sum, s) => {
+        const partner = sibPartners.get(s.id);
+        const partnerNew = partner && !uniqueNodes.some(m => m.id === partner.id);
+        return sum + (partnerNew ? 2 : 1) * (_TW + _THG);
+      }, 0);
+
+      // Shift same-row nodes to open space adjacent to this ancestor.
+      // Spatial threshold is sufficient — no branch filter needed, which would prevent
+      // a maternal-position ancestor from shifting its own couple partner when expanding right.
       const shiftedSameRowIds = new Set();
       if (goLeft) {
         const thresh = n.x;
         for (const node of uniqueNodes) {
-          if (node.y === n.y && node.x + _TW <= thresh &&
-              (!branchRoot || !node.path.length || node.path[0] === branchRoot)) {
+          if (node.y === n.y && node.x + _TW <= thresh) {
             node.x -= spaceNeeded;
             shiftedSameRowIds.add(node.id);
           }
@@ -1852,8 +1865,7 @@ function tpComputeLayout(){
       } else {
         const thresh = n.x + _TW;
         for (const node of uniqueNodes) {
-          if (node.y === n.y && node.x >= thresh && node.id !== n.id &&
-              (!branchRoot || !node.path.length || node.path[0] === branchRoot)) {
+          if (node.y === n.y && node.x >= thresh && node.id !== n.id) {
             node.x += spaceNeeded;
             shiftedSameRowIds.add(node.id);
           }
@@ -1956,20 +1968,43 @@ function tpComputeLayout(){
       }
 
       const parentUnion = _parentUnionFor(n, uniqueNodes);
-      const sibCXs = [];
+      const sibCXs = []; // CX of each sibling (for bus edges — partners excluded)
+      const newSibPartnerEdges = []; // {fromId, toId} for sibling-spouse partner edges
       let curX = goLeft ? n.x : n.x + _TW;
       for (const sib of newSibs){
+        const partner = sibPartners.get(sib.id);
+        const partnerNew = partner && !uniqueNodes.some(m => m.id === partner.id);
         let sx;
         if (goLeft){
+          // Sibling closer to anchor, partner further left
           curX -= (_THG + _TW);
           sx = curX;
-          rowMin.set(rowY, Math.min(rowMin.get(rowY) ?? Infinity, sx));
           sibCXs.unshift(sx + _TW/2);
+          if (partnerNew){
+            const px = curX - (_THG + _TW);
+            uniqueNodes.push({id:partner.id, x:px, y:rowY, person:partner, role:'anc-sib', d:n.d, relDepth:n.relDepth, path:n.path, side:n.side});
+            _seen.add(partner.id);
+            newSibPartnerEdges.push({fromId:partner.id, toId:sib.id, x1:px + _TW, x2:sx, y:rowY + _TH/2});
+            rowMin.set(rowY, Math.min(rowMin.get(rowY) ?? Infinity, px));
+            curX = px;
+          } else {
+            rowMin.set(rowY, Math.min(rowMin.get(rowY) ?? Infinity, sx));
+          }
         } else {
+          // Sibling closer to anchor, partner further right
           sx = curX + _THG;
           curX = sx + _TW;
-          rowMax.set(rowY, Math.max(rowMax.get(rowY) || 0, curX));
           sibCXs.push(sx + _TW/2);
+          if (partnerNew){
+            const px = curX + _THG;
+            uniqueNodes.push({id:partner.id, x:px, y:rowY, person:partner, role:'anc-sib', d:n.d, relDepth:n.relDepth, path:n.path, side:n.side});
+            _seen.add(partner.id);
+            newSibPartnerEdges.push({fromId:sib.id, toId:partner.id, x1:sx + _TW, x2:px, y:rowY + _TH/2});
+            curX = px + _TW;
+            rowMax.set(rowY, Math.max(rowMax.get(rowY) || 0, curX));
+          } else {
+            rowMax.set(rowY, Math.max(rowMax.get(rowY) || 0, curX));
+          }
         }
         uniqueNodes.push({id:sib.id, x:sx, y:rowY, person:sib, role:'anc-sib', d:n.d, relDepth:n.relDepth, path:n.path, side:n.side});
         _seen.add(sib.id);
@@ -1977,6 +2012,9 @@ function tpComputeLayout(){
       if (parentUnion && sibCXs.length){
         const elbowY = rowY - _TVG * 0.28;
         for (const cx of sibCXs) edges.push({x1:parentUnion.cx, y1:parentUnion.y, x2:cx, y2:rowY, type:'bus', midY:elbowY});
+      }
+      for (const pe of newSibPartnerEdges){
+        edges.push({type:'partner', x1:pe.x1, y1:pe.y, x2:pe.x2, y2:pe.y, fromId:pe.fromId, toId:pe.toId});
       }
     }
   }
@@ -2242,8 +2280,8 @@ function tpRender(){
       html += `<button class="tn-leaf-btn${c}" style="left:${leafX}px;top:${(ny+_TH-10).toFixed(0)}px" onclick="tpToggleCollapse(event,'${n.id}','desc')" title="${isColDesc?'Show children':'Hide children'}">${lbl}</button>`;
     }
     if (hasSideSibs){
-      const sibBranchDir = n.path && n.path.length ? n.path[0] : null;
-      const sideLeft = sibBranchDir === 'father' || (!sibBranchDir && n.x + _TW/2 < 0);
+      const sibPosInCouple = n.path && n.path.length ? n.path[n.path.length - 1] : null;
+      const sideLeft = sibPosInCouple === 'father' || (!sibPosInCouple && n.x + _TW/2 < 0);
       const c = isColSide ? ' col' : '';
       const lbl = isColSide ? '+' : '−';
       const btnX = sideLeft ? (nx - 10).toFixed(0) : (nx + _TW - 10).toFixed(0);
