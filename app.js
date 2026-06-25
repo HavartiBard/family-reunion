@@ -1971,6 +1971,29 @@ function tpComputeLayout(){
     }
   }
 
+  // After all ancSiblings shifts, re-derive edge x-coords from node positions.
+  // The per-iteration code only catches edges whose y equals the card TOP (n.y), but
+  // partner edges and downward lineage edges sit at card MID-HEIGHT (n.y + _TH/2),
+  // so they're missed when their parent nodes shift. This pass fixes them all at once.
+  if (_tS.ancSiblings.size) {
+    const nMap = new Map(uniqueNodes.map(nd => [nd.id, nd]));
+    for (const edge of edges) {
+      if (edge.type === 'partner' && edge.fromId && edge.toId) {
+        const f = nMap.get(edge.fromId), t = nMap.get(edge.toId);
+        if (f && t) { edge.x1 = f.x + _TW; edge.x2 = t.x; }
+      } else if (edge.type === 'lineage') {
+        const f = edge.fatherId ? nMap.get(edge.fatherId) : null;
+        const m = edge.motherId ? nMap.get(edge.motherId) : null;
+        const c = edge.childId ? nMap.get(edge.childId) : null;
+        if (f || m) {
+          edge.x1 = f && m ? ((f.x + _TW/2) + (m.x + _TW/2)) / 2
+                           : (f || m).x + _TW/2;
+        }
+        if (c) edge.x2 = c.x + _TW/2;
+      }
+    }
+  }
+
   // Ancestor other-children: children an ancestor had with a partner outside the main lineage.
   // These appear as half-siblings of the lineage child in that generation.
   if (_tS.ancOtherChildren.size) {
