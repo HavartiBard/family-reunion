@@ -1828,28 +1828,53 @@ function tpComputeLayout(){
       const newSibs = sibs.filter(s => !uniqueNodes.some(m => m.id === s.id));
       if (!newSibs.length) continue;
 
-      // Shift existing nodes and edges to open space adjacent to this ancestor.
+      // Shift same-row nodes to open space adjacent to this ancestor.
+      // Only touch nodes at exactly n's row so conduits to descendant rows stay intact.
       const spaceNeeded = newSibs.length * (_TW + _THG);
+      const halfSpace = spaceNeeded / 2;
       if (goLeft) {
-        const thresh = n.x; // left edge of anchor
+        const thresh = n.x;
         for (const node of uniqueNodes) {
-          if (node.x + _TW <= thresh) node.x -= spaceNeeded;
+          if (node.y === n.y && node.x + _TW <= thresh) node.x -= spaceNeeded;
         }
         for (const edge of edges) {
-          if (edge.x1 < thresh) edge.x1 -= spaceNeeded;
-          if (edge.x2 < thresh) edge.x2 -= spaceNeeded;
+          if (edge.y1 === n.y && edge.x1 < thresh) edge.x1 -= spaceNeeded;
+          if (edge.y2 === n.y && edge.x2 < thresh) edge.x2 -= spaceNeeded;
+        }
+        // Centering: shift n's direct ancestors above n by halfSpace so parent couple
+        // stays centered above the full sibling group (anchor + new siblings).
+        // Uses path-prefix matching to target only this lineage branch.
+        const ancPath = n.path;
+        for (const node of uniqueNodes) {
+          if (node.y < n.y && node.path.length > ancPath.length &&
+              ancPath.every((s, i) => node.path[i] === s)) node.x -= halfSpace;
+        }
+        for (const edge of edges) {
+          if (edge.type !== 'lineage' && edge.type !== 'partner') continue;
+          if (edge.y1 < n.y && edge.x1 < 0) edge.x1 -= halfSpace;
+          if (edge.y2 < n.y && edge.x2 < 0) edge.x2 -= halfSpace;
         }
       } else {
-        const thresh = n.x + _TW; // right edge of anchor
+        const thresh = n.x + _TW;
         for (const node of uniqueNodes) {
-          if (node.x >= thresh && node.id !== n.id) node.x += spaceNeeded;
+          if (node.y === n.y && node.x >= thresh && node.id !== n.id) node.x += spaceNeeded;
         }
         for (const edge of edges) {
-          if (edge.x1 >= thresh) edge.x1 += spaceNeeded;
-          if (edge.x2 >= thresh) edge.x2 += spaceNeeded;
+          if (edge.y1 === n.y && edge.x1 >= thresh) edge.x1 += spaceNeeded;
+          if (edge.y2 === n.y && edge.x2 >= thresh) edge.x2 += spaceNeeded;
+        }
+        const ancPath = n.path;
+        for (const node of uniqueNodes) {
+          if (node.y < n.y && node.path.length > ancPath.length &&
+              ancPath.every((s, i) => node.path[i] === s)) node.x += halfSpace;
+        }
+        for (const edge of edges) {
+          if (edge.type !== 'lineage' && edge.type !== 'partner') continue;
+          if (edge.y1 < n.y && edge.x1 > 0) edge.x1 += halfSpace;
+          if (edge.y2 < n.y && edge.x2 > 0) edge.x2 += halfSpace;
         }
       }
-      // Recompute row bounds after shift
+      // Recompute row bounds after both shifts
       rowMin.clear(); rowMax.clear();
       for (const node of uniqueNodes) {
         rowMin.set(node.y, Math.min(rowMin.get(node.y) ?? Infinity, node.x));
@@ -2116,7 +2141,8 @@ function tpRender(){
       html += `<button class="tn-leaf-btn${c}" style="left:${leafX}px;top:${(ny+_TH-10).toFixed(0)}px" onclick="tpToggleCollapse(event,'${n.id}','desc')" title="${isColDesc?'Show children':'Hide children'}">${lbl}</button>`;
     }
     if (hasSideSibs){
-      const sideLeft = (n.x + _TW/2) < 0;
+      const sibLastStep = n.path && n.path.length ? n.path[n.path.length - 1] : null;
+      const sideLeft = sibLastStep === 'father' || (!sibLastStep && n.x + _TW/2 < 0);
       const c = isColSide ? ' col' : '';
       const lbl = isColSide ? '+' : '−';
       const btnX = sideLeft ? (nx - 10).toFixed(0) : (nx + _TW - 10).toFixed(0);
