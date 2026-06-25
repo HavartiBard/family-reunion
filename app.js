@@ -1848,13 +1848,17 @@ function tpComputeLayout(){
 
       // Shift same-row nodes to create room. Branch filter (path[0]) ensures a paternal
       // expansion never touches maternal nodes, and vice versa.
-      // For a right-card ancestor (goRight) on a branch whose couple is already the rightmost
-      // same-branch pair at this row, there are no same-branch nodes to push right. In that
-      // case we pull the whole same-branch row LEFT instead, making room to the anchor's right
-      // without disturbing the opposite branch. aboveDelta follows the actual shift direction.
+      //
+      // "Inner-card" fallback: when there is no same-branch room in the sibling direction,
+      // pull the whole same-branch row in the OPPOSITE direction (away from center) so that
+      // the siblings fit without touching the other branch.
+      //   • Paternal right-card (goRight, branchRoot='father'): pull paternal row LEFT.
+      //   • Maternal left-card  (goLeft,  branchRoot='mother'): pull maternal row RIGHT.
+      // Outer-card expansions (paternal left, maternal right) always have open space outward
+      // and need no fallback. aboveDelta follows the actual shift direction.
       const branchRoot = n.path.length ? n.path[0] : null;
       const shiftedSameRowIds = new Set();
-      let shiftDirLeft = goLeft; // actual direction; may differ from goLeft for right-card fallback
+      let shiftDirLeft = goLeft;
       if (goLeft) {
         const thresh = n.x;
         for (const node of uniqueNodes) {
@@ -1864,9 +1868,25 @@ function tpComputeLayout(){
             shiftedSameRowIds.add(node.id);
           }
         }
-        for (const edge of edges) {
-          if (edge.y1 === n.y && edge.x1 < thresh) edge.x1 -= spaceNeeded;
-          if (edge.y2 === n.y && edge.x2 < thresh) edge.x2 -= spaceNeeded;
+        if (shiftedSameRowIds.size > 0) {
+          for (const edge of edges) {
+            if (edge.y1 === n.y && edge.x1 < thresh) edge.x1 -= spaceNeeded;
+            if (edge.y2 === n.y && edge.x2 < thresh) edge.x2 -= spaceNeeded;
+          }
+        } else if (branchRoot === 'mother') {
+          // Maternal left-card with no maternal room to the left: pull maternal row right.
+          shiftDirLeft = false;
+          for (const node of uniqueNodes) {
+            if (node.y === n.y &&
+                (!branchRoot || !node.path.length || node.path[0] === branchRoot)) {
+              node.x += spaceNeeded;
+              shiftedSameRowIds.add(node.id);
+            }
+          }
+          for (const edge of edges) {
+            if (edge.y1 === n.y && edge.x1 >= thresh) edge.x1 += spaceNeeded;
+            if (edge.y2 === n.y && edge.x2 >= thresh) edge.x2 += spaceNeeded;
+          }
         }
       } else {
         const thresh = n.x + _TW;
@@ -1882,8 +1902,8 @@ function tpComputeLayout(){
             if (edge.y1 === n.y && edge.x1 >= thresh) edge.x1 += spaceNeeded;
             if (edge.y2 === n.y && edge.x2 >= thresh) edge.x2 += spaceNeeded;
           }
-        } else {
-          // No same-branch room to the right: pull same-branch row (including anchor) left.
+        } else if (branchRoot === 'father') {
+          // Paternal right-card with no paternal room to the right: pull paternal row left.
           shiftDirLeft = true;
           for (const node of uniqueNodes) {
             if (node.y === n.y &&
