@@ -1834,12 +1834,16 @@ function tpComputeLayout(){
       // Filter by path[0] so a paternal expansion never touches the maternal branch.
       const spaceNeeded = newSibs.length * (_TW + _THG);
       const branchRoot = n.path.length ? n.path[0] : null; // 'father' | 'mother' | null
+      const ancPath = n.path;
+      const shiftedSameRowIds = new Set();
       if (goLeft) {
         const thresh = n.x;
         for (const node of uniqueNodes) {
           if (node.y === n.y && node.x + _TW <= thresh &&
-              (!branchRoot || !node.path.length || node.path[0] === branchRoot))
+              (!branchRoot || !node.path.length || node.path[0] === branchRoot)) {
             node.x -= spaceNeeded;
+            shiftedSameRowIds.add(node.id);
+          }
         }
         for (const edge of edges) {
           if (edge.y1 === n.y && edge.x1 < thresh) edge.x1 -= spaceNeeded;
@@ -1849,8 +1853,10 @@ function tpComputeLayout(){
         const thresh = n.x + _TW;
         for (const node of uniqueNodes) {
           if (node.y === n.y && node.x >= thresh && node.id !== n.id &&
-              (!branchRoot || !node.path.length || node.path[0] === branchRoot))
+              (!branchRoot || !node.path.length || node.path[0] === branchRoot)) {
             node.x += spaceNeeded;
+            shiftedSameRowIds.add(node.id);
+          }
         }
         for (const edge of edges) {
           if (edge.y1 === n.y && edge.x1 >= thresh) edge.x1 += spaceNeeded;
@@ -1858,15 +1864,48 @@ function tpComputeLayout(){
         }
       }
 
+      // When a same-row node shifts (e.g. Roger Barrett when Joann's siblings expand),
+      // its ancestors must follow. Excludes n's own ancestors — those are handled by centering.
+      const aboveDelta = goLeft ? -spaceNeeded : spaceNeeded;
+      const shiftedAboveIds = new Set();
+      for (const srid of shiftedSameRowIds) {
+        const srNode = uniqueNodes.find(nd => nd.id === srid);
+        if (!srNode) continue;
+        const srPath = srNode.path;
+        for (const node of uniqueNodes) {
+          if (node.y < n.y && node.path.length > srPath.length &&
+              srPath.every((s, i) => node.path[i] === s) &&
+              !(node.path.length > ancPath.length && ancPath.every((s, i) => node.path[i] === s))) {
+            node.x += aboveDelta;
+            shiftedAboveIds.add(node.id);
+          }
+        }
+      }
+      for (const edge of edges) {
+        if (edge.type === 'partner' &&
+            shiftedAboveIds.has(edge.fromId) && shiftedAboveIds.has(edge.toId)) {
+          edge.x1 += aboveDelta;
+          edge.x2 += aboveDelta;
+        } else if (edge.type === 'lineage') {
+          if (shiftedSameRowIds.has(edge.childId) && edge.y1 < n.y) {
+            // Edge from shifted node's parents (above) to shifted node at n.y; x2 already done
+            edge.x1 += aboveDelta;
+          } else if (shiftedAboveIds.has(edge.childId)) {
+            edge.x1 += aboveDelta;
+            edge.x2 += aboveDelta;
+          }
+        }
+      }
+
       // Centering: compute where the parent couple currently sits, then shift n's
       // direct ancestor chain by the exact delta needed to center it above the full
-      // child group (anchor + new siblings). Uses path-prefix matching for branch safety.
+      // child group (anchor + new siblings). Uses edge.path prefix matching (not x-sign
+      // heuristic) so only n's ancestor lineage edges move, not same-branch cousins.
       const parentUnionPre = _parentUnionFor(n, uniqueNodes);
       if (parentUnionPre) {
         const groupCX = n.x + _TW / 2 + (goLeft ? -spaceNeeded / 2 : spaceNeeded / 2);
         const centeringDelta = groupCX - parentUnionPre.cx;
         if (Math.abs(centeringDelta) > 0.5) {
-          const ancPath = n.path;
           const shiftedAncIds = new Set();
           for (const node of uniqueNodes) {
             if (node.y < n.y && node.path.length > ancPath.length &&
@@ -1882,18 +1921,17 @@ function tpComputeLayout(){
               edge.x1 += centeringDelta;
               edge.x2 += centeringDelta;
             }
-            // Lineage edges: no node-ID refs, use y + x-direction heuristic
-            else if (edge.type === 'lineage') {
+            // Lineage edges: use edge.path prefix matching so only n's ancestor chain shifts
+            else if (edge.type === 'lineage' && edge.path &&
+                     edge.path.length >= ancPath.length &&
+                     ancPath.every((s, i) => edge.path[i] === s)) {
               const d = centeringDelta;
               if (edge.y1 < n.y && edge.y2 < n.y) {
-                if (d > 0) { if (edge.x1 > 0) edge.x1 += d; if (edge.x2 > 0) edge.x2 += d; }
-                else        { if (edge.x1 < 0) edge.x1 += d; if (edge.x2 < 0) edge.x2 += d; }
+                edge.x1 += d; edge.x2 += d;
               } else if (edge.y1 < n.y) {
-                if (d > 0 && edge.x1 > 0) edge.x1 += d;
-                else if (d < 0 && edge.x1 < 0) edge.x1 += d;
+                edge.x1 += d;
               } else if (edge.y2 < n.y) {
-                if (d > 0 && edge.x2 > 0) edge.x2 += d;
-                else if (d < 0 && edge.x2 < 0) edge.x2 += d;
+                edge.x2 += d;
               }
             }
           }
