@@ -1,0 +1,9 @@
+# Run one-off: docker compose run --rm ai-research-agent python agent.py --person <id>
+# Logs: docker compose logs -f ai-research-agent
+
+services:
+  ai-research-agent:
+    build: .
+    env_file: .env
+    network_mode: host
+    restart: unless-stopped
