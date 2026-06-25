@@ -1822,19 +1822,25 @@ function tpComputeLayout(){
       const {sibs} = entry;
       const parentUnion = _parentUnionFor(n, uniqueNodes);
       const rowY = n.y;
-      const ancCX = n.x + _TW/2;
-      const goLeft = n.side === 'left' || (!n.side && ancCX < 0);
+      // Direction is position-based (path), not sex-based — works for same-sex couples.
+      // 'father' slot = left card of couple → expand left; 'mother' slot = right card → expand right.
+      const lastStep = n.path && n.path.length ? n.path[n.path.length - 1] : null;
+      const goLeft = lastStep === 'father' || (!lastStep && n.x + _TW/2 < 0);
       const sibCXs = [];
+      // Start adjacent to this ancestor's own edge, not the global row boundary.
+      let curX = goLeft ? n.x : n.x + _TW;
       for (const sib of sibs){
         if (uniqueNodes.some(m => m.id === sib.id)) continue;
         let sx;
         if (goLeft){
-          sx = (rowMin.get(rowY) ?? 0) - _THG - _TW;
-          rowMin.set(rowY, sx);
-          sibCXs.unshift(sx + _TW/2); // prepend → left-to-right order preserved
+          curX -= (_THG + _TW);
+          sx = curX;
+          rowMin.set(rowY, Math.min(rowMin.get(rowY) ?? Infinity, sx));
+          sibCXs.unshift(sx + _TW/2);
         } else {
-          sx = (rowMax.get(rowY) || 0) + _THG;
-          rowMax.set(rowY, sx + _TW);
+          sx = curX + _THG;
+          curX = sx + _TW;
+          rowMax.set(rowY, Math.max(rowMax.get(rowY) || 0, curX));
           sibCXs.push(sx + _TW/2);
         }
         uniqueNodes.push({id:sib.id, x:sx, y:rowY, person:sib, role:'anc-sib', d:n.d, relDepth:n.relDepth, path:n.path, side:n.side});
