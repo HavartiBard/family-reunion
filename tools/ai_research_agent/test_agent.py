@@ -158,3 +158,63 @@ async def test_execute_tool_mcp_passthrough_for_deceased():
     )
     session.call_tool.assert_called_once()
     assert "fact2" in result or "created" in result
+
+
+# ── research_person ───────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_research_person_stops_on_finish_reason_stop():
+    """Agent loop exits cleanly when the model returns finish_reason=stop."""
+    from agent import research_person
+
+    openai_client = MagicMock()
+    openai_client.chat = MagicMock()
+    openai_client.chat.completions = MagicMock()
+    openai_client.chat.completions.create = AsyncMock(
+        return_value=make_openai_response(finish_reason="stop", content="Research complete.")
+    )
+
+    mcp_session = MagicMock()
+    # Called once for get_person at the start, but in this test the model stops immediately.
+    await research_person("p1", openai_client, mcp_session, "http://sx:8888", "llama3")
+
+    openai_client.chat.completions.create.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_research_person_executes_tool_calls_and_loops():
+    """Agent loop runs tool calls then continues until stop."""
+    from agent import research_person
+
+    tool_call = make_tool_call("call_1", "get_person", {"id": "p1"})
+
+    turn1 = make_openai_response(finish_reason="tool_calls", tool_calls=[tool_call])
+    turn2 = make_openai_response(finish_reason="stop", content="Done.")
+
+    openai_client = MagicMock()
+    openai_client.chat.completions.create = AsyncMock(side_effect=[turn1, turn2])
+
+    mcp_session = MagicMock()
+    mcp_session.call_tool = AsyncMock(
+        return_value=make_mcp_result({"id": "p1", "display_name": "John Smith", "living": False})
+    )
+
+    await research_person("p1", openai_client, mcp_session, "http://sx:8888", "llama3")
+
+    assert openai_client.chat.completions.create.call_count == 2
+    mcp_session.call_tool.assert_called_once_with("get_person", {"id": "p1"})
+
+
+@pytest.mark.asyncio
+async def test_research_person_handles_length_gracefully():
+    """Agent loop exits without error when context length exceeded."""
+    from agent import research_person
+
+    openai_client = MagicMock()
+    openai_client.chat.completions.create = AsyncMock(
+        return_value=make_openai_response(finish_reason="length", content=None)
+    )
+    mcp_session = MagicMock()
+
+    # Should not raise
+    await research_person("p1", openai_client, mcp_session, "http://sx:8888", "llama3")
