@@ -1821,10 +1821,11 @@ function tpComputeLayout(){
       if (!_ancSibsVisible(n.id)) continue;
       const {sibs} = entry;
       const rowY = n.y;
-      // Direction is position-based (path), not sex-based — works for same-sex couples.
-      // 'father' slot = left card of couple → expand left; 'mother' slot = right card → expand right.
-      const lastStep = n.path && n.path.length ? n.path[n.path.length - 1] : null;
-      const goLeft = lastStep === 'father' || (!lastStep && n.x + _TW/2 < 0);
+      // Direction is branch-based (path[0]), not couple-card position (path[last]).
+      // Paternal branch (path[0]='father') always expands LEFT; maternal branch RIGHT.
+      // This prevents a right-card paternal ancestor from expanding into the maternal branch.
+      const branchDir = n.path && n.path.length ? n.path[0] : null;
+      const goLeft = branchDir === 'father' || (!branchDir && n.x + _TW/2 < 0);
       const newSibs = sibs.filter(s => !uniqueNodes.some(m => m.id === s.id));
       if (!newSibs.length) continue;
 
@@ -2166,8 +2167,8 @@ function tpRender(){
       html += `<button class="tn-leaf-btn${c}" style="left:${leafX}px;top:${(ny+_TH-10).toFixed(0)}px" onclick="tpToggleCollapse(event,'${n.id}','desc')" title="${isColDesc?'Show children':'Hide children'}">${lbl}</button>`;
     }
     if (hasSideSibs){
-      const sibLastStep = n.path && n.path.length ? n.path[n.path.length - 1] : null;
-      const sideLeft = sibLastStep === 'father' || (!sibLastStep && n.x + _TW/2 < 0);
+      const sibBranchDir = n.path && n.path.length ? n.path[0] : null;
+      const sideLeft = sibBranchDir === 'father' || (!sibBranchDir && n.x + _TW/2 < 0);
       const c = isColSide ? ' col' : '';
       const lbl = isColSide ? '+' : '−';
       const btnX = sideLeft ? (nx - 10).toFixed(0) : (nx + _TW - 10).toFixed(0);
