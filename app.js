@@ -1904,7 +1904,17 @@ function tpComputeLayout(){
       const parentUnionPre = _parentUnionFor(n, uniqueNodes);
       if (parentUnionPre) {
         const groupCX = n.x + _TW / 2 + (goLeft ? -spaceNeeded / 2 : spaceNeeded / 2);
-        const centeringDelta = groupCX - parentUnionPre.cx;
+        // When only one parent is known, parentUnionPre.cx is that single node's CX —
+        // offset by ±(_TW+_THG)/2 from the ideal couple midpoint. Using it raw causes
+        // a spurious rightward shift that pushes placeholder ancestors into the opposite
+        // branch. Use the ideal couple center instead.
+        const pairHalf = (_TW + _THG) / 2;
+        const idealParentCX = parentUnionPre.fatherNode && parentUnionPre.motherNode
+          ? parentUnionPre.cx
+          : parentUnionPre.fatherNode
+            ? parentUnionPre.fatherNode.x + _TW / 2 + pairHalf
+            : parentUnionPre.motherNode.x + _TW / 2 - pairHalf;
+        const centeringDelta = groupCX - idealParentCX;
         if (Math.abs(centeringDelta) > 0.5) {
           const shiftedAncIds = new Set();
           for (const node of uniqueNodes) {
@@ -1993,6 +2003,10 @@ function tpComputeLayout(){
       }
     }
   }
+
+  // Re-enforce spacing after sibling expansions. Centering steps can push nodes (especially
+  // placeholder parents) closer to the opposite branch than the minimum gap allows.
+  if (_tS.ancSiblings.size) _enforceAncestorCardSpacing(uniqueNodes, edges);
 
   // Ancestor other-children: children an ancestor had with a partner outside the main lineage.
   // These appear as half-siblings of the lineage child in that generation.
