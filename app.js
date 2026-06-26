@@ -1952,17 +1952,27 @@ function tpComputeLayout(){
         }
       }
 
-      // Centering: compute where the parent couple currently sits, then shift n's
-      // direct ancestor chain by the exact delta needed to center it above the full
-      // child group (anchor + new siblings). Uses edge.path prefix matching (not x-sign
-      // heuristic) so only n's ancestor lineage edges move, not same-branch cousins.
+      // Centering: shift all same-branch ancestors above n (not already moved by
+      // shiftedAboveIds) so the parent couple stays centered above the child group.
+      //
+      // groupCX target depends on whether the inner-card fallback ran:
+      //   • No fallback (outer card): anchor didn't move; center above anchor + sibs.
+      //   • Fallback used (inner card): anchor itself shifted by spaceNeeded; center
+      //     above the anchor's new position only. Using the group-center formula here
+      //     would under-shift by spaceNeeded/2, leaving a gap between the two sets of
+      //     great-grandparents (e.g. James/Dorothy vs George/Beatrice at y=-564).
+      //
+      // Scope: all same-branch ancestors not already moved, so Roger's parents and
+      // JoAnn's parents shift together by the same delta instead of drifting apart.
+      // The final edge sync pass re-derives all partner/lineage edge x-coords.
+      const usedFallback = shiftDirLeft !== goLeft;
       const parentUnionPre = _parentUnionFor(n, uniqueNodes);
       if (parentUnionPre) {
-        const groupCX = n.x + _TW / 2 + (goLeft ? -spaceNeeded / 2 : spaceNeeded / 2);
-        // When only one parent is known, parentUnionPre.cx is that single node's CX —
-        // offset by ±(_TW+_THG)/2 from the ideal couple midpoint. Using it raw causes
-        // a spurious rightward shift that pushes placeholder ancestors into the opposite
-        // branch. Use the ideal couple center instead.
+        const groupCX = usedFallback
+          ? n.x + _TW / 2
+          : n.x + _TW / 2 + (goLeft ? -spaceNeeded / 2 : spaceNeeded / 2);
+        // When only one parent is known, use the ideal couple center (not the single
+        // node's CX) to avoid a spurious shift into the opposite branch.
         const pairHalf = (_TW + _THG) / 2;
         const idealParentCX = parentUnionPre.fatherNode && parentUnionPre.motherNode
           ? parentUnionPre.cx
@@ -1971,35 +1981,13 @@ function tpComputeLayout(){
             : parentUnionPre.motherNode.x + _TW / 2 - pairHalf;
         const centeringDelta = groupCX - idealParentCX;
         if (Math.abs(centeringDelta) > 0.5) {
-          const shiftedAncIds = new Set();
           for (const node of uniqueNodes) {
-            if (node.y < n.y && node.path.length > ancPath.length &&
-                ancPath.every((s, i) => node.path[i] === s)) {
+            if (node.y < n.y && branchRoot && node.path[0] === branchRoot &&
+                !shiftedAboveIds.has(node.id)) {
               node.x += centeringDelta;
-              shiftedAncIds.add(node.id);
             }
           }
-          for (const edge of edges) {
-            // Partner edges: both endpoints belong to the shifted couple — use node IDs
-            if (edge.type === 'partner' &&
-                shiftedAncIds.has(edge.fromId) && shiftedAncIds.has(edge.toId)) {
-              edge.x1 += centeringDelta;
-              edge.x2 += centeringDelta;
-            }
-            // Lineage edges: use edge.path prefix matching so only n's ancestor chain shifts
-            else if (edge.type === 'lineage' && edge.path &&
-                     edge.path.length >= ancPath.length &&
-                     ancPath.every((s, i) => edge.path[i] === s)) {
-              const d = centeringDelta;
-              if (edge.y1 < n.y && edge.y2 < n.y) {
-                edge.x1 += d; edge.x2 += d;
-              } else if (edge.y1 < n.y) {
-                edge.x1 += d;
-              } else if (edge.y2 < n.y) {
-                edge.x2 += d;
-              }
-            }
-          }
+          // Partner and lineage edges are re-derived by the final sync pass below.
         }
       }
 
