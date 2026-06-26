@@ -1953,27 +1953,25 @@ function tpComputeLayout(){
       }
 
       // Centering: shift all same-branch ancestors above n (not already moved by
-      // shiftedAboveIds) so the parent couple stays centered above the child group.
+      // shiftedAboveIds) so the parent couple stays at the same relative position
+      // above the anchor (n) as it was in the initial tree layout.
       //
-      // groupCX target depends on whether the inner-card fallback ran:
-      //   • No fallback (outer card): anchor didn't move; center above anchor + sibs.
-      //   • Fallback used (inner card): anchor itself shifted by spaceNeeded; center
-      //     above the anchor's new position only. Using the group-center formula here
-      //     would under-shift by spaceNeeded/2, leaving a gap between the two sets of
-      //     great-grandparents (e.g. James/Dorothy vs George/Beatrice at y=-564).
+      // _buildParentLineage places the parent couple at:
+      //   pairCX = childCX + branchHalf  (child is right-card, goLeft=false)
+      //   pairCX = childCX - branchHalf  (child is left-card,  goLeft=true)
+      // where branchHalf = (TW + THG) / 2. After any shift (fallback or normal),
+      // we want the parent couple at n.new_cx ± branchHalf — no dependency on
+      // spaceNeeded or whether a fallback ran.
       //
       // Scope: all same-branch ancestors not already moved, so Roger's parents and
       // JoAnn's parents shift together by the same delta instead of drifting apart.
       // The final edge sync pass re-derives all partner/lineage edge x-coords.
-      const usedFallback = shiftDirLeft !== goLeft;
       const parentUnionPre = _parentUnionFor(n, uniqueNodes);
       if (parentUnionPre) {
-        const groupCX = usedFallback
-          ? n.x + _TW / 2
-          : n.x + _TW / 2 + (goLeft ? -spaceNeeded / 2 : spaceNeeded / 2);
+        const pairHalf = (_TW + _THG) / 2;
+        const groupCX = n.x + _TW / 2 + (goLeft ? -pairHalf : pairHalf);
         // When only one parent is known, use the ideal couple center (not the single
         // node's CX) to avoid a spurious shift into the opposite branch.
-        const pairHalf = (_TW + _THG) / 2;
         const idealParentCX = parentUnionPre.fatherNode && parentUnionPre.motherNode
           ? parentUnionPre.cx
           : parentUnionPre.fatherNode
