@@ -1493,6 +1493,158 @@ function _nodeCX(n){
   return n.x + _TW/2;
 }
 
+// Experimental width-first ancestor layout, gated behind ?layout=v2 so it can be
+// debugged live without affecting the default (v1) layout. See _ancPlaceLineage.
+function _useV2Layout(){
+  try {
+    const p = new URLSearchParams(location.search).get('layout');
+    if (p === 'v2') { sessionStorage.setItem('layoutV2', '1'); return true; }   // sticky for the session
+    if (p === 'v1') { sessionStorage.removeItem('layoutV2'); return false; }     // ?layout=v1 turns it off
+    return sessionStorage.getItem('layoutV2') === '1';
+  } catch (_e) { return false; }
+}
+
+function _ancVisibleSibList(ancId){
+  const entry = _tS.ancSiblings.get(ancId);
+  if (!entry || !_ancSibsVisible(ancId)) return {sibs:[], sibPartners:new Map()};
+  return {sibs: entry.sibs, sibPartners: entry.sibPartners || new Map()};
+}
+
+function _ancSibExtent(ancId){
+  const {sibs, sibPartners} = _ancVisibleSibList(ancId);
+  const slots = sibs.reduce((n, s) => n + (sibPartners.get(s.id) ? 2 : 1), 0);
+  return slots * (_TW + _THG);
+}
+
+function _ancParentsToDraw(childId, depth, includePlaceholders){
+  if (depth >= 3 || _tS.collapsed.has(childId)) return {F:null, M:null, drawF:false, drawM:false};
+  const c = _tS.persons.get(childId);
+  const F = c && c.father ? _tS.persons.get(c.father) : null;
+  const M = c && c.mother ? _tS.persons.get(c.mother) : null;
+  return {F, M, drawF: !!F || includePlaceholders, drawM: !!M || includePlaceholders};
+}
+
+function _ancCoupleW(childId, depth, includePlaceholders){
+  const {F, M, drawF, drawM} = _ancParentsToDraw(childId, depth, includePlaceholders);
+  if (!drawF && !drawM) return 0;
+  const coupleW = 2 * _TW + _THG;
+  const ownW = coupleW + (F ? _ancSibExtent(F.id) : 0) + (M ? _ancSibExtent(M.id) : 0);
+  const wF = F ? _ancCoupleW(F.id, depth + 1, includePlaceholders) : 0;
+  const wM = M ? _ancCoupleW(M.id, depth + 1, includePlaceholders) : 0;
+  const aboveW = wF + ((wF && wM) ? _THG : 0) + wM;
+  return Math.max(ownW, aboveW);
+}
+
+function _ancPlaceLineage(childId, depth, leftX, childCX, childTopY, path, nodes, edges, opts){
+  const includePlaceholders = opts.includePlaceholders !== false;
+  const {F, M, drawF, drawM} = _ancParentsToDraw(childId, depth, includePlaceholders);
+  if (!drawF && !drawM) return;
+  const nextDepth = depth + 1;
+  const parentY = childTopY - (_TH + _TVG);
+  const pitch = _TW + _THG;
+  const W = _ancCoupleW(childId, depth, includePlaceholders);
+
+  // Lay out the two parent-couples (above) within [leftX, leftX+W], centered.
+  const wF = F ? _ancCoupleW(F.id, nextDepth, includePlaceholders) : 0;
+  const wM = M ? _ancCoupleW(M.id, nextDepth, includePlaceholders) : 0;
+  const aboveW = wF + ((wF && wM) ? _THG : 0) + wM;
+  const gx = leftX + (W - aboveW) / 2;
+  const fSlotX = gx;
+  const mSlotX = gx + wF + ((wF && wM) ? _THG : 0);
+  const fUnionCX = (F && wF) ? fSlotX + wF / 2 : null;
+  const mUnionCX = (M && wM) ? mSlotX + wM / 2 : null;
+
+  // Center this couple under the midpoint of its parent-couples' unions.
+  let coupleCenter;
+  if (fUnionCX != null && mUnionCX != null) coupleCenter = (fUnionCX + mUnionCX) / 2;
+  else if (fUnionCX != null) coupleCenter = fUnionCX;
+  else if (mUnionCX != null) coupleCenter = mUnionCX;
+  else coupleCenter = leftX + W / 2;
+
+  // Clamp so the whole unit (couple + each member's siblings) stays inside the
+  // [leftX, leftX+W] slot. When siblings drive the width (ownW >= aboveW) this
+  // pins the couple exactly; otherwise it nudges the parent-aligned center just
+  // enough to keep an asymmetric sibling run from poking into a neighbor slot.
+  const fSib = F ? _ancSibExtent(F.id) : 0;
+  const mSib = M ? _ancSibExtent(M.id) : 0;
+  const minCenter = leftX + pitch / 2 + _TW / 2 + fSib;
+  const maxCenter = leftX + W - pitch / 2 - _TW / 2 - mSib;
+  coupleCenter = minCenter <= maxCenter
+    ? Math.max(minCenter, Math.min(maxCenter, coupleCenter))
+    : (minCenter + maxCenter) / 2;
+
+  const fCX = coupleCenter - pitch / 2;
+  const mCX = coupleCenter + pitch / 2;
+  const fId = F ? F.id : `ph:${childId}:father`;
+  const mId = M ? M.id : `ph:${childId}:mother`;
+  const fPath = [...path, 'father'];
+  const mPath = [...path, 'mother'];
+
+  if (drawF) nodes.push(_lineageNode(F
+    ? {id:F.id, cx:fCX, y:parentY, person:F, role:'anc', relDepth:-nextDepth, path:fPath}
+    : {id:fId, cx:fCX, y:parentY, person:{display_name:'Add father'}, role:'anc-placeholder', relDepth:-nextDepth, path:fPath, placeholder:true, placeholderRole:'father', childId}));
+  if (drawM) nodes.push(_lineageNode(M
+    ? {id:M.id, cx:mCX, y:parentY, person:M, role:'anc', relDepth:-nextDepth, path:mPath}
+    : {id:mId, cx:mCX, y:parentY, person:{display_name:'Add mother'}, role:'anc-placeholder', relDepth:-nextDepth, path:mPath, placeholder:true, placeholderRole:'mother', childId}));
+  if (drawF && drawM){
+    edges.push({type:'partner', x1:fCX+_TW/2, y1:parentY+_TH/2, x2:mCX-_TW/2, y2:parentY+_TH/2, fromId:fId, toId:mId});
+  }
+
+  const unionCX = (drawF && drawM) ? coupleCenter : (drawF ? fCX : mCX);
+  edges.push({type:'lineage', x1:unionCX, y1:parentY+_TH/2, x2:childCX, y2:childTopY,
+    direction:'up', relDepth:-nextDepth, childId, path:[...path],
+    fatherId: drawF ? fId : null, motherId: drawM ? mId : null,
+    labelRootId: opts.labelRootId || _tS.focusId, midY: childTopY - _TVG * 0.28});
+
+  if (F && wF) _ancPlaceLineage(F.id, nextDepth, fSlotX, fCX, parentY, fPath, nodes, edges, opts);
+  if (M && wM) _ancPlaceLineage(M.id, nextDepth, mSlotX, mCX, parentY, mPath, nodes, edges, opts);
+  if (F) _ancPlaceSiblings(F.id, fCX, parentY, 'left', fPath, nextDepth, nodes, edges);
+  if (M) _ancPlaceSiblings(M.id, mCX, parentY, 'right', mPath, nextDepth, nodes, edges);
+}
+
+function _ancPlaceSiblings(ancId, ancCX, ancY, side, ancPath, depth, nodes, edges){
+  const {sibs, sibPartners} = _ancVisibleSibList(ancId);
+  if (!sibs.length) return;
+  const anc = _tS.persons.get(ancId);
+  const gf = anc && anc.father ? nodes.find(n => n.id === anc.father) : null;
+  const gm = anc && anc.mother ? nodes.find(n => n.id === anc.mother) : null;
+  const gp = gf || gm;
+  const gpUnionCX = gf && gm ? (_nodeCX(gf) + _nodeCX(gm)) / 2 : (gp ? _nodeCX(gp) : null);
+  const gpUnionY = gp ? gp.y + _TH/2 : null;
+  const pitch = _TW + _THG;
+  let cursor = side === 'left' ? ancCX - _TW/2 : ancCX + _TW/2;
+  const sibCXs = [];
+  for (const sib of sibs){
+    if (nodes.some(n => n.id === sib.id)) continue; // already placed (pedigree collapse)
+    const sp = sibPartners.get(sib.id);
+    const spNew = sp && !nodes.some(n => n.id === sp.id);
+    let sx;
+    if (side === 'left'){
+      cursor -= pitch; sx = cursor; sibCXs.unshift(sx + _TW/2);
+      if (spNew){
+        const px = cursor - pitch;
+        nodes.push({id:sp.id, x:px, y:ancY, person:sp, role:'anc-sib', d:depth, relDepth:-depth, path:ancPath, side});
+        edges.push({type:'partner', x1:px+_TW, y1:ancY+_TH/2, x2:sx, y2:ancY+_TH/2});
+        cursor = px;
+      }
+    } else {
+      cursor += _THG; sx = cursor; sibCXs.push(sx + _TW/2);
+      cursor = sx + _TW;
+      if (spNew){
+        const px = cursor + _THG;
+        nodes.push({id:sp.id, x:px, y:ancY, person:sp, role:'anc-sib', d:depth, relDepth:-depth, path:ancPath, side});
+        edges.push({type:'partner', x1:sx+_TW, y1:ancY+_TH/2, x2:px, y2:ancY+_TH/2});
+        cursor = px + _TW;
+      }
+    }
+    nodes.push({id:sib.id, x:sx, y:ancY, person:sib, role:'anc-sib', d:depth, relDepth:-depth, path:ancPath, side});
+  }
+  if (gpUnionCX != null){
+    const elbowY = ancY - _TVG * 0.28;
+    for (const cx of sibCXs) edges.push({type:'bus', x1:gpUnionCX, y1:gpUnionY, x2:cx, y2:ancY, midY:elbowY});
+  }
+}
+
 function _nodeById(nodes, id){
   return id ? nodes.find(n => n.id === id) : null;
 }
@@ -1763,7 +1915,29 @@ function tpComputeLayout(){
   const nodes=[], edges=[];
   const focusPerson = _tS.persons.get(_tS.focusId);
   if (focusPerson) nodes.push(_lineageNode({ id:_tS.focusId, cx:0, y:0, person:focusPerson, role:'focus', relDepth:0, path:[] }));
-  _buildParentLineage({ childId:_tS.focusId, depth:0, childCX:0, childTopY:0, path:[] }, nodes, edges);
+  // Ancestor layout: default v1 (_buildParentLineage + post-hoc sibling block below).
+  // ?layout=v2 selects the experimental width-first layout, which places ancestor
+  // siblings inline (so the v1 sibling/enforce passes are skipped for it). Wrapped in
+  // try/catch with a build-into-temp-then-merge guard so a v2 failure logs the real
+  // error and cleanly falls back to v1 instead of breaking the render.
+  let _v2 = _useV2Layout();
+  if (_v2) {
+    try {
+      const tn = [], te = [];
+      const _ancW = _ancCoupleW(_tS.focusId, 0, true);
+      _ancPlaceLineage(_tS.focusId, 0, -_ancW/2, 0, 0, [], tn, te, {});
+      for (const n of tn) nodes.push(n);
+      for (const e of te) edges.push(e);
+    } catch (err) {
+      console.error('[tree layout v2] failed, falling back to v1:', err);
+      window.__treeV2Error = (err && err.stack) || String(err);
+      try { toast('Layout v2 error (using v1): ' + (err && err.message || err), 'error'); } catch (_t) {}
+      _v2 = false;
+    }
+  }
+  if (!_v2) {
+    _buildParentLineage({ childId:_tS.focusId, depth:0, childCX:0, childTopY:0, path:[] }, nodes, edges);
+  }
 
   const foc = nodes.find(n => n.id === _tS.focusId);
   const descBlockW = _descFamilyW(_tS.focusId, 0);
@@ -1813,11 +1987,13 @@ function tpComputeLayout(){
   // Deduplicate nodes in case a person appears via multiple routes
   const _seen = new Set();
   const uniqueNodes = nodes.filter(n => !_seen.has(n.id) && _seen.add(n.id));
-  _enforceAncestorCardSpacing(uniqueNodes, edges);
+  // v2 places ancestors (and their siblings) collision-free already; the v1
+  // enforce/shift passes would only disturb it, so skip them under ?layout=v2.
+  if (!_v2) _enforceAncestorCardSpacing(uniqueNodes, edges);
 
   // Ancestor siblings extend outward from the focal-relative branch side.
   // Must run before expanded related trees so the boundary includes sibling nodes.
-  if (_tS.ancSiblings.size){
+  if (!_v2 && _tS.ancSiblings.size){
     const rowMin = new Map(); // nodeY → leftmost x
     const rowMax = new Map(); // nodeY → rightmost x+TW
     for (const n of uniqueNodes){
@@ -2052,7 +2228,7 @@ function tpComputeLayout(){
   // The per-iteration code only catches edges whose y equals the card TOP (n.y), but
   // partner edges and downward lineage edges sit at card MID-HEIGHT (n.y + _TH/2),
   // so they're missed when their parent nodes shift. This pass fixes them all at once.
-  if (_tS.ancSiblings.size) {
+  if (!_v2 && _tS.ancSiblings.size) {
     const nMap = new Map(uniqueNodes.map(nd => [nd.id, nd]));
     for (const edge of edges) {
       if (edge.type === 'partner' && edge.fromId && edge.toId) {
@@ -2073,7 +2249,7 @@ function tpComputeLayout(){
 
   // Re-enforce spacing after sibling expansions. Centering steps can push nodes (especially
   // placeholder parents) closer to the opposite branch than the minimum gap allows.
-  if (_tS.ancSiblings.size) _enforceAncestorCardSpacing(uniqueNodes, edges);
+  if (!_v2 && _tS.ancSiblings.size) _enforceAncestorCardSpacing(uniqueNodes, edges);
 
   // Ancestor other-children: children an ancestor had with a partner outside the main lineage.
   // These appear as half-siblings of the lineage child in that generation.
