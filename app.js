@@ -1493,15 +1493,16 @@ function _nodeCX(n){
   return n.x + _TW/2;
 }
 
-// Experimental width-first ancestor layout, gated behind ?layout=v2 so it can be
-// debugged live without affecting the default (v1) layout. See _ancPlaceLineage.
+// Width-first ancestor layout (see _ancPlaceLineage) — now the default. ?layout=v1
+// opts back into the legacy layout for comparison; tpComputeLayout also falls back
+// to v1 automatically if the v2 build throws.
 function _useV2Layout(){
   try {
     const p = new URLSearchParams(location.search).get('layout');
-    if (p === 'v2') { sessionStorage.setItem('layoutV2', '1'); return true; }   // sticky for the session
-    if (p === 'v1') { sessionStorage.removeItem('layoutV2'); return false; }     // ?layout=v1 turns it off
-    return sessionStorage.getItem('layoutV2') === '1';
-  } catch (_e) { return false; }
+    if (p === 'v1') { sessionStorage.setItem('layoutV1', '1'); return false; }   // sticky opt-out
+    if (p === 'v2') { sessionStorage.removeItem('layoutV1'); return true; }       // re-enable default
+    return sessionStorage.getItem('layoutV1') !== '1';                            // default: v2
+  } catch (_e) { return true; }
 }
 
 function _ancVisibleSibList(ancId){
