@@ -1521,7 +1521,12 @@ function _ancParentsToDraw(childId, depth, includePlaceholders){
   const c = _tS.persons.get(childId);
   const F = c && c.father ? _tS.persons.get(c.father) : null;
   const M = c && c.mother ? _tS.persons.get(c.mother) : null;
-  return {F, M, drawF: !!F || includePlaceholders, drawM: !!M || includePlaceholders};
+  // Only show "Add father/mother" placeholders for parents (depth 0) and grandparents
+  // (depth 1). Suppress them at the great-grandparent tier (depth 2): empty stubs there
+  // widen the tree and force unknown-ancestor grandparent couples to reserve a full slot.
+  // Great-grandparents can still be added by re-focusing on a grandparent.
+  const ph = includePlaceholders && depth < 2;
+  return {F, M, drawF: !!F || ph, drawM: !!M || ph};
 }
 
 function _ancCoupleW(childId, depth, includePlaceholders){
@@ -1926,6 +1931,16 @@ function tpComputeLayout(){
       const tn = [], te = [];
       const _ancW = _ancCoupleW(_tS.focusId, 0, true);
       _ancPlaceLineage(_tS.focusId, 0, -_ancW/2, 0, 0, [], tn, te, {});
+      // Re-center: an asymmetric ancestor tree (e.g. one grandparent's parents
+      // unknown) leaves the focus's parents couple off-center. Rigidly translate the
+      // whole ancestor block so that couple's union sits at x=0 over the focus —
+      // preserves all relative spacing (no new overlaps), just centers the tree.
+      const _fe = te.find(e => e.type === 'lineage' && e.childId === _tS.focusId);
+      const _dx = _fe ? -_fe.x1 : 0;
+      if (_dx) {
+        for (const n of tn) n.x += _dx;
+        for (const e of te) { e.x1 += _dx; e.x2 += _dx; }
+      }
       for (const n of tn) nodes.push(n);
       for (const e of te) edges.push(e);
     } catch (err) {
