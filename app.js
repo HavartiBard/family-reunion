@@ -1130,6 +1130,7 @@ async function tpLoadStoredTrees(){
   } catch(e){ _tS.storedTrees = []; }
 }
 const _TW = 160, _TH = 88, _THG = 28, _TVG = 100; // node w/h, h-gap, v-gap
+const _ANC_TIGHTEN = 0.6; // 0=couples centred over ancestors (wide gaps), 1=couples over their child (tight)
 const _H_TW = 200, _H_TH = 60, _H_THG = 24, _H_TVG = 8; // horiz-tree card dims (wider, shorter, tighter)
 
 SCREENS.tree = function(params){
@@ -1566,6 +1567,12 @@ function _ancPlaceLineage(childId, depth, leftX, childCX, childTopY, path, nodes
   else if (fUnionCX != null) coupleCenter = fUnionCX;
   else if (mUnionCX != null) coupleCenter = mUnionCX;
   else coupleCenter = leftX + W / 2;
+
+  // Tighten inter-couple gaps: pull the couple toward its child (the centre). The
+  // parent-couples above were placed in fixed slots (fSlotX/mSlotX) independent of this
+  // card position, so they don't move — only the conduits up to them angle a little.
+  // The clamp below keeps the couple inside its slot, so this never causes an overlap.
+  coupleCenter = coupleCenter * (1 - _ANC_TIGHTEN) + childCX * _ANC_TIGHTEN;
 
   // Clamp so the whole unit (couple + each member's siblings) stays inside the
   // [leftX, leftX+W] slot. When siblings drive the width (ownW >= aboveW) this
