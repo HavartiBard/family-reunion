@@ -2516,12 +2516,13 @@ function tpRender(){
       const btnY = (ny + _TH/2 - 10).toFixed(0);
       html += `<button class="tn-leaf-btn${c}" style="left:${btnX}px;top:${btnY}px" onclick="tpToggleAncestorSibs(event,'${n.id}')" title="${isColSide?'Show siblings':'Hide siblings'}">${lbl}</button>`;
     }
-    // Branch pill: expand/collapse partner's ancestry inline
+    // Related-tree tab: a drawer handle on the top edge of the card that expands/collapses
+    // this married-in person's family tree (e.g. "Kelsall" when viewing the Barrett tree).
     if ((n.role==='partner' || n.role==='sib-partner') && (p.father || p.mother)){
       const isExp = _tS.expandedRelated.has(n.id);
       const bSurname = p.birth_surname || p.family_name;
-      const bLabel = (bSurname ? `${esc(bSurname)}` : 'family') + (isExp ? ' ▴' : ' ▾');
-      const bW = 94, bX = nx + (_TW - bW)/2, bY = ny - 28;
+      const bLabel = `${esc(bSurname || 'family')}<span class="tn-branch-caret">${isExp ? '▴' : '▾'}</span>`;
+      const bX = (nx + _TW/2).toFixed(0), bY = (ny - 18).toFixed(0);
       html += `<div class="tn-branch${isExp?' expanded':''}" style="left:${bX}px;top:${bY}px${tcStyle}" onclick="tpExpandRelated('${n.id}')" title="${isExp?'Collapse':'Expand'} ${esc(p.display_name)}'s family tree">${bLabel}</div>`;
     }
   }
