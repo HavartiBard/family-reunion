@@ -1407,103 +1407,8 @@ function _hideAncestorSibs(id){
   _setAncestorSibsVisible(id, false);
 }
 
-function _buildParentLineage(childCtx, nodes, edges, opts={}){
-  const maxDepth = opts.maxDepth || 3;
-  const includePlaceholders = opts.includePlaceholders !== false;
-  const {childId, depth, childCX, childTopY, path} = childCtx;
-  if (depth >= maxDepth || _tS.collapsed.has(childId)) return;
-  const child = _tS.persons.get(childId);
-  if (!child) return;
-
-  const nextDepth = depth + 1;
-  const parentY = childTopY - (_TH + _TVG);
-  const pairGap = _TW + _THG;
-  const branchHalf = pairGap / 2;
-  const childRole = path && path.length ? path[path.length - 1] : null;
-  const pairCX = childRole === 'father'
-    ? childCX - branchHalf
-    : childRole === 'mother'
-      ? childCX + branchHalf
-      : childCX;
-  const pairFatherCX = pairCX - branchHalf;
-  const pairMotherCX = pairCX + branchHalf;
-  const father = child.father ? _tS.persons.get(child.father) : null;
-  const mother = child.mother ? _tS.persons.get(child.mother) : null;
-
-  const addParentNode = (person, role, cx, parentId) => {
-    const parentPath = [...(path || []), role];
-    if (person) {
-      nodes.push(_lineageNode({ id: person.id, cx, y: parentY, person, role:'anc', relDepth: -nextDepth, path: parentPath }));
-    } else if (includePlaceholders) {
-      nodes.push(_lineageNode({
-        id: `ph:${parentId}:${role}`,
-        cx,
-        y: parentY,
-        person: { display_name: role === 'father' ? 'Add father' : 'Add mother' },
-        role:'anc-placeholder',
-        relDepth: -nextDepth,
-        path: parentPath,
-        placeholder: true,
-        placeholderRole: role,
-        childId: parentId,
-      }));
-    }
-  };
-
-  const hasFatherNode = !!(father || includePlaceholders);
-  const hasMotherNode = !!(mother || includePlaceholders);
-  const fatherNodeId = father ? father.id : `ph:${childId}:father`;
-  const motherNodeId = mother ? mother.id : `ph:${childId}:mother`;
-  addParentNode(father, 'father', pairFatherCX, childId);
-  addParentNode(mother, 'mother', pairMotherCX, childId);
-  if (hasFatherNode || hasMotherNode) {
-    if (hasFatherNode && hasMotherNode) {
-      edges.push({
-        x1: pairFatherCX + _TW/2,
-        y1: parentY + _TH/2,
-        x2: pairMotherCX - _TW/2,
-        y2: parentY + _TH/2,
-        type:'partner',
-        fromId: fatherNodeId,
-        toId: motherNodeId,
-      });
-    }
-    const unionCX = hasFatherNode && hasMotherNode ? pairCX : hasFatherNode ? pairFatherCX : pairMotherCX;
-    edges.push({
-      x1: unionCX,
-      y1: parentY + _TH/2,
-      x2: childCX,
-      y2: childTopY,
-      type:'lineage',
-      direction:'up',
-      relDepth: -nextDepth,
-      childId,
-      path: path || [],
-      fatherId: hasFatherNode ? fatherNodeId : null,
-      motherId: hasMotherNode ? motherNodeId : null,
-      labelRootId: opts.labelRootId || _tS.focusId,
-      midY: childTopY - _TVG * 0.28,
-    });
-  }
-
-  if (father) _buildParentLineage({ childId: father.id, depth: nextDepth, childCX: pairFatherCX, childTopY: parentY, path: [...(path || []), 'father'] }, nodes, edges, opts);
-  if (mother) _buildParentLineage({ childId: mother.id, depth: nextDepth, childCX: pairMotherCX, childTopY: parentY, path: [...(path || []), 'mother'] }, nodes, edges, opts);
-}
-
 function _nodeCX(n){
   return n.x + _TW/2;
-}
-
-// Width-first ancestor layout (see _ancPlaceLineage) — now the default. ?layout=v1
-// opts back into the legacy layout for comparison; tpComputeLayout also falls back
-// to v1 automatically if the v2 build throws.
-function _useV2Layout(){
-  try {
-    const p = new URLSearchParams(location.search).get('layout');
-    if (p === 'v1') { sessionStorage.setItem('layoutV1', '1'); return false; }   // sticky opt-out
-    if (p === 'v2') { sessionStorage.removeItem('layoutV1'); return true; }       // re-enable default
-    return sessionStorage.getItem('layoutV1') !== '1';                            // default: v2
-  } catch (_e) { return true; }
 }
 
 function _ancVisibleSibList(ancId){
@@ -1656,80 +1561,6 @@ function _ancPlaceSiblings(ancId, ancCX, ancY, side, ancPath, depth, nodes, edge
     const elbowY = ancY - _TVG * 0.28;
     for (const cx of sibCXs) edges.push({type:'bus', x1:gpUnionCX, y1:gpUnionY, x2:cx, y2:ancY, midY:elbowY});
   }
-}
-
-function _nodeById(nodes, id){
-  return id ? nodes.find(n => n.id === id) : null;
-}
-
-function _refreshLineageEdgePositions(edges, nodes){
-  for (const e of edges){
-    if (e.type === 'partner' && e.fromId && e.toId){
-      const from = _nodeById(nodes, e.fromId);
-      const to = _nodeById(nodes, e.toId);
-      if (!from || !to) continue;
-      const fromLeft = from.x < to.x;
-      e.x1 = fromLeft ? from.x + _TW : from.x;
-      e.y1 = from.y + _TH/2;
-      e.x2 = fromLeft ? to.x : to.x + _TW;
-      e.y2 = to.y + _TH/2;
-    } else if (e.type === 'lineage'){
-      const child = _nodeById(nodes, e.childId);
-      const father = _nodeById(nodes, e.fatherId);
-      const mother = _nodeById(nodes, e.motherId);
-      const parent = father || mother;
-      if (!child || !parent) continue;
-      e.x1 = father && mother ? (_nodeCX(father) + _nodeCX(mother)) / 2 : _nodeCX(parent);
-      e.y1 = parent.y + _TH/2;
-      e.x2 = _nodeCX(child);
-      e.y2 = child.y;
-      e.midY = child.y - _TVG * 0.28;
-    }
-  }
-}
-
-function _enforceAncestorCardSpacing(nodes, edges){
-  const minCenterGap = _TW + _THG;
-  const rows = new Map();
-  for (const n of nodes){
-    if (n.relDepth >= -1) continue;
-    if (!(n.role === 'anc' || n.role === 'anc-placeholder')) continue;
-    if (n.relatedExpanded) continue;
-    if (!rows.has(n.relDepth)) rows.set(n.relDepth, []);
-    rows.get(n.relDepth).push(n);
-  }
-
-  for (const rowNodes of rows.values()){
-    const branches = {
-      left: rowNodes.filter(n => n.side === 'left'),
-      right: rowNodes.filter(n => n.side === 'right'),
-      center: rowNodes.filter(n => !n.side),
-    };
-
-    branches.left
-      .sort((a,b) => _nodeCX(b) - _nodeCX(a))
-      .forEach((n, idx, arr) => {
-        const targetCX = idx === 0 ? Math.min(_nodeCX(n), -minCenterGap/2) : Math.min(_nodeCX(n), _nodeCX(arr[idx-1]) - minCenterGap);
-        n.x += targetCX - _nodeCX(n);
-      });
-
-    branches.right
-      .sort((a,b) => _nodeCX(a) - _nodeCX(b))
-      .forEach((n, idx, arr) => {
-        const targetCX = idx === 0 ? Math.max(_nodeCX(n), minCenterGap/2) : Math.max(_nodeCX(n), _nodeCX(arr[idx-1]) + minCenterGap);
-        n.x += targetCX - _nodeCX(n);
-      });
-
-    branches.center
-      .sort((a,b) => _nodeCX(a) - _nodeCX(b))
-      .forEach((n, idx, arr) => {
-        if (idx === 0) return;
-        const targetCX = Math.max(_nodeCX(n), _nodeCX(arr[idx-1]) + minCenterGap);
-        n.x += targetCX - _nodeCX(n);
-      });
-  }
-
-  _refreshLineageEdgePositions(edges, nodes);
 }
 
 // Orthogonal stepped connector path with rounded corners.
@@ -1896,38 +1727,27 @@ function tpComputeLayout(){
   const nodes=[], edges=[];
   const focusPerson = _tS.persons.get(_tS.focusId);
   if (focusPerson) nodes.push(_lineageNode({ id:_tS.focusId, cx:0, y:0, person:focusPerson, role:'focus', relDepth:0, path:[] }));
-  // Ancestor layout: default v1 (_buildParentLineage + post-hoc sibling block below).
-  // ?layout=v2 selects the experimental width-first layout, which places ancestor
-  // siblings inline (so the v1 sibling/enforce passes are skipped for it). Wrapped in
-  // try/catch with a build-into-temp-then-merge guard so a v2 failure logs the real
-  // error and cleanly falls back to v1 instead of breaking the render.
-  let _v2 = _useV2Layout();
-  if (_v2) {
-    try {
-      const tn = [], te = [];
-      const _ancW = _ancCoupleW(_tS.focusId, 0, true);
-      _ancPlaceLineage(_tS.focusId, 0, -_ancW/2, 0, 0, [], tn, te, {});
-      // Re-center: an asymmetric ancestor tree (e.g. one grandparent's parents
-      // unknown) leaves the focus's parents couple off-center. Rigidly translate the
-      // whole ancestor block so that couple's union sits at x=0 over the focus —
-      // preserves all relative spacing (no new overlaps), just centers the tree.
-      const _fe = te.find(e => e.type === 'lineage' && e.childId === _tS.focusId);
-      const _dx = _fe ? -_fe.x1 : 0;
-      if (_dx) {
-        for (const n of tn) n.x += _dx;
-        for (const e of te) { e.x1 += _dx; e.x2 += _dx; }
-      }
-      for (const n of tn) nodes.push(n);
-      for (const e of te) edges.push(e);
-    } catch (err) {
-      console.error('[tree layout v2] failed, falling back to v1:', err);
-      window.__treeV2Error = (err && err.stack) || String(err);
-      try { toast('Layout v2 error (using v1): ' + (err && err.message || err), 'error'); } catch (_t) {}
-      _v2 = false;
+  // Ancestors: width-first layout placed into temp arrays then merged. Guarded so a
+  // layout error degrades to "no ancestors shown" rather than blanking the whole tree.
+  try {
+    const tn = [], te = [];
+    const ancW = _ancCoupleW(_tS.focusId, 0, true);
+    _ancPlaceLineage(_tS.focusId, 0, -ancW/2, 0, 0, [], tn, te, {});
+    // Re-center: an asymmetric ancestor tree (e.g. one grandparent's parents unknown)
+    // leaves the focus's parents couple off-center. Rigidly translate the whole block
+    // so that couple's union sits at x=0 over the focus — preserves all relative
+    // spacing (no new overlaps), just centers the tree.
+    const fe = te.find(e => e.type === 'lineage' && e.childId === _tS.focusId);
+    const dx = fe ? -fe.x1 : 0;
+    if (dx) {
+      for (const n of tn) n.x += dx;
+      for (const e of te) { e.x1 += dx; e.x2 += dx; }
     }
-  }
-  if (!_v2) {
-    _buildParentLineage({ childId:_tS.focusId, depth:0, childCX:0, childTopY:0, path:[] }, nodes, edges);
+    for (const n of tn) nodes.push(n);
+    for (const e of te) edges.push(e);
+  } catch (err) {
+    console.error('[tree ancestor layout] failed:', err);
+    window.__treeAncError = (err && err.stack) || String(err);
   }
 
   const foc = nodes.find(n => n.id === _tS.focusId);
@@ -1978,269 +1798,6 @@ function tpComputeLayout(){
   // Deduplicate nodes in case a person appears via multiple routes
   const _seen = new Set();
   const uniqueNodes = nodes.filter(n => !_seen.has(n.id) && _seen.add(n.id));
-  // v2 places ancestors (and their siblings) collision-free already; the v1
-  // enforce/shift passes would only disturb it, so skip them under ?layout=v2.
-  if (!_v2) _enforceAncestorCardSpacing(uniqueNodes, edges);
-
-  // Ancestor siblings extend outward from the focal-relative branch side.
-  // Must run before expanded related trees so the boundary includes sibling nodes.
-  if (!_v2 && _tS.ancSiblings.size){
-    const rowMin = new Map(); // nodeY → leftmost x
-    const rowMax = new Map(); // nodeY → rightmost x+TW
-    for (const n of uniqueNodes){
-      rowMin.set(n.y, Math.min(rowMin.get(n.y) ?? Infinity, n.x));
-      rowMax.set(n.y, Math.max(rowMax.get(n.y) || 0, n.x + _TW));
-    }
-    for (const n of uniqueNodes.slice()){
-      if (n.role !== 'anc') continue;
-      const entry = _tS.ancSiblings.get(n.id); if (!entry) continue;
-      if (!_ancSibsVisible(n.id)) continue;
-      const {sibs, sibPartners = new Map()} = entry;
-      const rowY = n.y;
-      // Direction based on position within couple (path[last]):
-      // 'father' = left card → siblings expand left; 'mother' = right card → right.
-      // Single ancestors (no couple) use the same rule since their path ends in their own role.
-      const posInCouple = n.path && n.path.length ? n.path[n.path.length - 1] : null;
-      const goLeft = posInCouple === 'father' || (!posInCouple && n.x + _TW/2 < 0);
-      const newSibs = sibs.filter(s => !uniqueNodes.some(m => m.id === s.id));
-      if (!newSibs.length) continue;
-
-      // Space needed: 1 slot per sib plus 1 extra slot if their partner isn't already placed.
-      const ancPath = n.path;
-      const spaceNeeded = newSibs.reduce((sum, s) => {
-        const partner = sibPartners.get(s.id);
-        const partnerNew = partner && !uniqueNodes.some(m => m.id === partner.id);
-        return sum + (partnerNew ? 2 : 1) * (_TW + _THG);
-      }, 0);
-
-      // Shift same-row nodes to create room. Branch filter (path[0]) ensures a paternal
-      // expansion never touches maternal nodes, and vice versa.
-      //
-      // "Inner-card" fallback: when there is no same-branch room in the sibling direction,
-      // pull the whole same-branch row in the OPPOSITE direction (away from center) so that
-      // the siblings fit without touching the other branch.
-      //   • Paternal right-card (goRight, branchRoot='father'): pull paternal row LEFT.
-      //   • Maternal left-card  (goLeft,  branchRoot='mother'): pull maternal row RIGHT.
-      // Outer-card expansions (paternal left, maternal right) always have open space outward
-      // and need no fallback. aboveDelta follows the actual shift direction.
-      const branchRoot = n.path.length ? n.path[0] : null;
-      const shiftedSameRowIds = new Set();
-      let shiftDirLeft = goLeft;
-      if (goLeft) {
-        const thresh = n.x;
-        for (const node of uniqueNodes) {
-          if (node.y === n.y && node.x + _TW <= thresh &&
-              (!branchRoot || !node.path.length || node.path[0] === branchRoot)) {
-            node.x -= spaceNeeded;
-            shiftedSameRowIds.add(node.id);
-          }
-        }
-        if (shiftedSameRowIds.size > 0) {
-          for (const edge of edges) {
-            if (edge.y1 === n.y && edge.x1 < thresh) edge.x1 -= spaceNeeded;
-            if (edge.y2 === n.y && edge.x2 < thresh) edge.x2 -= spaceNeeded;
-          }
-        } else if (branchRoot === 'mother') {
-          // Maternal left-card with no maternal room to the left: pull maternal row right.
-          shiftDirLeft = false;
-          for (const node of uniqueNodes) {
-            if (node.y === n.y &&
-                (!branchRoot || !node.path.length || node.path[0] === branchRoot)) {
-              node.x += spaceNeeded;
-              shiftedSameRowIds.add(node.id);
-            }
-          }
-          for (const edge of edges) {
-            if (edge.y1 === n.y && edge.x1 >= thresh) edge.x1 += spaceNeeded;
-            if (edge.y2 === n.y && edge.x2 >= thresh) edge.x2 += spaceNeeded;
-          }
-        }
-      } else {
-        const thresh = n.x + _TW;
-        for (const node of uniqueNodes) {
-          if (node.y === n.y && node.x >= thresh && node.id !== n.id &&
-              (!branchRoot || !node.path.length || node.path[0] === branchRoot)) {
-            node.x += spaceNeeded;
-            shiftedSameRowIds.add(node.id);
-          }
-        }
-        if (shiftedSameRowIds.size > 0) {
-          for (const edge of edges) {
-            if (edge.y1 === n.y && edge.x1 >= thresh) edge.x1 += spaceNeeded;
-            if (edge.y2 === n.y && edge.x2 >= thresh) edge.x2 += spaceNeeded;
-          }
-        } else if (branchRoot === 'father') {
-          // Paternal right-card with no paternal room to the right: pull paternal row left.
-          shiftDirLeft = true;
-          for (const node of uniqueNodes) {
-            if (node.y === n.y &&
-                (!branchRoot || !node.path.length || node.path[0] === branchRoot)) {
-              node.x -= spaceNeeded;
-              shiftedSameRowIds.add(node.id);
-            }
-          }
-          for (const edge of edges) {
-            if (edge.y1 === n.y && edge.x1 < thresh) edge.x1 -= spaceNeeded;
-            if (edge.y2 === n.y && edge.x2 < thresh) edge.x2 -= spaceNeeded;
-          }
-        }
-      }
-
-      // When a same-row node shifts, its ancestors must follow.
-      // Excludes n's own ancestors — those are handled by the centering step below.
-      const aboveDelta = shiftDirLeft ? -spaceNeeded : spaceNeeded;
-      const shiftedAboveIds = new Set();
-      for (const srid of shiftedSameRowIds) {
-        const srNode = uniqueNodes.find(nd => nd.id === srid);
-        if (!srNode) continue;
-        const srPath = srNode.path;
-        for (const node of uniqueNodes) {
-          if (node.y < n.y && node.path.length > srPath.length &&
-              srPath.every((s, i) => node.path[i] === s) &&
-              !(node.path.length > ancPath.length && ancPath.every((s, i) => node.path[i] === s))) {
-            node.x += aboveDelta;
-            shiftedAboveIds.add(node.id);
-          }
-        }
-      }
-      for (const edge of edges) {
-        if (edge.type === 'partner' &&
-            shiftedAboveIds.has(edge.fromId) && shiftedAboveIds.has(edge.toId)) {
-          edge.x1 += aboveDelta;
-          edge.x2 += aboveDelta;
-        } else if (edge.type === 'lineage') {
-          if (shiftedSameRowIds.has(edge.childId) && edge.y1 < n.y) {
-            // Edge from shifted node's parents (above) to shifted node at n.y; x2 already done
-            edge.x1 += aboveDelta;
-          } else if (shiftedAboveIds.has(edge.childId)) {
-            edge.x1 += aboveDelta;
-            edge.x2 += aboveDelta;
-          }
-        }
-      }
-
-      // Centering: shift all same-branch ancestors above n (not already moved by
-      // shiftedAboveIds) so the parent couple stays at the same relative position
-      // above the anchor (n) as it was in the initial tree layout.
-      //
-      // _buildParentLineage places the parent couple at:
-      //   pairCX = childCX + branchHalf  (child is right-card, goLeft=false)
-      //   pairCX = childCX - branchHalf  (child is left-card,  goLeft=true)
-      // where branchHalf = (TW + THG) / 2. After any shift (fallback or normal),
-      // we want the parent couple at n.new_cx ± branchHalf — no dependency on
-      // spaceNeeded or whether a fallback ran.
-      //
-      // Scope: all same-branch ancestors not already moved, so Roger's parents and
-      // JoAnn's parents shift together by the same delta instead of drifting apart.
-      // The final edge sync pass re-derives all partner/lineage edge x-coords.
-      const parentUnionPre = _parentUnionFor(n, uniqueNodes);
-      if (parentUnionPre) {
-        const pairHalf = (_TW + _THG) / 2;
-        const groupCX = n.x + _TW / 2 + (goLeft ? -pairHalf : pairHalf);
-        // When only one parent is known, use the ideal couple center (not the single
-        // node's CX) to avoid a spurious shift into the opposite branch.
-        const idealParentCX = parentUnionPre.fatherNode && parentUnionPre.motherNode
-          ? parentUnionPre.cx
-          : parentUnionPre.fatherNode
-            ? parentUnionPre.fatherNode.x + _TW / 2 + pairHalf
-            : parentUnionPre.motherNode.x + _TW / 2 - pairHalf;
-        const centeringDelta = groupCX - idealParentCX;
-        if (Math.abs(centeringDelta) > 0.5) {
-          for (const node of uniqueNodes) {
-            if (node.y < n.y && branchRoot && node.path[0] === branchRoot &&
-                !shiftedAboveIds.has(node.id)) {
-              node.x += centeringDelta;
-            }
-          }
-          // Partner and lineage edges are re-derived by the final sync pass below.
-        }
-      }
-
-      // Recompute row bounds after both shifts
-      rowMin.clear(); rowMax.clear();
-      for (const node of uniqueNodes) {
-        rowMin.set(node.y, Math.min(rowMin.get(node.y) ?? Infinity, node.x));
-        rowMax.set(node.y, Math.max(rowMax.get(node.y) || 0, node.x + _TW));
-      }
-
-      const parentUnion = _parentUnionFor(n, uniqueNodes);
-      const sibCXs = []; // CX of each sibling (for bus edges — partners excluded)
-      const newSibPartnerEdges = []; // {fromId, toId} for sibling-spouse partner edges
-      let curX = goLeft ? n.x : n.x + _TW;
-      for (const sib of newSibs){
-        const partner = sibPartners.get(sib.id);
-        const partnerNew = partner && !uniqueNodes.some(m => m.id === partner.id);
-        let sx;
-        if (goLeft){
-          // Sibling closer to anchor, partner further left
-          curX -= (_THG + _TW);
-          sx = curX;
-          sibCXs.unshift(sx + _TW/2);
-          if (partnerNew){
-            const px = curX - (_THG + _TW);
-            uniqueNodes.push({id:partner.id, x:px, y:rowY, person:partner, role:'anc-sib', d:n.d, relDepth:n.relDepth, path:n.path, side:n.side});
-            _seen.add(partner.id);
-            newSibPartnerEdges.push({fromId:partner.id, toId:sib.id, x1:px + _TW, x2:sx, y:rowY + _TH/2});
-            rowMin.set(rowY, Math.min(rowMin.get(rowY) ?? Infinity, px));
-            curX = px;
-          } else {
-            rowMin.set(rowY, Math.min(rowMin.get(rowY) ?? Infinity, sx));
-          }
-        } else {
-          // Sibling closer to anchor, partner further right
-          sx = curX + _THG;
-          curX = sx + _TW;
-          sibCXs.push(sx + _TW/2);
-          if (partnerNew){
-            const px = curX + _THG;
-            uniqueNodes.push({id:partner.id, x:px, y:rowY, person:partner, role:'anc-sib', d:n.d, relDepth:n.relDepth, path:n.path, side:n.side});
-            _seen.add(partner.id);
-            newSibPartnerEdges.push({fromId:sib.id, toId:partner.id, x1:sx + _TW, x2:px, y:rowY + _TH/2});
-            curX = px + _TW;
-            rowMax.set(rowY, Math.max(rowMax.get(rowY) || 0, curX));
-          } else {
-            rowMax.set(rowY, Math.max(rowMax.get(rowY) || 0, curX));
-          }
-        }
-        uniqueNodes.push({id:sib.id, x:sx, y:rowY, person:sib, role:'anc-sib', d:n.d, relDepth:n.relDepth, path:n.path, side:n.side});
-        _seen.add(sib.id);
-      }
-      if (parentUnion && sibCXs.length){
-        const elbowY = rowY - _TVG * 0.28;
-        for (const cx of sibCXs) edges.push({x1:parentUnion.cx, y1:parentUnion.y, x2:cx, y2:rowY, type:'bus', midY:elbowY});
-      }
-      for (const pe of newSibPartnerEdges){
-        edges.push({type:'partner', x1:pe.x1, y1:pe.y, x2:pe.x2, y2:pe.y, fromId:pe.fromId, toId:pe.toId});
-      }
-    }
-  }
-
-  // After all ancSiblings shifts, re-derive edge x-coords from node positions.
-  // The per-iteration code only catches edges whose y equals the card TOP (n.y), but
-  // partner edges and downward lineage edges sit at card MID-HEIGHT (n.y + _TH/2),
-  // so they're missed when their parent nodes shift. This pass fixes them all at once.
-  if (!_v2 && _tS.ancSiblings.size) {
-    const nMap = new Map(uniqueNodes.map(nd => [nd.id, nd]));
-    for (const edge of edges) {
-      if (edge.type === 'partner' && edge.fromId && edge.toId) {
-        const f = nMap.get(edge.fromId), t = nMap.get(edge.toId);
-        if (f && t) { edge.x1 = f.x + _TW; edge.x2 = t.x; }
-      } else if (edge.type === 'lineage') {
-        const f = edge.fatherId ? nMap.get(edge.fatherId) : null;
-        const m = edge.motherId ? nMap.get(edge.motherId) : null;
-        const c = edge.childId ? nMap.get(edge.childId) : null;
-        if (f || m) {
-          edge.x1 = f && m ? ((f.x + _TW/2) + (m.x + _TW/2)) / 2
-                           : (f || m).x + _TW/2;
-        }
-        if (c) edge.x2 = c.x + _TW/2;
-      }
-    }
-  }
-
-  // Re-enforce spacing after sibling expansions. Centering steps can push nodes (especially
-  // placeholder parents) closer to the opposite branch than the minimum gap allows.
-  if (!_v2 && _tS.ancSiblings.size) _enforceAncestorCardSpacing(uniqueNodes, edges);
 
   // Ancestor other-children: children an ancestor had with a partner outside the main lineage.
   // These appear as half-siblings of the lineage child in that generation.
@@ -2309,10 +1866,16 @@ function tpComputeLayout(){
       if (!_tS.expandedRelated.has(n.id)) continue;
       const rp = _tS.persons.get(n.id);
       if (!rp) continue;
-      // Build subtree in temporary arrays, centered at x=0 at partner's y level
+      // Build the partner's ancestry (width-first layout) into temp arrays, centered
+      // over the partner at x=0 (its own y level).
       const tempNodes = [], tempEdges = [];
-      _buildParentLineage({ childId:n.id, depth:0, childCX:0, childTopY:n.y, path:[] }, tempNodes, tempEdges, { includePlaceholders:false, labelRootId:n.id });
+      const relW = _ancCoupleW(n.id, 0, false);
+      _ancPlaceLineage(n.id, 0, -relW/2, 0, n.y, [], tempNodes, tempEdges, { includePlaceholders:false, labelRootId:n.id });
       if (!tempNodes.length) continue;
+      // Re-center so the partner's parents' union sits at x=0 (the rel-link anchors there).
+      const relFe = tempEdges.find(e => e.type === 'lineage' && e.childId === n.id);
+      const relDx = relFe ? -relFe.x1 : 0;
+      if (relDx) { for (const m of tempNodes) m.x += relDx; for (const e of tempEdges) { e.x1 += relDx; e.x2 += relDx; } }
       // Maternal (female) side opens right; paternal (male/unknown) side opens left
       const goRight = rp.gender === 'female';
       let dx;
@@ -2323,7 +1886,6 @@ function tpComputeLayout(){
         const subMaxX = Math.max(...tempNodes.map(m => m.x + _TW));
         dx = leftBoundary - GAP - subMaxX;
       }
-      // Mark nodes so _enforceAncestorCardSpacing skips them (avoids mixing with main tree rows)
       for (const m of tempNodes) uniqueNodes.push({ ...m, x: m.x + dx, relatedExpanded: true });
       // Skip depth-0 lineage edge (goes to virtual child in empty space) and suppress chip labels.
       // A single gold elbow replaces it, running all the way from the parent union to the partner card.
