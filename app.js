@@ -1732,38 +1732,6 @@ function _enforceAncestorCardSpacing(nodes, edges){
   _refreshLineageEdgePositions(edges, nodes);
 }
 
-// Descendant subtree width
-function _descW(id, depth){
-  if (!id || !_tS.persons.has(id)) return 0;
-  if (depth >= 3 || _tS.descCollapsed.has(id)) return _TW;
-  const ch = _tS.childrenOf.get(id) || [];
-  if (!ch.length) return _TW;
-  return Math.max(_TW, ch.reduce((s,c) => s + _descW(c.id, depth+1) + _THG, -_THG));
-}
-// Place descendant nodes recursively
-// edgeStartY: if set, overrides the y1 of the edge from this parent to its children (first level only)
-function _descPlace(id, depth, cx, nodes, edges, parentCX, parentY, edgeStartY){
-  if (!id || !_tS.persons.has(id)) return;
-  const p = _tS.persons.get(id);
-  const y = depth * (_TH + _TVG);
-  if (depth > 0){
-    nodes.push({id, x: cx-_TW/2, y, person:p, role:'desc', d:depth, relDepth:depth, path:[]});
-    if (parentCX !== null)
-      edges.push({x1:parentCX, y1:(edgeStartY !== undefined ? edgeStartY : parentY+_TH), x2:cx, y2:y});
-  }
-  if (depth >= 3 || _tS.descCollapsed.has(id)) return;
-  const ch = _tS.childrenOf.get(id) || [];
-  if (!ch.length) return;
-  const ws = ch.map(c => _descW(c.id, depth+1));
-  const total = ws.reduce((s,w) => s+w+_THG, -_THG);
-  let x = cx - total/2;
-  for (let i=0; i<ch.length; i++){
-    // pass edgeStartY only one level deep (focus→child), not grandchild+
-    _descPlace(ch[i].id, depth+1, x+ws[i]/2, nodes, edges, cx, y, depth===0 ? edgeStartY : undefined);
-    x += ws[i] + _THG;
-  }
-}
-
 // Orthogonal stepped connector path with rounded corners.
 // Draws: down from (x1,y1) → elbow at mid-height → across → down to (x2,y2).
 function _orthoPath(x1, y1, x2, y2, r=10){
@@ -2470,7 +2438,7 @@ function tpRender(){
     const bandColor = treeColor || avatarTint(tintSeed.charCodeAt(0)%6);
     const av = photoUrl
       ? `<div class="tn-av-band" style="background:${bandColor}"><img class="tn-av-band-img" src="${photoUrl}" alt="" loading="lazy"></div>`
-      : `<div class="tn-av-band" style="background:${bandColor}">${personInitials(p)}</div>`;
+      : `<div class="tn-av-band" style="background:${bandColor}">${esc(personInitials(p))}</div>`;
 
     // Collapse button: ancestors with known parents (ancestor dir), descendants/focus with children (desc dir)
     const hasUp = n.role==='anc' && n.d < 3;
@@ -2639,7 +2607,7 @@ function tpRenderHorizontal(){
     const photoUrl = p.photo && p.id ? `${API}/api/files/persons/${p.id}/${p.photo}?thumb=80x88` : '';
     const av = photoUrl
       ? `<div class="tn-av-band" style="background:${bandColor}"><img class="tn-av-band-img" src="${photoUrl}" alt="" loading="lazy"></div>`
-      : `<div class="tn-av-band" style="background:${bandColor}">${personInitials(p)}</div>`;
+      : `<div class="tn-av-band" style="background:${bandColor}">${esc(personInitials(p))}</div>`;
     const tcStyle = treeColor ? `;--tc:${treeColor}` : '';
     const cls = ['tn-card', 'horiz', isFocus?'focus':'', n.role==='anc'?'anc':''].filter(Boolean).join(' ');
     html += `<div class="${cls}" style="left:${nx}px;top:${ny}px${tcStyle}" onclick="tpNodeClick(event,'${n.id}')">
