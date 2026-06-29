@@ -1143,6 +1143,12 @@ SCREENS.tree = function(params){
           <button class="tree-view-btn${_tS.viewMode==='horizontal'?' active':''}" data-mode="horizontal" onclick="tpSetViewMode('horizontal')" title="Horizontal pedigree">↦ Horizontal</button>
           <button class="tree-view-btn${_tS.viewMode==='fan'?' active':''}" data-mode="fan" onclick="tpSetViewMode('fan')" title="Fan chart">◉ Fan</button>
         </div>
+        <div class="tp-find">
+          <input id="tp-search" class="tp-search-input" type="text" placeholder="Find a person…"
+            autocomplete="off" oninput="tpPersonSearch(this.value)" onfocus="tpPersonSearch(this.value)"
+            onblur="setTimeout(()=>{const b=el('tp-search-results');if(b)b.hidden=true},150)" />
+          <div id="tp-search-results" class="tp-search-results" hidden></div>
+        </div>
         <div id="tree-selector" class="tree-selector"></div>
         <button class="btn btn-outline btn-sm" onclick="openPersonForm()">+ Add person</button>
       </div>
@@ -2391,26 +2397,79 @@ async function tpExpandRelated(pid){
   _computeTrees(); tpRenderPreserveViewport();
 }
 
+// Compact lineage filter (replaces the auto-generated family-chip row). Lists only
+// meaningful lineages — admin-configured trees, or surnames with >=2 people — so the
+// dozens of lone married-in names don't clutter it. Selecting one highlights that
+// family (dims the rest) and jumps to its root, same as the old chips.
 function tpRenderSelector(){
   const sel = el('tree-selector'); if (!sel) return;
   if (!_tS.trees.length){ sel.innerHTML = ''; return; }
   const isAdmin = !!(currentUser && currentUser.family_admin);
-  const all = `<button class="ts-pill${!_tS.activeTree?' active':''}" onclick="tpSelectTree(null)">All</button>`;
-  const pills = _tS.trees.map(t => {
-    const active = _tS.activeTree === t.name;
-    const saved = t.id ? '' : ' ts-unsaved';
-    const editBtn = isAdmin
-      ? `<button class="ts-edit-btn" onclick="tpOpenTreeEdit(${JSON.stringify(t.name)})" title="Configure ${esc(t.name)} tree">✎</button>`
+  const lineages = _tS.trees.filter(t => t.id || (t.count || 0) >= 2);
+  const active = _tS.activeTree ? _tS.trees.find(t => t.name === _tS.activeTree) : null;
+  const btnDot = active ? `<span class="tp-ln-dot" style="background:${active.color}"></span>` : '';
+  const btnLabel = active ? esc(active.name) : 'All families';
+
+  let items = `<button class="tp-ln-item${!_tS.activeTree?' active':''}" onclick="tpSelectTree(null);tpCloseLineageMenu()">` +
+    `<span class="tp-ln-dot" style="background:var(--border-default)"></span><span class="tp-ln-name">All families</span></button>`;
+  items += lineages.map(t => {
+    const isAct = _tS.activeTree === t.name;
+    const edit = isAdmin
+      ? `<span class="tp-ln-edit" onclick="event.stopPropagation();tpCloseLineageMenu();tpOpenTreeEdit(${JSON.stringify(t.name)})" title="Configure ${esc(t.name)}">✎</span>`
       : '';
-    return `<span class="ts-pill-wrap">` +
-      `<button class="ts-pill${active?' active':''}${saved}" style="--tc:${t.color}" onclick="tpSelectTree(${JSON.stringify(t.name)})" title="${esc(t.name)} lineage${t.id?'':' (unsaved)'}">${esc(t.name)}</button>` +
-      editBtn + `</span>`;
+    return `<button class="tp-ln-item${isAct?' active':''}" onclick="tpSelectTree(${JSON.stringify(t.name)});tpCloseLineageMenu()" title="Highlight & jump to the ${esc(t.name)} lineage">` +
+      `<span class="tp-ln-dot" style="background:${t.color}"></span>` +
+      `<span class="tp-ln-name">${esc(t.name)}</span><span class="tp-ln-count">${t.count}</span>${edit}</button>`;
   }).join('');
-  const addBtn = isAdmin
-    ? `<button class="ts-pill ts-add-btn" onclick="tpOpenTreeEdit(null)" title="Add a new tree">+ Tree</button>`
-    : '';
-  sel.innerHTML = all + pills + addBtn;
+  if (isAdmin) items += `<button class="tp-ln-item tp-ln-add" onclick="tpCloseLineageMenu();tpOpenTreeEdit(null)">+ Add tree</button>`;
+
+  sel.innerHTML =
+    `<button class="tp-lineage-btn" onclick="tpToggleLineageMenu(event)" title="Filter & jump to a family lineage">` +
+      `${btnDot}<span class="tp-lineage-lbl">${btnLabel}</span><span class="tp-lineage-caret">▾</span></button>` +
+    `<div id="tp-lineage-menu" class="tp-lineage-menu" hidden>${items}</div>`;
 }
+
+let _tpSearchTimer = null;
+function tpPersonSearch(q){
+  const box = el('tp-search-results'); if (!box) return;
+  q = (q || '').trim();
+  clearTimeout(_tpSearchTimer);
+  if (q.length < 2){ box.hidden = true; box.innerHTML = ''; return; }
+  _tpSearchTimer = setTimeout(async () => {
+    let items = [];
+    try {
+      const r = await apiFetch('/api/collections/persons/records?perPage=8&sort=family_name&filter=' +
+        encodeURIComponent(`display_name~"${q}"`));
+      if (r.ok) items = (await r.json()).items;
+    } catch (e) {}
+    if (!items.length){ box.innerHTML = `<div class="tp-search-empty">No matches for “${esc(q)}”</div>`; box.hidden = false; return; }
+    box.innerHTML = items.map(p => {
+      const col = _treeColorFor(p.birth_surname || p.family_name) || avatarTint(0);
+      const yrs = personYears(p) || '';
+      return `<button class="tp-search-item" onmousedown="tpFocusSearchResult('${p.id}')">` +
+        `<span class="tp-search-av" style="background:${col}">${esc(personInitials(p))}</span>` +
+        `<span class="tp-search-meta"><span class="tp-search-name">${esc(p.display_name)}</span>` +
+        (yrs ? `<span class="tp-search-sub">${esc(yrs)}</span>` : '') + `</span></button>`;
+    }).join('');
+    box.hidden = false;
+  }, 220);
+}
+function tpFocusSearchResult(id){
+  const box = el('tp-search-results'); if (box){ box.hidden = true; box.innerHTML = ''; }
+  const inp = el('tp-search'); if (inp){ inp.value = ''; inp.blur(); }
+  tpSetFocus(id);
+}
+function tpToggleLineageMenu(e){
+  e.stopPropagation();
+  const m = el('tp-lineage-menu'); if (!m) return;
+  const willOpen = m.hidden;
+  m.hidden = !willOpen;
+  if (willOpen) requestAnimationFrame(() => document.addEventListener('click', _tpLineageMenuOff, {once:true}));
+}
+function _tpLineageMenuOff(e){
+  if (!e.target.closest('#tp-lineage-menu') && !e.target.closest('.tp-lineage-btn')) tpCloseLineageMenu();
+}
+function tpCloseLineageMenu(){ const m = el('tp-lineage-menu'); if (m) m.hidden = true; }
 
 // Tree management (admin only)
 function tpOpenTreeEdit(surname){
