@@ -2033,10 +2033,16 @@ function tpRender(){
     const isColSide = !_ancSibsVisible(n.id);
     const isCol = isColAnc || isColDesc;
 
-    // "Has more" stub for great-grandparents with parents, or max-depth descendants
-    const moreAnc = n.role==='anc' && n.d===3 && (p.father||p.mother);
+    // "Has more" stub: deepest-tier ancestor whose parents are BOTH known (they exist
+    // beyond the 3-generation view), or a max-depth descendant.
+    const moreAnc = n.role==='anc' && n.d===3 && p.father && p.mother;
     const moreDesc = n.role==='desc' && n.d===3 && !_tS.childrenOf.has(n.id);
     const moreBtn = (moreAnc||moreDesc) ? '<div class="tn-more" title="More relatives exist beyond this view">···</div>' : '';
+    // Deepest-tier ancestor missing a parent: surface an add affordance here (the 3-gen
+    // cap means there's no row above to place an empty node, so use a "+" on the card).
+    const deepAddRole = (n.role==='anc' && n.d===3 && !(p.father && p.mother))
+      ? (!p.father && !p.mother ? 'parents' : (!p.father ? 'father' : 'mother'))
+      : null;
     const tcStyle = treeColor ? `;--tc:${treeColor}` : '';
     const cls = ['tn-card', isFocus?'focus':'', n.role==='anc'?'anc':'', n.role==='partner'?'partner':'',
       n.role==='sibling'?'sibling':'', n.role==='sib-partner'?'sib-partner':'',
@@ -2054,6 +2060,10 @@ function tpRender(){
     if (hasUp){
       const c = isColAnc?' col':'', lbl = isColAnc?'+':'−';
       html += `<button class="tn-leaf-btn${c}" style="left:${leafX}px;top:${(ny-10).toFixed(0)}px" onclick="tpToggleCollapse(event,'${n.id}')" title="${isColAnc?'Show parents':'Hide parents'}">${lbl}</button>`;
+    }
+    if (deepAddRole){
+      const t = deepAddRole==='parents' ? 'Add a parent' : 'Add '+deepAddRole;
+      html += `<button class="tn-leaf-btn tn-add-btn" style="left:${leafX}px;top:${(ny-10).toFixed(0)}px" onclick="event.stopPropagation();tpAddAncestor('${n.id}','${deepAddRole}')" title="${t}">+</button>`;
     }
     if (hasDown){
       const c = isColDesc?' col':'', lbl = isColDesc?'+':'−';
