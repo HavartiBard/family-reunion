@@ -2004,6 +2004,9 @@ function tpRender(){
   // Node cards
   let html = `<svg class="tree-svg" width="${cW}" height="${cH}" viewBox="0 0 ${cW} ${cH}">${svg}</svg>`;
   html += chipHtml;
+  // Focus siblings render on the outer side of the focus's own branch; place their toggle there too.
+  const _fp = _tS.siblings.length ? _partnersAround(_tS.focusId) : null;
+  const focusSibsRight = !!(_fp && _fp.left.length > 0 && _fp.right.length === 0);
   for (const n of nodes){
     const p = n.person;
     const nx = n.x+ox, ny = n.y+oy;
@@ -2024,10 +2027,12 @@ function tpRender(){
         ? `<div class="tn-av-band" style="background:${bandColor}"><img class="tn-av-band-img" src="${photoUrl}" alt="" loading="lazy"></div>`
         : `<div class="tn-av-band" style="background:${bandColor}">${esc(personInitials(p))}</div>`;
 
-    // Collapse button: ancestors with known parents (ancestor dir), descendants/focus with children (desc dir)
-    const hasUp = n.role==='anc' && n.d < 3;
+    // Expansion buttons: show whenever the person actually has parents/siblings to reveal.
+    const hasParents = !!(p.father || p.mother);
+    const hasUp = (n.role==='anc' || n.role==='focus') && n.d < 3 && hasParents;
     const hasDown = (n.role==='focus'||n.role==='desc') && (_tS.childrenOf.get(n.id)||[]).length > 0;
     const hasSideSibs = n.role==='anc' && _tS.ancSiblings.has(n.id);
+    const hasFocusSibs = n.role==='focus' && _tS.siblings.length > 0;
     const isColAnc = _tS.collapsed.has(n.id);
     const isColDesc = _tS.descCollapsed.has(n.id);
     const isColSide = !_ancSibsVisible(n.id);
@@ -2077,6 +2082,13 @@ function tpRender(){
       const btnX = sideLeft ? (nx - 10).toFixed(0) : (nx + _TW - 10).toFixed(0);
       const btnY = (ny + _TH/2 - 10).toFixed(0);
       html += `<button class="tn-leaf-btn${c}" style="left:${btnX}px;top:${btnY}px" onclick="tpToggleAncestorSibs(event,'${n.id}')" title="${isColSide?'Show siblings':'Hide siblings'}">${lbl}</button>`;
+    }
+    if (hasFocusSibs){
+      const c = _tS.sibsCollapsed ? ' col' : '';
+      const lbl = _tS.sibsCollapsed ? '+' : '−';
+      const btnX = focusSibsRight ? (nx + _TW - 10).toFixed(0) : (nx - 10).toFixed(0);
+      const btnY = (ny + _TH/2 - 10).toFixed(0);
+      html += `<button class="tn-leaf-btn${c}" style="left:${btnX}px;top:${btnY}px" onclick="event.stopPropagation();tpToggleSibs()" title="${_tS.sibsCollapsed?`Show siblings (${_tS.siblings.length})`:'Hide siblings'}">${lbl}</button>`;
     }
     // Related-tree tab: a drawer handle on the top edge of the card that expands/collapses
     // this married-in person's family tree (e.g. "Kelsall" when viewing the Barrett tree).
@@ -2748,7 +2760,6 @@ function tpToggleCollapse(e, id, dir){
 }
 function tpToggleSibs(){
   _tS.sibsCollapsed = !_tS.sibsCollapsed;
-  if (!_tS.sibsCollapsed) _tS.collapsed.delete(_tS.focusId);
   tpRenderPreserveViewport();
 }
 
