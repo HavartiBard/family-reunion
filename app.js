@@ -1430,23 +1430,21 @@ function _ancSibExtent(ancId){
 }
 
 function _ancParentsToDraw(childId, depth, includePlaceholders){
-  if (depth >= 3 || _tS.collapsed.has(childId)) return {F:null, M:null, drawF:false, drawM:false, combined:false};
+  if (depth >= 3 || _tS.collapsed.has(childId)) return {F:null, M:null, drawF:false, drawM:false};
   const c = _tS.persons.get(childId);
   const F = c && c.father ? _tS.persons.get(c.father) : null;
   const M = c && c.mother ? _tS.persons.get(c.mother) : null;
-  // Show a clickable add-node for any missing parent at every drawn tier. When BOTH
-  // parents are unknown, render ONE compact "Add parents" node (combined) instead of an
-  // empty couple — that keeps the tree tight (an empty couple reserves a full 348px slot
-  // and splays the tier) while still offering the add affordance.
+  // No empty-couple placeholders. A placeholder is drawn ONLY to complete a couple when
+  // the other parent is real (so its card is the add-affordance for the missing spouse).
+  // When BOTH parents are unknown nothing is drawn above the node — instead the node shows
+  // a "+ add parent" button (see tpRender). This keeps the rule simple and the tree tight.
   const ph = includePlaceholders;
-  const combined = !F && !M && ph;
-  return {F, M, drawF: !!F || ph, drawM: !!M || ph, combined};
+  return {F, M, drawF: !!F || (!!M && ph), drawM: !!M || (!!F && ph)};
 }
 
 function _ancCoupleW(childId, depth, includePlaceholders){
-  const {F, M, drawF, drawM, combined} = _ancParentsToDraw(childId, depth, includePlaceholders);
+  const {F, M, drawF, drawM} = _ancParentsToDraw(childId, depth, includePlaceholders);
   if (!drawF && !drawM) return 0;
-  if (combined) return _TW; // single "Add parents" node, not an empty couple
   const coupleW = 2 * _TW + _THG;
   const ownW = coupleW + (F ? _ancSibExtent(F.id) : 0) + (M ? _ancSibExtent(M.id) : 0);
   const wF = F ? _ancCoupleW(F.id, depth + 1, includePlaceholders) : 0;
@@ -1457,21 +1455,9 @@ function _ancCoupleW(childId, depth, includePlaceholders){
 
 function _ancPlaceLineage(childId, depth, leftX, childCX, childTopY, path, nodes, edges, opts){
   const includePlaceholders = opts.includePlaceholders !== false;
-  const {F, M, drawF, drawM, combined} = _ancParentsToDraw(childId, depth, includePlaceholders);
+  const {F, M, drawF, drawM} = _ancParentsToDraw(childId, depth, includePlaceholders);
   if (!drawF && !drawM) return;
   const nextDepth = depth + 1;
-  // Both parents unknown → a single compact "Add parents" node centred in its slot.
-  if (combined){
-    const parentY = childTopY - (_TH + _TVG);
-    const cx = leftX + _TW / 2;
-    const phId = `ph:${childId}:parents`;
-    nodes.push(_lineageNode({id:phId, cx, y:parentY, person:{display_name:'Add parents'}, role:'anc-placeholder',
-      relDepth:-nextDepth, path:[...path,'parents'], placeholder:true, placeholderRole:'parents', childId}));
-    edges.push({type:'lineage', x1:cx, y1:parentY+_TH/2, x2:childCX, y2:childTopY,
-      direction:'up', relDepth:-nextDepth, childId, path:[...path],
-      fatherId:phId, motherId:null, labelRootId:opts.labelRootId || _tS.focusId, midY:childTopY - _TVG*0.28});
-    return;
-  }
   const parentY = childTopY - (_TH + _TVG);
   const pitch = _TW + _THG;
   const W = _ancCoupleW(childId, depth, includePlaceholders);
@@ -2027,9 +2013,13 @@ function tpRender(){
         ? `<div class="tn-av-band" style="background:${bandColor}"><img class="tn-av-band-img" src="${photoUrl}" alt="" loading="lazy"></div>`
         : `<div class="tn-av-band" style="background:${bandColor}">${esc(personInitials(p))}</div>`;
 
-    // Expansion buttons: show whenever the person actually has parents/siblings to reveal.
+    // Up-affordance (parent direction): every lineage node EITHER expands its recorded
+    // parents OR offers to add one when none are recorded.
+    const isLineage = (n.role==='anc' || n.role==='focus');
     const hasParents = !!(p.father || p.mother);
-    const hasUp = (n.role==='anc' || n.role==='focus') && n.d < 3 && hasParents;
+    const upExpand = isLineage && hasParents && n.d < 3;   // collapse/expand the drawn parents
+    const upRefocus = isLineage && hasParents && n.d === 3; // parents exist beyond the 3-gen view
+    const upAdd = isLineage && !hasParents;                 // no parents recorded → add one
     const hasDown = (n.role==='focus'||n.role==='desc') && (_tS.childrenOf.get(n.id)||[]).length > 0;
     const hasSideSibs = n.role==='anc' && _tS.ancSiblings.has(n.id);
     const hasFocusSibs = n.role==='focus' && _tS.siblings.length > 0;
@@ -2038,18 +2028,11 @@ function tpRender(){
     const isColSide = !_ancSibsVisible(n.id);
     const isCol = isColAnc || isColDesc;
 
-    // "Has more" stub: deepest-tier ancestor whose parents are BOTH known (they exist
-    // beyond the 3-generation view), or a max-depth descendant.
-    const moreAnc = n.role==='anc' && n.d===3 && p.father && p.mother;
+    // "More descendants beyond view" stub (down direction).
     const moreDesc = n.role==='desc' && n.d===3 && !_tS.childrenOf.has(n.id);
-    const moreBtn = (moreAnc||moreDesc)
-      ? `<button class="tn-more" onclick="event.stopPropagation();tpSetFocus('${n.id}')" title="${moreAnc?'See earlier generations':'See more descendants'} — center on ${esc(p.display_name)}">···</button>`
+    const moreBtn = moreDesc
+      ? `<button class="tn-more" onclick="event.stopPropagation();tpSetFocus('${n.id}')" title="See more descendants — center on ${esc(p.display_name)}">···</button>`
       : '';
-    // Deepest-tier ancestor missing a parent: surface an add affordance here (the 3-gen
-    // cap means there's no row above to place an empty node, so use a "+" on the card).
-    const deepAddRole = (n.role==='anc' && n.d===3 && !(p.father && p.mother))
-      ? (!p.father && !p.mother ? 'parents' : (!p.father ? 'father' : 'mother'))
-      : null;
     const tcStyle = treeColor ? `;--tc:${treeColor}` : '';
     const cls = ['tn-card', isFocus?'focus':'', n.role==='anc'?'anc':'', n.role==='partner'?'partner':'',
       n.role==='sibling'?'sibling':'', n.role==='sib-partner'?'sib-partner':'',
@@ -2062,15 +2045,16 @@ function tpRender(){
     html += `<div class="${cls}" style="left:${nx}px;top:${ny}px${tcStyle}" ${clickAttr}>
       ${av}<div class="tn-info"><div class="tn-name">${esc(p.display_name)}</div>${years?`<div class="tn-years">${esc(years)}</div>`:''}</div>
       ${moreBtn}</div>`;
-    // Collapse button rendered outside the card, on the connector end (leaf position)
+    // Up-button (parent direction), on the connector end above the card.
     const leafX = (nx + _TW/2 - 10).toFixed(0);
-    if (hasUp){
+    const upY = (ny-10).toFixed(0);
+    if (upExpand){
       const c = isColAnc?' col':'', lbl = isColAnc?'+':'−';
-      html += `<button class="tn-leaf-btn${c}" style="left:${leafX}px;top:${(ny-10).toFixed(0)}px" onclick="tpToggleCollapse(event,'${n.id}')" title="${isColAnc?'Show parents':'Hide parents'}">${lbl}</button>`;
-    }
-    if (deepAddRole){
-      const t = deepAddRole==='parents' ? 'Add a parent' : 'Add '+deepAddRole;
-      html += `<button class="tn-leaf-btn tn-add-btn" style="left:${leafX}px;top:${(ny-10).toFixed(0)}px" onclick="event.stopPropagation();tpAddAncestor('${n.id}','${deepAddRole}')" title="${t}">+</button>`;
+      html += `<button class="tn-leaf-btn${c}" style="left:${leafX}px;top:${upY}px" onclick="tpToggleCollapse(event,'${n.id}')" title="${isColAnc?'Show parents':'Hide parents'}">${lbl}</button>`;
+    } else if (upRefocus){
+      html += `<button class="tn-leaf-btn" style="left:${leafX}px;top:${upY}px" onclick="event.stopPropagation();tpSetFocus('${n.id}')" title="See earlier generations — center on ${esc(p.display_name)}">▴</button>`;
+    } else if (upAdd){
+      html += `<button class="tn-leaf-btn tn-add-btn" style="left:${leafX}px;top:${upY}px" onclick="event.stopPropagation();tpAddAncestor('${n.id}','parents')" title="Add a parent">+</button>`;
     }
     if (hasDown){
       const c = isColDesc?' col':'', lbl = isColDesc?'+':'−';
