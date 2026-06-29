@@ -2042,7 +2042,9 @@ function tpRender(){
     // beyond the 3-generation view), or a max-depth descendant.
     const moreAnc = n.role==='anc' && n.d===3 && p.father && p.mother;
     const moreDesc = n.role==='desc' && n.d===3 && !_tS.childrenOf.has(n.id);
-    const moreBtn = (moreAnc||moreDesc) ? '<div class="tn-more" title="More relatives exist beyond this view">···</div>' : '';
+    const moreBtn = (moreAnc||moreDesc)
+      ? `<button class="tn-more" onclick="event.stopPropagation();tpSetFocus('${n.id}')" title="${moreAnc?'See earlier generations':'See more descendants'} — center on ${esc(p.display_name)}">···</button>`
+      : '';
     // Deepest-tier ancestor missing a parent: surface an add affordance here (the 3-gen
     // cap means there's no row above to place an empty node, so use a "+" on the card).
     const deepAddRole = (n.role==='anc' && n.d===3 && !(p.father && p.mother))

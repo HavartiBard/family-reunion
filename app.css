@@ -325,7 +325,9 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
 .tn-add-btn{border-style:dashed;border-color:var(--accent-gold);color:var(--accent-gold);font-weight:700}
 .tn-add-btn:hover{background:var(--accent-gold);color:#fff;border-style:solid}
 /* "Has more" indicator */
-.tn-more{position:absolute;bottom:4px;right:6px;font-size:10px;color:var(--text-muted);letter-spacing:2px;line-height:1}
+.tn-more{position:absolute;bottom:3px;right:5px;font-size:11px;color:var(--text-muted);letter-spacing:2px;line-height:1;
+  border:none;background:transparent;cursor:pointer;padding:1px 3px;border-radius:5px}
+.tn-more:hover{background:var(--accent-gold);color:#fff}
 /* Zoom controls */
 .tree-controls{position:absolute;bottom:18px;right:18px;display:flex;flex-direction:column;gap:4px;z-index:10}
 .tc-btn{width:34px;height:34px;border-radius:8px;border:1px solid var(--border-default);
