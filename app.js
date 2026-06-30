@@ -1767,6 +1767,9 @@ function tpComputeLayout(){
     if (dx) {
       for (const n of tn) n.x += dx;
       for (const e of te) { e.x1 += dx; e.x2 += dx; }
+      // The focus itself is NOT in the shifted ancestor block (it stays at x=0), so its
+      // parent conduit's bottom endpoint must stay on it — undo the shift for that x2.
+      if (fe) fe.x2 = 0;
     }
     for (const n of tn) nodes.push(n);
     for (const e of te) edges.push(e);
