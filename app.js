@@ -1430,11 +1430,25 @@ function _ancSibExtent(ancId){
   return slots * (_TW + _THG);
 }
 
+// Ordered chain of person ids from the focus up to _tS.deepExpand (inclusive), or [].
+// Used to extend the ancestor cap one branch at a time, arbitrarily far up.
+function _deepPathIds(){
+  if (!_tS.deepExpand) return [];
+  const target = _tS.deepExpand;
+  const find = (id, acc) => {
+    if (!id || acc.length > 12) return null;
+    if (id === target) return [...acc, id];
+    const p = _tS.persons.get(id); if (!p) return null;
+    return find(p.father, [...acc, id]) || find(p.mother, [...acc, id]);
+  };
+  return find(_tS.focusId, []) || [];
+}
+
 function _ancParentsToDraw(childId, depth, includePlaceholders){
-  // Normally caps at 3 generations of ancestors. One GGP (_tS.deepExpand) may show its
-  // own parents one extra generation in place, so its cap is 4.
-  const maxDepth = (childId === _tS.deepExpand) ? 4 : 3;
-  if (depth >= maxDepth || _tS.collapsed.has(childId)) return {F:null, M:null, drawF:false, drawM:false};
+  // Caps at 3 generations, except along the single chain to _tS.deepExpand, which can be
+  // expanded further up one node at a time (see _tS._deepPathSet / tpExpandGGP).
+  const onDeepPath = _tS._deepPathSet && _tS._deepPathSet.has(childId);
+  if ((depth >= 3 && !onDeepPath) || _tS.collapsed.has(childId)) return {F:null, M:null, drawF:false, drawM:false};
   const c = _tS.persons.get(childId);
   const F = c && c.father ? _tS.persons.get(c.father) : null;
   const M = c && c.mother ? _tS.persons.get(c.mother) : null;
@@ -1735,6 +1749,7 @@ function _descPlaceFamily(id, depth, leftX, nodes, edges, incomingCX, parentY, e
 
 function tpComputeLayout(){
   const nodes=[], edges=[];
+  _tS._deepPathSet = new Set(_deepPathIds());
   const focusPerson = _tS.persons.get(_tS.focusId);
   if (focusPerson) nodes.push(_lineageNode({ id:_tS.focusId, cx:0, y:0, person:focusPerson, role:'focus', relDepth:0, path:[] }));
   // Ancestors: width-first layout placed into temp arrays then merged. Guarded so a
@@ -2022,8 +2037,7 @@ function tpRender(){
     const isLineage = (n.role==='anc' || n.role==='focus');
     const hasParents = !!(p.father || p.mother);
     const upExpand = isLineage && hasParents && n.d < 3;       // collapse/expand the drawn parents
-    const upDeepExpand = isLineage && hasParents && n.d === 3; // GGP: expand its parents in place (one branch)
-    const upRefocus = isLineage && hasParents && n.d >= 4;     // beyond the one expanded branch → recenter
+    const upDeepExpand = isLineage && hasParents && n.d >= 3;  // expand this branch further up, in place
     const upAdd = isLineage && !hasParents;                    // no parents recorded → add one
     const hasDown = (n.role==='focus'||n.role==='desc') && (_tS.childrenOf.get(n.id)||[]).length > 0;
     const hasSideSibs = n.role==='anc' && _tS.ancSiblings.has(n.id);
@@ -2057,10 +2071,8 @@ function tpRender(){
       const c = isColAnc?' col':'', lbl = isColAnc?'+':'−';
       html += `<button class="tn-leaf-btn${c}" style="left:${leafX}px;top:${upY}px" onclick="tpToggleCollapse(event,'${n.id}')" title="${isColAnc?'Show parents':'Hide parents'}">${lbl}</button>`;
     } else if (upDeepExpand){
-      const open = _tS.deepExpand === n.id;
+      const open = _tS._deepPathSet && _tS._deepPathSet.has(n.id); // this node's parents are drawn
       html += `<button class="tn-leaf-btn${open?' col':''}" style="left:${leafX}px;top:${upY}px" onclick="event.stopPropagation();tpExpandGGP('${n.id}')" title="${open?'Hide parents':'Show parents'}">${open?'−':'+'}</button>`;
-    } else if (upRefocus){
-      html += `<button class="tn-leaf-btn" style="left:${leafX}px;top:${upY}px" onclick="event.stopPropagation();tpSetFocus('${n.id}')" title="See earlier generations — center on ${esc(p.display_name)}">▴</button>`;
     } else if (upAdd){
       html += `<button class="tn-leaf-btn tn-add-btn" style="left:${leafX}px;top:${upY}px" onclick="event.stopPropagation();tpAddAncestor('${n.id}','parents')" title="Add a parent">+</button>`;
     }
@@ -2752,17 +2764,25 @@ function tpToggleCollapse(e, id, dir){
   if (dir !== 'desc' && set.has(id)) _hideAncestorSibs(id);
   tpRenderPreserveViewport();
 }
-// Expand a great-grandparent's parents one extra generation, in place, without changing
-// focus or re-centering. Only one branch may be expanded beyond the GGP tier at a time.
-async function tpExpandGGP(ggpId){
-  if (_tS.deepExpand === ggpId){ _tS.deepExpand = null; tpRenderPreserveViewport(); return; }
-  const ggp = _tS.persons.get(ggpId);
-  if (ggp){
-    await Promise.all([ggp.father, ggp.mother].filter(Boolean).map(async pid => {
+// Expand/collapse a single ancestor branch beyond the 3-generation cap, one node at a
+// time, in place (no focus change / recenter). Only one branch is expanded at once.
+async function tpExpandGGP(id){
+  const path = _deepPathIds();
+  const idx = path.indexOf(id);
+  if (idx >= 0){
+    // id's parents are shown → collapse them: stop the chain just below id.
+    _tS.deepExpand = (idx - 1 >= 3) ? path[idx - 1] : null;
+    tpRenderPreserveViewport();
+    return;
+  }
+  // id is at the frontier → expand: load its parents, extend the chain to id.
+  const node = _tS.persons.get(id);
+  if (node){
+    await Promise.all([node.father, node.mother].filter(Boolean).map(async pid => {
       if (!_tS.persons.has(pid)){ const pr = await getPerson(pid); if (pr) _tS.persons.set(pid, pr); }
     }));
   }
-  _tS.deepExpand = ggpId;
+  _tS.deepExpand = id;
   tpRenderPreserveViewport();
 }
 function tpToggleSibs(){
