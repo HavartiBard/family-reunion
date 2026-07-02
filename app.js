@@ -1083,6 +1083,7 @@ const _tS = {
   ancOtherChildren: new Map(), // ancId → [{otherParent, children}] — non-lineage children of ancestors
   ancSibsCollapsed: new Set(),
   expandedRelated: new Set(),
+  relatedSibs: new Map(), // partnerId → [sibling ids], for expanded related trees
   trees: [], storedTrees: [], activeTree: null,
   pan: {x:0,y:0}, zoom: 1,
   dragging: false, dragLast: {x:0,y:0},
@@ -1199,6 +1200,7 @@ async function tpLoad(focusId){
     _tS.ancOtherChildren.clear();
     _tS.ancSibsCollapsed.clear();
     _tS.expandedRelated.clear();
+    _tS.relatedSibs.clear();
     _tS.horizExpanded.clear();
     await Promise.all([
       tpFetchUp(startId, 0),
@@ -1747,6 +1749,45 @@ function _descPlaceFamily(id, depth, leftX, nodes, edges, incomingCX, parentY, e
   }
 }
 
+// Draw one related-tree sibling's immediate family (sibling + first spouse at row y, their
+// children one row below) into the given arrays. Bounded to one generation of children.
+// Returns the block width and the sibling card's centre x (for the bus edge to the parents).
+function _placeRelatedSibFamily(sibId, leftX, y, nodes, edges, seen){
+  const sib = _tS.persons.get(sibId); if (!sib) return { w: 0, sibCX: leftX + _TW/2 };
+  const pitch = _TW + _THG;
+  const spouse = (_tS.partnersOf.get(sibId) || [])[0] || null;
+  const kids = (_tS.childrenOf.get(sibId) || []).filter(k => !seen.has(k.id));
+  const coupleW = spouse ? 2*_TW + _THG : _TW;
+  const kidsW = kids.length ? kids.length*_TW + Math.max(0, kids.length-1)*_THG : 0;
+  const blockW = Math.max(coupleW, kidsW);
+  const coupleStart = leftX + (blockW - coupleW) / 2;
+  const spouseLeft = spouse && spouse.gender === 'male' && (sib.gender || '') !== 'male';
+  let sibX = coupleStart, spouseX = null;
+  if (spouse){
+    if (spouseLeft){ spouseX = coupleStart; sibX = coupleStart + pitch; }
+    else { spouseX = coupleStart + pitch; }
+  }
+  const sibCX = sibX + _TW/2;
+  if (!seen.has(sib.id)){ nodes.push({id:sib.id, x:sibX, y, person:sib, role:'anc-sib', d:0, relDepth:0, path:[], relatedExpanded:true}); seen.add(sib.id); }
+  if (spouse && !seen.has(spouse.id)){
+    nodes.push({id:spouse.id, x:spouseX, y, person:spouse, role:'sib-partner', d:0, relDepth:0, path:[], relatedExpanded:true}); seen.add(spouse.id);
+    const l = Math.min(sibX, spouseX), r = Math.max(sibX, spouseX);
+    edges.push({type:'partner', x1:l+_TW, y1:y+_TH/2, x2:r, y2:y+_TH/2});
+  }
+  if (kids.length){
+    const unionCX = spouse ? (sibCX + spouseX + _TW/2) / 2 : sibCX;
+    const kidY = y + _TH + _TVG;
+    const kidsStart = unionCX - kidsW/2;
+    const busY = kidY - _TVG * 0.35;
+    kids.forEach((k, i) => {
+      const kx = kidsStart + i * (_TW + _THG);
+      nodes.push({id:k.id, x:kx, y:kidY, person:k, role:'anc-sib', d:1, relDepth:1, path:[], relatedExpanded:true}); seen.add(k.id);
+      edges.push({type:'bus', x1:unionCX, y1:y+_TH, x2:kx + _TW/2, y2:kidY, midY:busY});
+    });
+  }
+  return { w: blockW, sibCX };
+}
+
 function tpComputeLayout(){
   const nodes=[], edges=[];
   _tS._deepPathSet = new Set(_deepPathIds());
@@ -1906,6 +1947,33 @@ function tpComputeLayout(){
       if (relDx) { for (const m of tempNodes) m.x += relDx; for (const e of tempEdges) { e.x1 += relDx; e.x2 += relDx; } }
       // Maternal (female) side opens right; paternal (male/unknown) side opens left
       const goRight = rp.gender === 'female';
+      // Draw the partner's siblings + their families at the partner's row, hanging from the
+      // partner's parents' union (now at x=0). They extend to the outer (offset) side.
+      const sibIds = _tS.relatedSibs.get(n.id) || [];
+      if (sibIds.length) {
+        const seen = new Set(tempNodes.map(m => m.id));
+        for (const u of uniqueNodes) seen.add(u.id);
+        seen.add(n.id);
+        const gap = _THG * 2;
+        let cursor = goRight ? (_TW/2 + gap) : (-_TW/2 - gap);
+        const sibBusCXs = [];
+        for (const sibId of sibIds) {
+          if (seen.has(sibId)) continue;
+          const spouse = (_tS.partnersOf.get(sibId) || [])[0];
+          const kids = (_tS.childrenOf.get(sibId) || []).filter(k => !seen.has(k.id));
+          const blockW = Math.max(spouse ? 2*_TW + _THG : _TW, kids.length ? kids.length*_TW + Math.max(0, kids.length-1)*_THG : 0);
+          let leftX;
+          if (goRight) { leftX = cursor; cursor += blockW + gap; }
+          else { cursor -= blockW + gap; leftX = cursor; }
+          const { sibCX } = _placeRelatedSibFamily(sibId, leftX, n.y, tempNodes, tempEdges, seen);
+          sibBusCXs.push(sibCX);
+        }
+        if (sibBusCXs.length) {
+          const parentY = n.y - (_TH + _TVG);
+          const elbowY = n.y - _TVG * 0.28;
+          for (const cx of sibBusCXs) tempEdges.push({ type:'bus', x1:0, y1:parentY + _TH/2, x2:cx, y2:n.y, midY:elbowY });
+        }
+      }
       let dx;
       if (goRight) {
         const subMinX = Math.min(...tempNodes.map(m => m.x));
@@ -1915,10 +1983,9 @@ function tpComputeLayout(){
         dx = leftBoundary - GAP - subMaxX;
       }
       for (const m of tempNodes) uniqueNodes.push({ ...m, x: m.x + dx, relatedExpanded: true });
-      // Skip depth-0 lineage edge (goes to virtual child in empty space) and suppress chip labels.
-      // A single gold elbow replaces it, running all the way from the parent union to the partner card.
+      // Skip the partner's own parent conduit (the rel-link below replaces it); suppress chip labels.
       for (const e of tempEdges) {
-        if (e.x2 === 0 && e.y2 === n.y) continue;
+        if (e.type === 'lineage' && e.childId === n.id) continue;
         edges.push({ ...e, x1: e.x1 + dx, x2: e.x2 + dx, skipLabel: true });
       }
       const unionY = n.y - _TH/2 - _TVG;
@@ -2436,12 +2503,41 @@ function tpSetViewMode(mode){
 async function tpExpandRelated(pid){
   if (_tS.expandedRelated.has(pid)){
     _tS.expandedRelated.delete(pid);
+    _tS.relatedSibs.delete(pid);
     _computeTrees(); tpRenderPreserveViewport(); return;
   }
-  // Fetch ancestors for this person up to 3 generations so layout has data
+  // Fetch ancestors up to 3 generations, plus this person's siblings and each sibling's
+  // spouse + children, so the expanded tree matches the main tree's breadth.
   await tpFetchUp(pid, 0);
+  await _tpFetchRelatedFamily(pid);
   _tS.expandedRelated.add(pid);
   _computeTrees(); tpRenderPreserveViewport();
+}
+// Load a related person's siblings (other children of their parents), and each sibling's
+// first spouse and children.
+async function _tpFetchRelatedFamily(pid){
+  const p = _tS.persons.get(pid); if (!p) return;
+  const parentIds = [p.father, p.mother].filter(Boolean);
+  const sibMap = new Map();
+  for (const par of parentIds){
+    for (const c of await getChildren(par)) if (c.id !== pid) sibMap.set(c.id, c);
+  }
+  const sibs = [...sibMap.values()].sort((a,b) =>
+    (parseInt(_parseYearFromDate(a.birth_date))||9999) - (parseInt(_parseYearFromDate(b.birth_date))||9999));
+  await Promise.all(sibs.map(async s => {
+    _tS.persons.set(s.id, s);
+    const kids = await getChildren(s.id);
+    _tS.childrenOf.set(s.id, kids);
+    kids.forEach(k => _tS.persons.set(k.id, k));
+    const couples = await getCouplesFor(s.id);
+    const spId = couples.length ? (couples[0].partner_a === s.id ? couples[0].partner_b : couples[0].partner_a) : null;
+    if (spId){
+      if (!_tS.persons.has(spId)){ const sp = await getPerson(spId); if (sp) _tS.persons.set(spId, sp); }
+      const sp = _tS.persons.get(spId);
+      if (sp) _tS.partnersOf.set(s.id, [sp]);
+    }
+  }));
+  _tS.relatedSibs.set(pid, sibs.map(s => s.id));
 }
 
 // Compact lineage filter (replaces the auto-generated family-chip row). Lists only
