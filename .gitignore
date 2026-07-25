@@ -8,4 +8,7 @@ __pycache__/
 # PocketBase runtime data (created on the host at deploy time)
 backend/pb_data/
 backend/pb_public/
-backend/pb_hooks/
+
+# Local tooling / scratch
+.claude/
+family.zip

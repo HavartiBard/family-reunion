@@ -6,6 +6,7 @@ RUN apk add --no-cache caddy ca-certificates python3
 COPY --from=pocketbase /usr/local/bin/pocketbase /usr/local/bin/pocketbase
 COPY apple_bridge.py /apple_bridge.py
 COPY pb_migrations /pb_migrations
+COPY pb_hooks /pb_hooks
 COPY Caddyfile /etc/caddy/Caddyfile
 COPY start.sh /start.sh
 RUN chmod +x /start.sh

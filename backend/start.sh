@@ -4,7 +4,8 @@ set -e
 /usr/local/bin/pocketbase serve \
   --http=0.0.0.0:8091 \
   --dir=/pb_data \
-  --migrationsDir=/pb_migrations &
+  --migrationsDir=/pb_migrations \
+  --hooksDir=/pb_hooks &
 
 /usr/bin/python3 /apple_bridge.py &
 
