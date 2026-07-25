@@ -19,6 +19,8 @@ All API calls go to the `API` constant in `app.js` (`https://reunion-api.klsll.c
 
 Schema is defined entirely in `backend/pb_migrations/`; migrations auto-apply on first run.
 
+Server-side hook logic (record lifecycle behavior that can't be expressed as a collection rule) lives in `backend/pb_hooks/`, loaded via `--hooksDir=/pb_hooks` (baked into the image via `COPY pb_hooks /pb_hooks` in `backend/Dockerfile`, mounted via `./pb_hooks:/pb_hooks` in `backend/compose.yml`). Like migrations, a hook change requires a redeploy (Fly: `fly deploy`; homelab: `docker compose restart pocketbase` after a rebuild) to take effect. PocketBase is pinned at `0.22.20` (see `backend/Dockerfile`), which uses the pre-0.23 JSVM hook API (`onRecordAfterCreateRequest`/`onRecordsListRequest`/etc., `record.get()`/`.set()`, `dao.saveRecord()`) — do not copy 0.23+-style hook examples (`e.app`, event-based naming) without adapting them.
+
 **Admin tool:** `tools/gedcom_sync/` — a Python script that reads a Webtrees MariaDB and upserts into PocketBase. Run on the Unraid host where the `webtrees` Docker network is accessible.
 
 ## Data model

@@ -7,6 +7,7 @@ services:
     volumes:
       - ${PB_DATA_DIR:-./pb_data}:/pb_data
       - ./pb_migrations:/pb_migrations
+      - ./pb_hooks:/pb_hooks
     ports:
       - "${PB_PORT:-8094}:8090"
     restart: unless-stopped
