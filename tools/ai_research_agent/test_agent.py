@@ -95,20 +95,27 @@ async def test_execute_tool_web_search_delegates_to_searxng():
     from tools import execute_tool
     with patch("tools.searxng_search", new=AsyncMock(return_value="search result")) as mock_search:
         result = await execute_tool(
-            "web_search", {"query": "John Smith"}, MagicMock(), "http://sx:8888", [None]
+            "web_search", {"query": "John Smith"}, MagicMock(), "http://sx:8888", {}
         )
     mock_search.assert_called_once_with("John Smith", "http://sx:8888")
     assert result == "search result"
 
 
 @pytest.mark.asyncio
-async def test_execute_tool_get_person_updates_is_living():
+async def test_execute_tool_web_search_missing_query_does_not_raise():
+    from tools import execute_tool
+    result = await execute_tool("web_search", {}, MagicMock(), "http://sx:8888", {})
+    assert "Error" in result
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_get_person_records_living_by_id():
     from tools import execute_tool
     session = MagicMock()
     session.call_tool = AsyncMock(return_value=make_mcp_result({"id": "p1", "living": True}))
-    is_living_ref = [None]
-    await execute_tool("get_person", {"id": "p1"}, session, "http://sx:8888", is_living_ref)
-    assert is_living_ref[0] is True
+    known_living: dict = {}
+    await execute_tool("get_person", {"id": "p1"}, session, "http://sx:8888", known_living)
+    assert known_living == {"p1": True}
 
 
 @pytest.mark.asyncio
@@ -121,11 +128,48 @@ async def test_execute_tool_blocks_sensitive_fact_for_living_person():
         {"person_id": "p1", "fact_type": "address", "value": "123 Main St"},
         session,
         "http://sx:8888",
-        [True],  # is_living_ref = True
+        {"p1": True},
     )
     session.call_tool.assert_not_called()
     assert "cannot record" in result
-    assert "living" in result
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_blocks_sensitive_fact_when_living_status_unknown():
+    """Fail closed: if get_person was never called (or didn't parse) for this
+    person, sensitive fact types must still be blocked rather than assumed safe."""
+    from tools import execute_tool
+    session = MagicMock()
+    session.call_tool = AsyncMock()
+    result = await execute_tool(
+        "add_fact",
+        {"person_id": "p1", "fact_type": "phone", "value": "555-1234"},
+        session,
+        "http://sx:8888",
+        {},  # nothing known about p1 yet
+    )
+    session.call_tool.assert_not_called()
+    assert "cannot record" in result
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_blocks_sensitive_fact_after_unrelated_person_lookup():
+    """Cross-referencing a different (living) person must not make it look like
+    the original subject's living status was ever confirmed."""
+    from tools import execute_tool
+    session = MagicMock()
+    session.call_tool = AsyncMock()
+    # Only ever looked up p2 (a spouse), never p1.
+    known_living = {"p2": True}
+    result = await execute_tool(
+        "add_fact",
+        {"person_id": "p1", "fact_type": "address", "value": "123 Main St"},
+        session,
+        "http://sx:8888",
+        known_living,
+    )
+    session.call_tool.assert_not_called()
+    assert "cannot record" in result
 
 
 @pytest.mark.asyncio
@@ -138,7 +182,7 @@ async def test_execute_tool_allows_safe_fact_for_living_person():
         {"person_id": "p1", "fact_type": "occupation", "value": "Farmer"},
         session,
         "http://sx:8888",
-        [True],  # living, but occupation is allowed
+        {"p1": True},  # living, but occupation is allowed
     )
     session.call_tool.assert_called_once()
     assert "fact1" in result or "created" in result
@@ -154,7 +198,7 @@ async def test_execute_tool_mcp_passthrough_for_deceased():
         {"person_id": "p1", "fact_type": "residence", "value": "Winnipeg"},
         session,
         "http://sx:8888",
-        [False],  # deceased — no restrictions
+        {"p1": False},  # confirmed deceased — no restrictions
     )
     session.call_tool.assert_called_once()
     assert "fact2" in result or "created" in result
@@ -206,6 +250,29 @@ async def test_research_person_executes_tool_calls_and_loops():
 
 
 @pytest.mark.asyncio
+async def test_research_person_survives_tool_call_raising():
+    """A tool call that raises (e.g. a malformed/unhandled args shape) must not
+    crash the whole research session — it should be fed back as an error and
+    the loop should continue."""
+    from agent import research_person
+
+    tool_call = make_tool_call("call_1", "get_person", {"id": "p1"})
+    turn1 = make_openai_response(finish_reason="tool_calls", tool_calls=[tool_call])
+    turn2 = make_openai_response(finish_reason="stop", content="Done.")
+
+    openai_client = MagicMock()
+    openai_client.chat.completions.create = AsyncMock(side_effect=[turn1, turn2])
+
+    mcp_session = MagicMock()
+    mcp_session.call_tool = AsyncMock(side_effect=RuntimeError("boom"))
+
+    # Should not raise.
+    await research_person("p1", openai_client, mcp_session, "http://sx:8888", "llama3")
+
+    assert openai_client.chat.completions.create.call_count == 2
+
+
+@pytest.mark.asyncio
 async def test_research_person_handles_length_gracefully():
     """Agent loop exits without error when context length exceeded."""
     from agent import research_person
@@ -242,6 +309,32 @@ async def test_batch_research_calls_research_person_for_each_queued_item():
     calls = [c.args[0] for c in mock_research.call_args_list]
     assert "p1" in calls
     assert "p2" in calls
+
+
+@pytest.mark.asyncio
+async def test_batch_research_continues_after_one_person_fails():
+    """One person's research blowing up must not abort the rest of the queue —
+    otherwise a single bad session strands every remaining person in a
+    nightly batch run."""
+    from agent import batch_research
+
+    persons = [
+        {"id": "p1", "display_name": "Alice"},
+        {"id": "p2", "display_name": "Bob"},
+    ]
+    mcp_session = MagicMock()
+    mcp_session.call_tool = AsyncMock(return_value=make_mcp_result(persons))
+
+    async def flaky_research(person_id, *_args, **_kwargs):
+        if person_id == "p1":
+            raise RuntimeError("boom")
+
+    with patch("agent.research_person", new=AsyncMock(side_effect=flaky_research)) as mock_research:
+        await batch_research(5, MagicMock(), mcp_session, "http://sx:8888", "llama3")
+
+    assert mock_research.call_count == 2
+    calls = [c.args[0] for c in mock_research.call_args_list]
+    assert calls == ["p1", "p2"]
 
 
 @pytest.mark.asyncio

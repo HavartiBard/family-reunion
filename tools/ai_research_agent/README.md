@@ -20,7 +20,7 @@ For each person, the agent:
 3. Writes findings with `add_fact` — always flagged `ai_generated=true, verified=false`
 4. Stops when no new verifiable facts can be found
 
-Facts written for **living persons** are restricted: `address`, `phone`, `email`, `residence`, `website`, `medical`, `ssn`, and `national_id` are blocked before they reach the MCP server.
+Sensitive fact types (`address`, `phone`, `email`, `residence`, `website`, `medical`, `ssn`, `national_id`) are blocked before they reach the MCP server unless a `get_person` lookup has explicitly confirmed the subject is deceased. Anyone not yet looked up — or looked up but not confirmed deceased — is treated as living, so the filter fails closed rather than trusting the model to always call `get_person` first.
 
 ## Prerequisites
 
@@ -119,7 +119,7 @@ pip3 install --break-system-packages -r requirements.txt
 python3 -m pytest test_agent.py -v
 ```
 
-Expected: 13 tests pass.
+Expected: 18 tests pass.
 
 To run against the live MCP server locally (not in Docker):
 

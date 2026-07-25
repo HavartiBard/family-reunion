@@ -20,7 +20,7 @@ async def research_person(
     model: str,
 ) -> None:
     """Run a single research session for one person."""
-    is_living_ref = [None]
+    known_living: dict = {}
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -71,9 +71,13 @@ async def research_person(
                     "content": f"Error: could not parse tool arguments: {exc}",
                 })
                 continue
-            result_str = await execute_tool(
-                tc.function.name, args, mcp_session, searxng_url, is_living_ref
-            )
+            try:
+                result_str = await execute_tool(
+                    tc.function.name, args, mcp_session, searxng_url, known_living
+                )
+            except Exception as exc:
+                print(f"  Warning: tool '{tc.function.name}' raised {exc!r}, continuing")
+                result_str = f"Error: tool '{tc.function.name}' failed: {exc}"
             messages.append({
                 "role": "tool",
                 "tool_call_id": tc.id,
@@ -103,8 +107,12 @@ async def batch_research(
         return
     print(f"Researching {len(items)} person(s)...")
     for item in items:
-        print(f"  → {item.get('display_name', item['id'])} ({item['id']})")
-        await research_person(item["id"], openai_client, mcp_session, searxng_url, model)
+        person_id = item["id"]
+        print(f"  → {item.get('display_name', person_id)} ({person_id})")
+        try:
+            await research_person(person_id, openai_client, mcp_session, searxng_url, model)
+        except Exception as exc:
+            print(f"  Warning: research for {person_id} failed ({exc!r}), continuing with queue")
 
 
 async def _run() -> None:

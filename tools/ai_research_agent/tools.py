@@ -129,31 +129,42 @@ async def execute_tool(
     args: dict,
     session,
     searxng_url: str,
-    is_living_ref: list,
+    known_living: dict,
 ) -> str:
     """Execute a tool call and return the result as a string.
 
-    is_living_ref is a one-element list used as a mutable reference.
-    It is updated to True/False when get_person is called.
+    known_living maps person_id -> bool, populated whenever get_person is
+    called. A person_id with no entry (never looked up, or lookup failed to
+    parse) is treated as living for the purposes of the privacy filter below
+    — the filter fails closed, since the alternative is leaking PII for a
+    living relative because the model skipped or garbled a get_person call.
     """
     if name == "web_search":
-        return await searxng_search(args["query"], searxng_url)
+        query = args.get("query")
+        if not query:
+            return "Error: web_search requires a non-empty 'query' argument."
+        return await searxng_search(query, searxng_url)
 
     if name == "get_person":
         result = await session.call_tool("get_person", args)
         text = _mcp_result_to_str(result)
         try:
             data = json.loads(text)
-            is_living_ref[0] = data.get("living", False)
+            person_id = data.get("id") or args.get("id")
+            if person_id is not None:
+                known_living[person_id] = bool(data.get("living", True))
         except Exception:
             pass
         return text
 
-    if name == "add_fact" and is_living_ref[0] is True:
-        if args.get("fact_type") in LIVING_PERSON_BLOCKED_FACTS:
+    if name == "add_fact":
+        person_id = args.get("person_id")
+        fact_type = args.get("fact_type")
+        confirmed_deceased = known_living.get(person_id) is False
+        if not confirmed_deceased and fact_type in LIVING_PERSON_BLOCKED_FACTS:
             return (
-                f"Error: cannot record '{args['fact_type']}' for a living person. "
-                f"Choose a non-sensitive fact type instead."
+                f"Error: cannot record '{fact_type}' for person {person_id} unless they are "
+                f"confirmed deceased (call get_person first). Choose a non-sensitive fact type instead."
             )
 
     try:
