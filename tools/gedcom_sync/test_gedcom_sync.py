@@ -1,6 +1,6 @@
 from gedcom_sync import (
     parse_lines, parse_individual, parse_family, parse_gedcom_file,
-    apply_privacy, fill_blanks, plan_person_write,
+    apply_privacy, fill_blanks, plan_person_write, surname_key,
 )
 
 
@@ -194,3 +194,21 @@ def test_plan_person_write_existing_nothing_to_do():
          "gender": "male", "birth_date": "1947", "living": False})
     assert action == "noop"
     assert fields == {}
+
+
+# ── surname_key ──────────────────────────────────────────────────────────────
+def test_surname_key_prefers_birth_surname():
+    assert surname_key({"birth_surname": "Original", "family_name": "Married"}) == "Original"
+
+
+def test_surname_key_falls_back_to_family_name():
+    assert surname_key({"family_name": "Smith"}) == "Smith"
+
+
+def test_surname_key_blank_when_neither_set():
+    assert surname_key({}) == ""
+    assert surname_key({"birth_surname": "", "family_name": ""}) == ""
+
+
+def test_surname_key_strips_whitespace():
+    assert surname_key({"family_name": "  Smith  "}) == "Smith"
