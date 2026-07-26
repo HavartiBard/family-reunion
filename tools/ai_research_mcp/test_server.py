@@ -19,7 +19,7 @@ class TestPBClientAuth(unittest.TestCase):
 
         self.assertEqual(result, {"items": []})
         first_call = mock_request.call_args_list[0]
-        self.assertIn("/api/admins/auth-with-password", first_call[0][1])
+        self.assertIn("/api/collections/users/auth-with-password", first_call[0][1])
 
     @patch("httpx.request")
     def test_retries_after_401(self, mock_request):
