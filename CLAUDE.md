@@ -63,6 +63,20 @@ The site models multiple family lines ("trees") in one shared PocketBase instanc
 
 **Hook self-containment constraint:** every `onRecord*` callback in `backend/pb_hooks/` must be a single, fully self-contained closure — PocketBase's JSVM re-evaluates each registered callback in isolation and does not retain sibling top-level `const`/`function` declarations in the same file. Referencing one throws a `ReferenceError` at runtime, not at load time. Duplicate small pieces of logic inline per callback rather than sharing a helper; this bit real development twice on this project and is easy to reintroduce without noticing (no static check catches it — only exercising the actual hook does).
 
+## Graph database (Neo4j): evaluated, not adopted — revisit triggers below
+
+The person/couple/tree graph (`persons.father`/`.mother`, `couples`, `trees.linked_trees`) is exactly the kind of data a graph database is built for, and it's been evaluated twice: a cost/feasibility read (cheap, self-hostable, tooling exists) and, on 2026-07-26, an actual prototype — a throwaway `neo4j:5-community` container loaded with real dev data (79 persons/21 couples/24 trees) via Cypher. A single ad-hoc traversal query reproduced `couples_tree_link.pb.js`'s precomputed `linked_trees` result exactly, and a synthetic worst case (100 trees/5000 persons, a 99-hop marriage chain) resolved in 8ms server-side. Full methodology and results in `/home/james/.claude/plans/sunny-moseying-thacker.md` §7.
+
+**Decision: not adopting now.** The tradeoff isn't really about query power — Neo4j clearly wins there — it's about what migrating would actually cost against what it would buy:
+
+- **Cost side:** Neo4j has no native rule/auth system, so the tree-scoping + PII-gating logic in `backend/pb_hooks/*_tree_visibility.pb.js` (the bulk of this session's multi-tenant work) would either need reimplementing against Neo4j's model from scratch, or a dual-write bridge with PocketBase staying authoritative — two sources of truth to keep in sync, ongoing. Plus a second database to run, patch, and back up starting immediately. Plus a real rewrite of the tree-rendering frontend (~15+ merged width-first-layout PRs built directly against a flat PocketBase `persons`/`couples` fetch), which is actively-developed code, not stable legacy.
+- **Benefit side:** nothing in the product today needs arbitrary-depth relationship queries. The one thing PocketBase's model genuinely can't do well is an ad-hoc "how are person X and person Y related" / relationship-path-finder feature — nobody has asked for that yet.
+
+**Revisit triggers** (concrete, not vibes):
+1. A real "how are we related" / relationship-path feature gets requested — this is the one thing the current model can't do without a full client-side graph walk.
+2. `couples_tree_link.pb.js`'s connected-component union becomes measurably expensive: it rewrites `linked_trees` on *every* tree in the component on every new cross-tree marriage (O(component size) per write). Today's largest component is 11 trees (Kelsall's) — worth checking again if that grows past, say, 30-40 trees, or if couple-creation requests start visibly slowing down.
+3. The person/couple dataset grows by an order of magnitude (currently ~80-90 persons) with heavy cross-tree interconnection — the "do it while the surface area is small" argument only starts to outweigh the migration cost at a scale where the current model's tradeoffs (write amplification, no relationship-path queries) actually start to hurt in practice, not preemptively.
+
 ## Merge logic
 
 `merge.js` is intentionally framework-free — pure functions, no DOM, no network — so it can be unit-tested in Node and also loaded as a browser global via `<script src="merge.js">`. The SPA calls `computeMergeWrites(survivor, duplicate, childrenOfDup, couplesOfDup)` which returns the exact PATCH/DELETE operations to perform without side effects.
