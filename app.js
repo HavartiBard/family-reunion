@@ -150,7 +150,7 @@ let userId = localStorage.getItem('pb_user_id') || '';
 let currentUser = null;
 let unreadCount = 0;
 let pendingCount = 0;
-let currentBranches = null;  // null = not loaded; [] = not branch admin; ['Kelsall'] = branch admin
+let currentAdminTrees = null;  // null = not loaded; [] = not branch admin; [{id,name}] = admin of these trees
 let branchPendingCount = 0;
 
 const NAV = [
@@ -281,19 +281,26 @@ async function refreshPending(){
   } catch { pendingCount = 0; }
 }
 
-function isBranchAdmin(){ return !!(currentBranches && currentBranches.length > 0); }
+function isBranchAdmin(){ return !!(currentAdminTrees && currentAdminTrees.length > 0); }
 
 async function loadBranchAdminState(){
-  if (!userId) { currentBranches = []; branchPendingCount = 0; return; }
+  if (!userId) { currentAdminTrees = []; branchPendingCount = 0; return; }
   try {
-    const res = await apiFetch(`/api/collections/branch_admins/records?filter=${encodeURIComponent(`(user="${userId}")`)}` + `&perPage=50`);
-    currentBranches = res.ok ? (await res.json()).items.map(r => r.branch) : [];
-  } catch { currentBranches = []; }
+    const res = await apiFetch(`/api/collections/branch_admins/records?filter=${encodeURIComponent(`(user="${userId}")`)}` + `&perPage=50&expand=tree`);
+    if (res.ok) {
+      const items = (await res.json()).items;
+      const seen = new Map();
+      for (const r of items) for (const t of (r.expand && r.expand.tree) || []) seen.set(t.id, t.name);
+      currentAdminTrees = [...seen].map(([id, name]) => ({ id, name }));
+    } else {
+      currentAdminTrees = [];
+    }
+  } catch { currentAdminTrees = []; }
 
-  if (currentBranches.length === 0) { branchPendingCount = 0; return; }
+  if (currentAdminTrees.length === 0) { branchPendingCount = 0; return; }
   try {
-    const branchFilter = currentBranches.map(b => `person.family_name="${b}"`).join('||');
-    const res = await apiFetch(`/api/collections/person_claims/records?filter=${encodeURIComponent(`(status="pending" && (${branchFilter}))`)}&perPage=1`);
+    const treeFilter = currentAdminTrees.map(t => `person.tree="${t.id}"`).join('||');
+    const res = await apiFetch(`/api/collections/person_claims/records?filter=${encodeURIComponent(`(status="pending" && (${treeFilter}))`)}&perPage=1&expand=person`);
     branchPendingCount = res.ok ? (await res.json()).totalItems || 0 : 0;
   } catch { branchPendingCount = 0; }
 }
@@ -4822,16 +4829,16 @@ SCREENS.admin = async function(){
   mountMain('<div class="screen-pad" style="max-width:1100px"><div class="spinner"></div></div>');
 
   let pending = [], members = [], albumCount = 0, newsCount = 0, claims = [],
-      branchAdminRecords = [], distinctBranches = [];
+      branchAdminRecords = [], trees = [];
   try {
-    const [pRes, mRes, aRes, nRes, cRes, baRes, bnRes] = await Promise.all([
+    const [pRes, mRes, aRes, nRes, cRes, baRes, tRes] = await Promise.all([
       apiFetch('/api/collections/users/records?filter=(approved=false)&perPage=100&sort=created'),
       apiFetch('/api/collections/users/records?filter=(approved=true)&perPage=200&sort=name'),
       apiFetch('/api/collections/albums/records?perPage=1'),
       apiFetch('/api/collections/news/records?perPage=1'),
       apiFetch('/api/collections/person_claims/records?filter=(status="pending")&perPage=100&expand=person,user&sort=created'),
       apiFetch('/api/collections/branch_admins/records?perPage=200&expand=user'),
-      apiFetch('/api/collections/persons/records?perPage=500&fields=family_name')
+      apiFetch('/api/collections/trees/records?perPage=200&sort=name')
     ]);
     if (pRes.ok) pending = (await pRes.json()).items || [];
     if (mRes.ok) { const d = await mRes.json(); members = d.items || []; }
@@ -4839,10 +4846,7 @@ SCREENS.admin = async function(){
     if (nRes.ok) newsCount  = (await nRes.json()).totalItems || 0;
     if (cRes.ok) claims = (await cRes.json()).items || [];
     if (baRes.ok) branchAdminRecords = (await baRes.json()).items || [];
-    if (bnRes.ok) {
-      const ps = (await bnRes.json()).items || [];
-      distinctBranches = [...new Set(ps.map(p => (p.family_name || '').trim()).filter(Boolean))].sort();
-    }
+    if (tRes.ok) trees = (await tRes.json()).items || [];
   } catch { /* ignore */ }
 
   const stat = (v, l) => `<div class="stat-card"><div class="stat-val">${v}</div><div class="stat-label">${l}</div></div>`;
@@ -4922,20 +4926,20 @@ SCREENS.admin = async function(){
     <div class="admin-section">Branches</div>
     <div class="admin-table-wrap">
       <table class="admin-table">
-        <thead><tr><th>Branch</th><th>Branch admin</th><th></th></tr></thead>
-        <tbody>${distinctBranches.map(branch => {
-          const rec = branchAdminRecords.find(r => r.branch === branch);
+        <thead><tr><th>Tree</th><th>Branch admin</th><th></th></tr></thead>
+        <tbody>${trees.map(tree => {
+          const rec = branchAdminRecords.find(r => (r.tree || []).includes(tree.id));
           const u = rec && rec.expand && rec.expand.user;
           return `<tr>
-            <td>${esc(branch)}</td>
+            <td>${esc(tree.name)}</td>
             <td>${u ? esc(u.name || u.email) : '<span style="color:var(--text-muted)">Unassigned</span>'}</td>
             <td>${rec
               ? `<button class="btn btn-danger btn-sm" onclick="removeBranchAdmin('${rec.id}')">Remove</button>`
-              : `<button class="btn btn-outline btn-sm" onclick="openAssignBranchAdmin('${esc(branch)}')">Assign</button>`
+              : `<button class="btn btn-outline btn-sm" onclick="openAssignBranchAdmin('${tree.id}','${esc(tree.name)}')">Assign</button>`
             }</td>
           </tr>`;
         }).join('')}
-        ${distinctBranches.length === 0 ? '<tr><td colspan="3" style="color:var(--text-muted);text-align:center;padding:1rem">No family branches in the tree yet.</td></tr>' : ''}
+        ${trees.length === 0 ? '<tr><td colspan="3" style="color:var(--text-muted);text-align:center;padding:1rem">No family trees yet.</td></tr>' : ''}
         </tbody>
       </table>
     </div>
@@ -4977,11 +4981,11 @@ async function adminToggleAdmin(id, makeAdmin){
   } catch (e) { toast(e.message, 'error'); }
 }
 
-function openAssignBranchAdmin(branch){
-  openModal(`<h2 class="card-title">Assign branch admin — ${esc(branch)}</h2>
+function openAssignBranchAdmin(treeId, treeName){
+  openModal(`<h2 class="card-title">Assign branch admin — ${esc(treeName)}</h2>
     <div id="ba-error" class="alert alert-error" style="display:none"></div>
     <p style="font-size:.86rem;color:var(--text-secondary);margin-bottom:1rem">
-      Choose an approved member to manage the ${esc(branch)} branch.
+      Choose an approved member to manage the ${esc(treeName)} tree.
     </p>
     <div class="form-group"><label>Member email or name</label>
       <input id="ba-search" placeholder="Search…" oninput="searchBranchAdminUser()" />
@@ -4989,7 +4993,7 @@ function openAssignBranchAdmin(branch){
     <div id="ba-results"></div>
     <input type="hidden" id="ba-user-id" />
     <div style="display:flex;gap:.6rem;margin-top:.75rem">
-      <button class="btn btn-primary" onclick="saveBranchAdmin('${esc(branch)}')">Assign</button>
+      <button class="btn btn-primary" onclick="saveBranchAdmin('${treeId}','${esc(treeName)}')">Assign</button>
       <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
     </div>`);
 }
@@ -5017,13 +5021,15 @@ function selectBranchAdminUser(uid, label){
   const r = el('ba-results'); if (r) r.innerHTML = '';
 }
 
-async function saveBranchAdmin(branch){
+async function saveBranchAdmin(treeId, treeName){
   const uid = val('ba-user-id');
   if (!uid) return formErr('ba-error', 'Please select a member first.');
   try {
+    // `branch` (free text) is still required by the schema pending Phase 5 cleanup —
+    // populate it with the tree's name so existing/legacy reads stay coherent.
     const res = await apiFetch('/api/collections/branch_admins/records', {
       method:'POST', headers:{ 'Content-Type':'application/json' },
-      body: JSON.stringify({ user: uid, branch })
+      body: JSON.stringify({ user: uid, tree: [treeId], branch: treeName })
     });
     if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not assign'); }
     closeModal();
@@ -5085,12 +5091,12 @@ SCREENS.branchadmin = async function(){
   mountMain('<div class="screen-pad" style="max-width:1100px"><div class="spinner"></div></div>');
 
   let claims = [], persons = [];
-  const branchFilter = currentBranches.map(b => `person.family_name="${b}"`).join('||');
-  const personFilter = currentBranches.map(b => `family_name="${b}"`).join('||');
+  const claimFilter = currentAdminTrees.map(t => `person.tree="${t.id}"`).join('||');
+  const personFilter = currentAdminTrees.map(t => `tree="${t.id}"`).join('||');
 
   try {
     const [cRes, pRes] = await Promise.all([
-      apiFetch(`/api/collections/person_claims/records?filter=${encodeURIComponent(`(status="pending" && (${branchFilter}))`)}&perPage=100&expand=person,user&sort=created`),
+      apiFetch(`/api/collections/person_claims/records?filter=${encodeURIComponent(`(status="pending" && (${claimFilter}))`)}&perPage=100&expand=person,user&sort=created`),
       apiFetch(`/api/collections/persons/records?filter=${encodeURIComponent(`(${personFilter})`)}&perPage=500&sort=family_name`)
     ]);
     if (cRes.ok) claims = (await cRes.json()).items || [];
@@ -5117,8 +5123,9 @@ SCREENS.branchadmin = async function(){
        </table></div>`
     : '<div class="empty-state" style="padding:2rem 0"><p>No pending claims for your branch.</p></div>';
 
+  const treeNames = currentAdminTrees.map(t => t.name);
   const personsHtml = persons.length
-    ? `<div class="admin-section">Persons — ${currentBranches.map(esc).join(', ')} branch${currentBranches.length > 1 ? 'es' : ''}</div>
+    ? `<div class="admin-section">Persons — ${treeNames.map(esc).join(', ')} tree${treeNames.length > 1 ? 's' : ''}</div>
        <div class="admin-table-wrap"><table class="admin-table">
          <thead><tr><th>Name</th><th>Branch</th><th>Born</th><th>Account</th><th></th></tr></thead>
          <tbody>${persons.map(p => `<tr>
@@ -5134,7 +5141,7 @@ SCREENS.branchadmin = async function(){
   mountMain(`<div class="screen-pad" style="max-width:1100px">
     <h1 class="card-title" style="margin-bottom:1.25rem">Branch Admin
       <span style="font-family:var(--font-ui);font-size:1rem;font-weight:400;color:var(--text-muted);margin-left:.5rem">
-        ${currentBranches.map(esc).join(', ')}
+        ${treeNames.map(esc).join(', ')}
       </span>
     </h1>
     ${claimsHtml}
