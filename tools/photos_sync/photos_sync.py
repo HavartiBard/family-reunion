@@ -119,9 +119,14 @@ class PB:
 
     @classmethod
     def login(cls, base: str, identity: str, password: str) -> "PB":
+        # Authenticates as a regular `users` record (a family_admin=true
+        # service account), not PocketBase's superuser `_superusers` table --
+        # see the equivalent comment in tools/gedcom_sync/gedcom_sync.py's
+        # PB.login() for why this matters (superuser bypasses every rule
+        # and every pb_hooks/*.pb.js hook outright).
         import requests
         r = requests.post(
-            f"{base.rstrip('/')}/api/admins/auth-with-password",
+            f"{base.rstrip('/')}/api/collections/users/auth-with-password",
             json={"identity": identity, "password": password},
             timeout=15,
         )

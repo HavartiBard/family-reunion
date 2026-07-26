@@ -8,10 +8,16 @@ Bulk-import an exported Apple Photos folder into the Kelsall family site.
 pip3 install -r requirements.txt
 
 PB_URL=https://reunion-api.klsll.com \
-PB_ADMIN_EMAIL=your@email.com \
-PB_ADMIN_PASSWORD=yourpassword \
+PB_ADMIN_EMAIL=svc-photos-sync@reunion.local \
+PB_ADMIN_PASSWORD=<service account pw> \
 python3 photos_sync.py ~/Pictures/FamilyExport/
 ```
+
+`PB_ADMIN_EMAIL`/`PB_ADMIN_PASSWORD` authenticate as a regular `users` record
+with `family_admin=true` (a dedicated service account, credentials in
+1Password), **not** PocketBase's superuser `_superusers` table — album
+creation is `family_admin`-only, but a family_admin `users` record still goes
+through PocketBase's collection rules, unlike true superuser auth.
 
 ## Source directory layout
 
@@ -51,7 +57,7 @@ Same as `gedcom_sync` — run from the Unraid host shell:
 cd /mnt/user/appdata/family-reunion/tools/photos_sync
 pip3 install -r requirements.txt --break-system-packages
 PB_URL=https://reunion-api.klsll.com \
-PB_ADMIN_EMAIL=... PB_ADMIN_PASSWORD=... \
+PB_ADMIN_EMAIL=svc-photos-sync@reunion.local PB_ADMIN_PASSWORD=... \
 python3 photos_sync.py /mnt/user/Photos/FamilyExport/
 ```
 

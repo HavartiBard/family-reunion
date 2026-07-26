@@ -5,14 +5,22 @@ a `.ged` file or the Webtrees MariaDB. Idempotent (keyed on `gedcom_id`),
 fill-blanks-only (never overwrites edits made in the reunion SPA), redacts
 living people, supports `--dry-run`.
 
+`PB_ADMIN_EMAIL`/`PB_ADMIN_PASSWORD` authenticate as a regular `users` record
+with `family_admin=true` (a dedicated service account, credentials in
+1Password), **not** PocketBase's superuser `_superusers` table — this tool
+creates/updates `persons`/`couples`/`trees` across every family tree, which
+requires trunk-admin scope, but a family_admin `users` record still goes
+through PocketBase's collection rules and `pb_hooks/*.pb.js` (unlike true
+superuser auth, which bypasses both outright).
+
 ## Option A — ingest a .ged file (simplest)
 
 Export a `.ged` from any genealogy program (Ancestry, FamilySearch, Webtrees,
 MacFamilyTree, etc.) and run directly from any machine that can reach PocketBase:
 
 ```bash
-export PB_ADMIN_EMAIL="james@klsll.com"
-export PB_ADMIN_PASSWORD="<pocketbase admin pw>"   # 1Password: Reunion Pocketbase
+export PB_ADMIN_EMAIL="svc-gedcom-sync@reunion.local"
+export PB_ADMIN_PASSWORD="<service account pw>"    # 1Password: Reunion Pocketbase — gedcom_sync service account
 
 pip install -r requirements.txt
 python3 gedcom_sync.py \
@@ -29,8 +37,8 @@ python3 gedcom_sync.py \
    Docker network exists):
 
 ```bash
-export PB_ADMIN_EMAIL="james@klsll.com"
-export PB_ADMIN_PASSWORD="<pocketbase admin pw>"      # 1Password: Reunion Pocketbase
+export PB_ADMIN_EMAIL="svc-gedcom-sync@reunion.local"
+export PB_ADMIN_PASSWORD="<service account pw>"       # 1Password: Reunion Pocketbase — gedcom_sync service account
 export WT_DB_PASSWORD="<webtrees db pw>"              # vault_webtrees_db_password
 
 ./run.sh --dry-run     # report only, no writes

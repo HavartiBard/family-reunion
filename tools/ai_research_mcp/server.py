@@ -30,9 +30,14 @@ class PBClient:
         self._token: str | None = None
 
     def _authenticate(self) -> None:
+        # Authenticates as a regular `users` record (a family_admin=true
+        # service account), not PocketBase's superuser `_superusers` table --
+        # see the equivalent comment in tools/gedcom_sync/gedcom_sync.py's
+        # PB.login() for why this matters (superuser bypasses every rule
+        # and every pb_hooks/*.pb.js hook outright).
         r = httpx.request(
             "POST",
-            f"{self._base}/api/admins/auth-with-password",
+            f"{self._base}/api/collections/users/auth-with-password",
             json={"identity": self._email, "password": self._password},
             timeout=10,
         )
@@ -254,6 +259,9 @@ _pb_client: PBClient | None = None
 
 
 def _pb() -> PBClient:
+    # PB_ADMIN_EMAIL/PASSWORD are a family_admin=true `users` service account
+    # (1Password: Reunion Pocketbase — ai_research_mcp service account), not
+    # PocketBase superuser credentials -- see PBClient._authenticate().
     global _pb_client
     if _pb_client is None:
         _pb_client = PBClient(

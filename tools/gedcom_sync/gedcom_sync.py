@@ -267,8 +267,18 @@ class PB:
 
     @classmethod
     def login(cls, base, identity, password):
+        # Authenticates as a regular `users` record (a family_admin=true
+        # service account), not PocketBase's superuser `_superusers` table.
+        # Superuser auth bypasses every collection rule *and* every
+        # pb_hooks/*.pb.js tree-scoping/PII hook outright (they explicitly
+        # no-op when the request has no authRecord) -- this tool used to
+        # run with zero enforcement. A family_admin users record still goes
+        # through both the rules and the hooks, which then grant it full
+        # access via their own family_admin escape hatch, so behavior is
+        # unchanged but the request is attributable and actually bound by
+        # whatever those rules/hooks say, not a blanket bypass.
         import requests
-        r = requests.post(f"{base.rstrip('/')}/api/admins/auth-with-password",
+        r = requests.post(f"{base.rstrip('/')}/api/collections/users/auth-with-password",
                           json={"identity": identity, "password": password},
                           timeout=15)
         r.raise_for_status()
