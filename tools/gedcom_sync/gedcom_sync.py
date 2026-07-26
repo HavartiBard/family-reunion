@@ -226,6 +226,21 @@ def plan_person_write(existing, gedcom_id, mapped):
     return "noop", {}
 
 
+def surname_key(fields):
+    """Stable tree-grouping key: birth_surname if known, else family_name.
+
+    Mirrors tools/backfill_tree/backfill_tree.py's own surname_key() — birth
+    surname is the stable "family line" a person belongs to; a married/current
+    surname is exactly the kind of cross-tree link the couples_tree_link.pb.js
+    hook already resolves once both partners carry a `tree`, so it must not be
+    folded into the same grouping key. Kept as a separate copy per-tool rather
+    than a shared module, since this repo has no cross-tool shared package
+    today (see the Phase 2 plan's explicit note on this tradeoff) — if the
+    grouping rule ever changes, grep for `surname_key` across tools/.
+    """
+    return (fields.get("birth_surname") or fields.get("family_name") or "").strip()
+
+
 # ── I/O: Webtrees MariaDB reader ─────────────────────────────────────────────
 def fetch_webtrees(db_host, db_name, db_user, db_pass, prefix="wt_"):
     """Return (individuals, families) dicts of {xref: gedcom_text}. xref is @...@."""
@@ -300,6 +315,22 @@ class PB:
         r.raise_for_status()
         return r.json()
 
+    def find_tree_by_surname(self, surname):
+        import requests
+        r = requests.get(f"{self.base}/api/collections/trees/records",
+                         params={"perPage": 1, "filter": f'(surname="{surname}")'},
+                         headers=self.h, timeout=15)
+        r.raise_for_status()
+        items = r.json().get("items", [])
+        return items[0] if items else None
+
+    def create_tree(self, fields):
+        import requests
+        r = requests.post(f"{self.base}/api/collections/trees/records",
+                          json=fields, headers=self.h, timeout=15)
+        r.raise_for_status()
+        return r.json()
+
 
 # ── Orchestration ────────────────────────────────────────────────────────────
 def build_person_fields(xref, individuals, now_year):
@@ -318,6 +349,24 @@ def run(args):
     now_year = args.now_year
     counts = {"created": 0, "updated": 0, "noop": 0, "couples": 0, "redacted": 0}
     xref_to_pid = {}
+    tree_cache = {}  # surname_key -> tree id (real, or "<new:{key}>" in dry-run)
+
+    def resolve_tree_id(key):
+        """Resolve-or-create a `trees` record for this surname key, cached
+        per-run. Never guesses: a blank key (no birth_surname/family_name at
+        all) resolves to None and is left for backfill_tree.py to flag."""
+        if not key:
+            return None
+        if key in tree_cache:
+            return tree_cache[key]
+        existing_tree = pb.find_tree_by_surname(key)
+        if existing_tree:
+            tree_cache[key] = existing_tree["id"]
+        elif args.dry_run:
+            tree_cache[key] = f"<new:{key}>"
+        else:
+            tree_cache[key] = pb.create_tree({"name": key, "surname": key})["id"]
+        return tree_cache[key]
 
     # Pass 1: upsert every individual as a person.
     for xref in individuals:
@@ -326,6 +375,22 @@ def run(args):
             counts["redacted"] += 1
         existing = pb.find_by_gedcom(xref)
         action, fields = plan_person_write(existing, xref, mapped)
+        # Stamp `tree` only when creating a brand-new person, or filling a
+        # blank `tree` on an existing one — never overwrite an already-set
+        # value (same fill-blanks-only convention as every other field here).
+        key = surname_key(mapped)
+        if action == "create":
+            tree_id = resolve_tree_id(key)
+            if tree_id:
+                fields["tree"] = tree_id
+        elif action == "update" and existing is not None and not existing.get("tree"):
+            tree_id = resolve_tree_id(key)
+            if tree_id:
+                fields["tree"] = tree_id
+        elif action == "noop" and existing is not None and not existing.get("tree"):
+            tree_id = resolve_tree_id(key)
+            if tree_id:
+                action, fields = "update", {"tree": tree_id}
         if args.dry_run:
             xref_to_pid[xref] = existing["id"] if existing else f"<new:{xref}>"
             if action == "noop":
