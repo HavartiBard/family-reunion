@@ -2970,6 +2970,21 @@ async function openPersonForm(id){
       <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
     </div>`);
 }
+// Best-effort tree inference for the two create call sites with no existing
+// relative to inherit a tree from (standalone "Add person", photo-tag quick-add).
+// Only defaults when there's exactly one unambiguous choice for the acting user
+// (their home_tree, or their single admin_trees entry) — deliberately does NOT
+// guess when a family_admin or multi-tree branch admin has more than one valid
+// tree, since picking wrong there is worse than leaving it unset for a human to
+// assign later. No picker UI added (would only ever matter for that admin case).
+function _defaultTreeForNewPerson(){
+  if (!currentUser) return '';
+  if (currentUser.home_tree) return currentUser.home_tree;
+  const adminTrees = currentUser.admin_trees || [];
+  if (adminTrees.length === 1) return adminTrees[0];
+  return '';
+}
+
 async function savePerson(id){
   const first = val('pf-first');
   const mid   = val('pf-mid');
@@ -2996,7 +3011,12 @@ async function savePerson(id){
   try {
     let res;
     if (id) res = await apiFetch(`/api/collections/persons/records/${id}`, { method:'PATCH', body: fd });
-    else { fd.append('created_by', userId); res = await apiFetch('/api/collections/persons/records', { method:'POST', body: fd }); }
+    else {
+      fd.append('created_by', userId);
+      const defaultTree = _defaultTreeForNewPerson();
+      if (defaultTree) fd.append('tree', defaultTree);
+      res = await apiFetch('/api/collections/persons/records', { method:'POST', body: fd });
+    }
     if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Save failed'); }
     const saved = await res.json();
     personCache.set(saved.id, saved);
@@ -4328,9 +4348,12 @@ async function quickAddAndTag(photoId, name){
   const given = parts[0] || name;
   const family = parts.slice(1).join(' ') || '';
   try {
+    const body = { display_name: name, given_name: given, family_name: family, living: true };
+    const defaultTree = _defaultTreeForNewPerson();
+    if (defaultTree) body.tree = defaultTree;
     const r = await apiFetch('/api/collections/persons/records', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ display_name: name, given_name: given, family_name: family, living: true })
+      body: JSON.stringify(body)
     });
     if (!r.ok){ const d = await r.json(); throw new Error(d.message || 'Could not create person'); }
     const person = await r.json();
