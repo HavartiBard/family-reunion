@@ -3404,6 +3404,18 @@ SCREENS.directory = async function(){
     if (res.ok) members = (await res.json()).items || [];
   } catch { /* ignore */ }
 
+  // privacy_settings.directory ('family'/'admins'/'only_me') isn't enforced by any
+  // backend rule/hook today (unlike phone, which users_privacy_redact.pb.js already
+  // handles) — this is genuinely client-side-only defense-in-depth, bypassable via a
+  // direct API call, but still worth doing so the UI honors what a member actually
+  // asked for rather than ignoring the setting entirely.
+  const isAdmin = !!(currentUser && currentUser.family_admin);
+  members = members.filter(m => {
+    if (isAdmin || m.id === userId) return true;
+    const priv = Object.assign(defaultPrivacy(), m.privacy_settings || {});
+    return priv.directory === 'family';
+  });
+
   const cards = members.map((m, i) => {
     const bday = m.birthday ? new Date(m.birthday).toLocaleDateString('en-US', { month:'long', day:'numeric' }) : '';
     const msg = m.email ? `<a class="btn btn-outline btn-sm btn-full" href="mailto:${esc(m.email)}">Message</a>` :
@@ -3831,6 +3843,18 @@ SCREENS.profile = async function(params){
     ]);
     if (!personRes.ok) throw new Error('not found');
     p = await personRes.json();
+    if (p.expand && p.expand.linked_user) {
+      // `expand` bypasses the backend's privacy-redaction hook (confirmed
+      // empirically: PocketBase resolves expand AFTER the users collection's own
+      // list/view hooks run, so a phone number the owner restricted to "admins"
+      // would otherwise leak through this embedded blob). Fetch the linked user
+      // directly instead of trusting expand for anything privacy-gated — that
+      // request goes through the normal view path and gets correctly redacted.
+      try {
+        const luRes = await apiFetch(`/api/collections/users/records/${p.expand.linked_user.id}`);
+        p.expand.linked_user.phone = luRes.ok ? (await luRes.json()).phone : '';
+      } catch { p.expand.linked_user.phone = ''; }
+    }
     if (factsRes.ok) facts = (await factsRes.json()).items || [];
     if (phRes.ok) photos = (await phRes.json()).items || [];
 
