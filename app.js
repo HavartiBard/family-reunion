@@ -1037,9 +1037,12 @@ async function postNews(){
   const err = el('nc-error');
   if (!title || !body) { if (err) { err.textContent = 'Title and message are required.'; err.style.display = ''; } return; }
   try {
+    const body_ = { title, body, author: userId };
+    const defaultTree = _defaultTreeForNewRecord();
+    if (defaultTree) body_.tree = defaultTree;
     const res = await apiFetch('/api/collections/news/records', {
       method:'POST', headers:{ 'Content-Type':'application/json' },
-      body: JSON.stringify({ title, body, author: userId })
+      body: JSON.stringify(body_)
     });
     if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not post'); }
     closeModal();
@@ -2970,14 +2973,15 @@ async function openPersonForm(id){
       <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
     </div>`);
 }
-// Best-effort tree inference for the two create call sites with no existing
-// relative to inherit a tree from (standalone "Add person", photo-tag quick-add).
-// Only defaults when there's exactly one unambiguous choice for the acting user
-// (their home_tree, or their single admin_trees entry) — deliberately does NOT
-// guess when a family_admin or multi-tree branch admin has more than one valid
-// tree, since picking wrong there is worse than leaving it unset for a human to
-// assign later. No picker UI added (would only ever matter for that admin case).
-function _defaultTreeForNewPerson(){
+// Best-effort tree inference for creation flows with no existing relative/parent
+// record to inherit a tree from (standalone "Add person", photo-tag quick-add,
+// news/events/albums). Only defaults when there's exactly one unambiguous choice
+// for the acting user (their home_tree, or their single admin_trees entry) —
+// deliberately does NOT guess when a family_admin or multi-tree branch admin has
+// more than one valid tree, since picking wrong there is worse than leaving it
+// unset for a human to assign later. No picker UI added (would only ever matter
+// for that admin case).
+function _defaultTreeForNewRecord(){
   if (!currentUser) return '';
   if (currentUser.home_tree) return currentUser.home_tree;
   const adminTrees = currentUser.admin_trees || [];
@@ -3013,7 +3017,7 @@ async function savePerson(id){
     if (id) res = await apiFetch(`/api/collections/persons/records/${id}`, { method:'PATCH', body: fd });
     else {
       fd.append('created_by', userId);
-      const defaultTree = _defaultTreeForNewPerson();
+      const defaultTree = _defaultTreeForNewRecord();
       if (defaultTree) fd.append('tree', defaultTree);
       res = await apiFetch('/api/collections/persons/records', { method:'POST', body: fd });
     }
@@ -3373,6 +3377,8 @@ async function saveEvent(eventId){
   if (!eventId) {
     fd.append('created_by', userId);
     fd.append('organizers', userId);
+    const defaultTree = _defaultTreeForNewRecord();
+    if (defaultTree) fd.append('tree', defaultTree);
   }
   try {
     const res = eventId
@@ -4143,6 +4149,8 @@ async function saveAlbum(){
   const yr = val('alb-year'); if (yr) fd.append('year', yr);
   const desc = val('alb-desc'); if (desc) fd.append('description', desc);
   const cover = el('alb-cover').files[0]; if (cover) fd.append('cover_photo', cover);
+  const defaultTree = _defaultTreeForNewRecord();
+  if (defaultTree) fd.append('tree', defaultTree);
   try {
     const res = await apiFetch('/api/collections/albums/records', { method:'POST', body: fd });
     if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Create failed'); }
@@ -4373,7 +4381,7 @@ async function quickAddAndTag(photoId, name){
   const family = parts.slice(1).join(' ') || '';
   try {
     const body = { display_name: name, given_name: given, family_name: family, living: true };
-    const defaultTree = _defaultTreeForNewPerson();
+    const defaultTree = _defaultTreeForNewRecord();
     if (defaultTree) body.tree = defaultTree;
     const r = await apiFetch('/api/collections/persons/records', {
       method: 'POST', headers: {'Content-Type':'application/json'},
