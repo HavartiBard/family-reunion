@@ -620,15 +620,17 @@ async function skipClaim(){
 
   let personId = null;
   try {
+    const body = {
+      display_name: displayName,
+      given_name: first,
+      family_name: last,
+      living: true,
+      linked_user: userId
+    };
+    if (currentUser && currentUser.home_tree) body.tree = currentUser.home_tree;
     const res = await apiFetch('/api/collections/persons/records', {
       method:'POST', headers:{ 'Content-Type':'application/json' },
-      body: JSON.stringify({
-        display_name: displayName,
-        given_name: first,
-        family_name: last,
-        living: true,
-        linked_user: userId
-      })
+      body: JSON.stringify(body)
     });
     if (res.ok) { const p = await res.json(); personId = p.id; }
     else { const d = await res.json(); toast(d.message || 'Could not create your profile', 'error'); }
@@ -764,6 +766,7 @@ async function _wizCreateAndSelect(name, role){
   };
   if (role === 'father') body.gender = 'male';
   if (role === 'mother') body.gender = 'female';
+  if (currentUser && currentUser.home_tree) body.tree = currentUser.home_tree;
   try {
     const r = await apiFetch('/api/collections/persons/records', {
       method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
@@ -2811,6 +2814,9 @@ function tpNodeClick(e, id){
   if (my+menuH>vr.height-8) my=cr.top-vr.top-menuH-4;
   const p=_tS.persons.get(id)||{};
   const isMe=p.linked_user===userId, canClaim=!p.linked_user;
+  // Claiming an existing person always goes through admin review (person_claims) —
+  // there is no longer an instant self-link path, backend or frontend. See
+  // submitClaimForExisting().
   const m=document.createElement('div'); m.className='tree-ctx'; m.id='tree-ctx';
   m.style.cssText=`left:${mx}px;top:${my}px`;
   const isFocus = id === _tS.focusId;
@@ -2824,7 +2830,7 @@ function tpNodeClick(e, id){
     <button class="ctx-item" onclick="openAddRelative('${id}');tpCloseCtx()">＋ Add relative</button>
     ${hasChildren?`<button class="ctx-item" onclick="tpToggleCollapse(event,'${id}','desc');tpCloseCtx()">${isCollapsed?'▶ Expand children':'▼ Collapse children'}</button>`:''}
     ${hasSibs?`<button class="ctx-item" onclick="tpToggleSibs();tpCloseCtx()">${_tS.sibsCollapsed?`◀ Show siblings (${_tS.siblings.length})`:'◀ Hide siblings'}</button>`:''}
-    ${canClaim?`<button class="ctx-item" onclick="claimPerson('${id}');tpCloseCtx()">★ This is me</button>`:''}
+    ${canClaim?`<button class="ctx-item" onclick="submitClaimForExisting('${id}');tpCloseCtx()">★ This is me</button>`:''}
     ${isMe?'<div class="ctx-me">★ This is you</div>':''}`;
   vp.appendChild(m);
   requestAnimationFrame(()=>document.addEventListener('click', _tpCtxOff, {once:true}));
@@ -2889,7 +2895,7 @@ function tpToggleSibs(){
   tpRenderPreserveViewport();
 }
 
-// Backward-compat shim used by savePerson, linkExisting, createAndLink, claimPerson, merge
+// Backward-compat shim used by savePerson, linkExisting, createAndLink, merge
 async function focusPerson(id){
   if (!id) return;
   treeFocusId = id; personCache.delete(id);
@@ -3065,6 +3071,10 @@ async function createAndLink(focusId, rel){
     const body = { display_name: q, given_name: q.split(' ')[0], family_name: q.split(' ').slice(1).join(' '),
       living: true, created_by: userId, updated_by: userId };
     if (genderMap[rel]) body.gender = genderMap[rel];
+    if (rel !== 'partner') {
+      const focus = await getPerson(focusId);
+      if (focus && focus.tree) body.tree = focus.tree;
+    }
     const res = await apiFetch('/api/collections/persons/records', {
       method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
     if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Create failed'); }
@@ -3073,15 +3083,21 @@ async function createAndLink(focusId, rel){
     closeModal(); personCache.delete(focusId); await focusPerson(focusId, true);
   } catch (e) { formErr('rel-error', e.message); }
 }
-async function claimPerson(personId){
+// Claiming an existing person always goes through admin review (person_claims),
+// the same code path as the onboarding claim flow's submitClaim() — there is no
+// instant self-link anymore, backend (persons_tree_visibility.pb.js rejects a
+// direct linked_user PATCH from a non-admin) or frontend.
+async function submitClaimForExisting(personId){
   const p = await getPerson(personId);
-  if (p.linked_user && p.linked_user !== userId) { toast('Already linked to another account.', 'error'); return; }
-  const prior = await myPersonId();
+  if (p && p.linked_user) { toast('Already linked to another account.', 'error'); return; }
   try {
-    if (prior && prior !== personId) await patchPerson(prior, { linked_user: '' });
-    await patchPerson(personId, { linked_user: userId });
-    personCache.delete(personId); await focusPerson(personId, true);
-  } catch (e) { toast('Could not claim: ' + e.message, 'error'); }
+    const res = await apiFetch('/api/collections/person_claims/records', {
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ person: personId, user: userId, status: 'pending' })
+    });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not submit claim'); }
+    toast('Claim submitted — an admin will review it shortly.', 'success');
+  } catch (e) { toast('Could not submit claim: ' + e.message, 'error'); }
 }
 
 // duplicates + merge (uses merge.js computeMergeWrites)
@@ -3757,6 +3773,10 @@ async function profileCreateAndLink(personId, role){
     const body = { display_name: q, given_name: parts[0], family_name: parts.slice(1).join(' '),
       living: true, created_by: userId, updated_by: userId };
     if (genderMap[role]) body.gender = genderMap[role];
+    if (role !== 'partner') {
+      const subject = await getPerson(personId);
+      if (subject && subject.tree) body.tree = subject.tree;
+    }
     const r = await apiFetch('/api/collections/persons/records', {
       method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
     if (!r.ok){ const d = await r.json(); throw new Error(d.message || 'Create failed'); }
