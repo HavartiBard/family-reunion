@@ -5040,7 +5040,7 @@ function openAssignBranchAdmin(treeId, treeName){
     <div id="ba-results"></div>
     <input type="hidden" id="ba-user-id" />
     <div style="display:flex;gap:.6rem;margin-top:.75rem">
-      <button class="btn btn-primary" onclick="saveBranchAdmin('${treeId}','${esc(treeName)}')">Assign</button>
+      <button class="btn btn-primary" onclick="saveBranchAdmin('${treeId}')">Assign</button>
       <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
     </div>`);
 }
@@ -5068,15 +5068,13 @@ function selectBranchAdminUser(uid, label){
   const r = el('ba-results'); if (r) r.innerHTML = '';
 }
 
-async function saveBranchAdmin(treeId, treeName){
+async function saveBranchAdmin(treeId){
   const uid = val('ba-user-id');
   if (!uid) return formErr('ba-error', 'Please select a member first.');
   try {
-    // `branch` (free text) is still required by the schema pending Phase 5 cleanup —
-    // populate it with the tree's name so existing/legacy reads stay coherent.
     const res = await apiFetch('/api/collections/branch_admins/records', {
       method:'POST', headers:{ 'Content-Type':'application/json' },
-      body: JSON.stringify({ user: uid, tree: [treeId], branch: treeName })
+      body: JSON.stringify({ user: uid, tree: [treeId] })
     });
     if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not assign'); }
     closeModal();
