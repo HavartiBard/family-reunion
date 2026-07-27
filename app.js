@@ -2823,10 +2823,11 @@ function tpNodeClick(e, id){
   if (mx+menuW>vr.width-8) mx=vr.width-menuW-8;
   if (my+menuH>vr.height-8) my=cr.top-vr.top-menuH-4;
   const p=_tS.persons.get(id)||{};
-  const isMe=p.linked_user===userId, canClaim=!p.linked_user;
-  // Claiming an existing person always goes through admin review (person_claims) —
-  // there is no longer an instant self-link path, backend or frontend. See
-  // submitClaimForExisting().
+  const isMe=p.linked_user===userId;
+  // Claiming a person is done from Settings > Family Identity, not from the tree view —
+  // removes the risk of an accidental click on the wrong card while browsing. Claiming
+  // still always goes through admin review (person_claims); see submitIdentityClaim()
+  // in the Settings identity panel.
   const m=document.createElement('div'); m.className='tree-ctx'; m.id='tree-ctx';
   m.style.cssText=`left:${mx}px;top:${my}px`;
   const isFocus = id === _tS.focusId;
@@ -2840,7 +2841,6 @@ function tpNodeClick(e, id){
     <button class="ctx-item" onclick="openAddRelative('${id}');tpCloseCtx()">＋ Add relative</button>
     ${hasChildren?`<button class="ctx-item" onclick="tpToggleCollapse(event,'${id}','desc');tpCloseCtx()">${isCollapsed?'▶ Expand children':'▼ Collapse children'}</button>`:''}
     ${hasSibs?`<button class="ctx-item" onclick="tpToggleSibs();tpCloseCtx()">${_tS.sibsCollapsed?`◀ Show siblings (${_tS.siblings.length})`:'◀ Hide siblings'}</button>`:''}
-    ${canClaim?`<button class="ctx-item" onclick="submitClaimForExisting('${id}');tpCloseCtx()">★ This is me</button>`:''}
     ${isMe?'<div class="ctx-me">★ This is you</div>':''}`;
   vp.appendChild(m);
   requestAnimationFrame(()=>document.addEventListener('click', _tpCtxOff, {once:true}));
@@ -3114,23 +3114,6 @@ async function createAndLink(focusId, rel){
     closeModal(); personCache.delete(focusId); await focusPerson(focusId, true);
   } catch (e) { formErr('rel-error', e.message); }
 }
-// Claiming an existing person always goes through admin review (person_claims),
-// the same code path as the onboarding claim flow's submitClaim() — there is no
-// instant self-link anymore, backend (persons_tree_visibility.pb.js rejects a
-// direct linked_user PATCH from a non-admin) or frontend.
-async function submitClaimForExisting(personId){
-  const p = await getPerson(personId);
-  if (p && p.linked_user) { toast('Already linked to another account.', 'error'); return; }
-  try {
-    const res = await apiFetch('/api/collections/person_claims/records', {
-      method:'POST', headers:{ 'Content-Type':'application/json' },
-      body: JSON.stringify({ person: personId, user: userId, status: 'pending' })
-    });
-    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not submit claim'); }
-    toast('Claim submitted — an admin will review it shortly.', 'success');
-  } catch (e) { toast('Could not submit claim: ' + e.message, 'error'); }
-}
-
 // duplicates + merge (uses merge.js computeMergeWrites)
 function normName(s){ return (s || '').toLowerCase().replace(/[^a-z]/g, ''); }
 async function openDuplicates(){
@@ -3837,7 +3820,7 @@ SCREENS.profile = async function(params){
   mountMain('<div class="screen-pad" style="max-width:1100px"><div class="spinner"></div></div>');
   let id = (params && params.id) || null;
   if (!id) id = await myPersonId();
-  if (!id) { mountMain('<div class="screen-pad"><div class="empty-state"><div class="emoji">👤</div><p>No profile linked yet. Open the tree and use "This is me".</p></div></div>'); return; }
+  if (!id) { mountMain('<div class="screen-pad"><div class="empty-state"><div class="emoji">👤</div><p>No profile linked yet. Go to Settings &gt; Family Identity to claim your record.</p></div></div>'); return; }
 
   let p, facts = [], photos = [], siblings = [], partners = [], children = [], familyFacts = [], stepParents = [], stepChildren = [];
   try {
@@ -4735,6 +4718,7 @@ SCREENS.settings = function(params){
 function renderSettings(){
   const tabs = [
     { id:'profile',       label:'Profile' },
+    { id:'identity',      label:'Family Identity' },
     { id:'privacy',       label:'Privacy' },
     { id:'notifications', label:'Notifications' },
     { id:'account',       label:'Account' },
@@ -4760,6 +4744,8 @@ function renderSettings(){
         <button class="btn btn-primary btn-sm" onclick="saveProfile()">Save changes</button>
       </div>
     </div>`;
+  } else if (_settingsTab === 'identity'){
+    panel = `<div class="settings-panel"><div class="card" id="identity-panel"><div class="spinner"></div></div></div>`;
   } else if (_settingsTab === 'privacy'){
     const privOpt = (id, label, sub, field, val) => `<div class="toggle-row">
       <div><div class="toggle-label">${label}</div><div class="toggle-sub">${sub}</div></div>
@@ -4819,6 +4805,153 @@ function renderSettings(){
       <main>${panel}</main>
     </div>
   </div>`);
+
+  if (_settingsTab === 'identity') loadIdentityPanel();
+}
+
+// ── Family Identity settings tab ─────────────────────────────────────────────
+// Claiming/changing which person you are is done here rather than from the tree
+// view — avoids an accidental "this is me" click while browsing, and keeps the
+// action somewhere a user would deliberately go to change it. Claiming an
+// EXISTING person (submitIdentityClaim) still always goes through admin review
+// (person_claims). Adding a brand-new self-linked person (identitySkipClaim) is
+// the one exception with no review, matching skipClaim()'s existing rationale:
+// a brand-new record has no collision/impersonation risk.
+let _identityAllPersons = [];
+let _identitySearchTimer = null;
+
+async function loadIdentityPanel(){
+  const panelEl = el('identity-panel');
+  if (!panelEl) return;
+  const myId = await myPersonId();
+  let myPerson = null;
+  if (myId) {
+    const res = await apiFetch(`/api/collections/persons/records/${myId}`);
+    if (res.ok) myPerson = await res.json();
+  }
+  if (el('identity-panel')) renderIdentityPanel(myPerson);
+}
+
+function renderIdentityPanel(myPerson){
+  const panelEl = el('identity-panel');
+  if (!panelEl) return;
+  if (myPerson) {
+    panelEl.innerHTML = `
+      <div class="section-label" style="margin-bottom:1rem">Family Identity</div>
+      <div class="toggle-row" style="border:none;padding:0 0 1rem">
+        <div>
+          <div class="toggle-label">Linked to ${esc(myPerson.display_name || '')}</div>
+          <div class="toggle-sub">This is the person record your account is mapped to in the tree.</div>
+        </div>
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="showIdentityClaimForm()">Change identity</button>
+      <div id="identity-claim-area"></div>`;
+  } else {
+    panelEl.innerHTML = `
+      <div class="section-label" style="margin-bottom:1rem">Family Identity</div>
+      <p style="font-size:.85rem;color:var(--text-muted);margin-bottom:1rem">
+        Your account isn't linked to anyone in the tree yet. Search for yourself below,
+        or add yourself as a new person.
+      </p>
+      <div id="identity-claim-area"></div>`;
+    showIdentityClaimForm();
+  }
+}
+
+async function showIdentityClaimForm(){
+  const area = el('identity-claim-area');
+  if (!area) return;
+  if (!_identityAllPersons.length) {
+    const res = await apiFetch('/api/collections/persons/records?perPage=500&sort=family_name');
+    if (res.ok) _identityAllPersons = (await res.json()).items || [];
+  }
+  area.innerHTML = `
+    <div class="form-group" style="margin:.5rem 0 .75rem">
+      <input id="identity-search" placeholder="Search by name…" oninput="runIdentitySearch()" />
+    </div>
+    <div id="identity-results"></div>
+    <div id="identity-error" class="alert alert-error" style="display:none;margin-top:.5rem"></div>
+    <button class="btn btn-outline btn-full" style="margin-top:1rem" onclick="identitySkipClaim()">
+      I'm not in the tree yet — add me as new
+    </button>`;
+  runIdentitySearch();
+}
+
+function runIdentitySearch(){
+  clearTimeout(_identitySearchTimer);
+  _identitySearchTimer = setTimeout(() => {
+    const q = (el('identity-search') || {}).value || '';
+    const results = filterPeople(_identityAllPersons, q).slice(0, 8);
+    const container = el('identity-results');
+    if (!container) return;
+    container.innerHTML = results.length
+      ? results.map(p => {
+          const already = !!p.linked_user;
+          return `<div class="claim-result${already ? '" style="opacity:.5;cursor:default' : ''}" ${already ? '' : `onclick="submitIdentityClaim('${p.id}')"`}>
+            <div class="avatar" style="width:36px;height:36px;font-size:.8rem">${personInitials(p)}</div>
+            <div>
+              <div class="cr-name">${esc(p.display_name)}${already ? ' <span style="font-size:.76rem;color:var(--text-muted)">(already linked)</span>' : ''}</div>
+              <div class="cr-sub">${esc(personYears(p) || p.family_name || '')}</div>
+            </div>
+          </div>`;
+        }).join('')
+      : (q.trim() ? '<p style="font-size:.82rem;color:var(--text-muted)">No matches found.</p>' : '');
+  }, 200);
+}
+
+async function submitIdentityClaim(personId){
+  const p = await getPerson(personId);
+  if (p && p.linked_user) {
+    const errEl = el('identity-error');
+    if (errEl) { errEl.textContent = 'Already linked to another account.'; errEl.style.display = ''; }
+    return;
+  }
+  try {
+    const res = await apiFetch('/api/collections/person_claims/records', {
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ person: personId, user: userId, status: 'pending' })
+    });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not submit claim'); }
+    toast('Claim submitted — an admin will review it shortly.', 'success');
+    const area = el('identity-claim-area');
+    if (area) area.innerHTML = '';
+  } catch (e) {
+    const errEl = el('identity-error');
+    if (errEl) { errEl.textContent = e.message; errEl.style.display = ''; }
+  }
+}
+
+async function identitySkipClaim(){
+  const searchVal = (el('identity-search') || {}).value || '';
+  const parts = searchVal.trim().split(/\s+/).filter(Boolean);
+  const first = parts[0] || '';
+  const last = parts.slice(1).join(' ') || '';
+  const displayName = `${first} ${last}`.trim();
+  const errEl = el('identity-error');
+
+  if (!displayName) {
+    if (errEl) { errEl.textContent = 'Please enter your name in the search box above first.'; errEl.style.display = ''; }
+    return;
+  }
+
+  try {
+    const body = {
+      display_name: displayName, given_name: first, family_name: last,
+      living: true, linked_user: userId,
+    };
+    if (currentUser && currentUser.home_tree) body.tree = currentUser.home_tree;
+    const res = await apiFetch('/api/collections/persons/records', {
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not create your profile'); }
+    const p = await res.json();
+    toast('Profile created and linked.', 'success');
+    _identityAllPersons = [];
+    renderIdentityPanel(p);
+  } catch (e) {
+    if (errEl) { errEl.textContent = e.message; errEl.style.display = ''; }
+  }
 }
 
 function switchSettingsTab(tab){
