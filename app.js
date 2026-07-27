@@ -360,8 +360,8 @@ function renderSidebar(){
   }).join('');
 
   const branch = (currentUser && currentUser.family_name) || 'Kelsall family';
-  const treeName = (currentHomeTree && currentHomeTree.name) || 'Kelsall';
-  const logoLetter = treeName ? treeName.trim()[0].toUpperCase() : 'K';
+  const treeName = ((currentHomeTree && currentHomeTree.name) || 'Kelsall').trim() || 'Kelsall';
+  const logoLetter = treeName[0].toUpperCase();
   inner.innerHTML = `
     <div class="sb-brand">
       <div class="sb-logo">${esc(logoLetter)}</div>
