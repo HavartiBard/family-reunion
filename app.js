@@ -3216,6 +3216,170 @@ async function runMerge(ids){
 // ── Events ───────────────────────────────────────────────────────────────────
 const EVENT_TYPE_ICONS = { reunion:'🏕', birthday:'🎂', wedding:'💍', holiday:'🎉', other:'📅' };
 
+let _eventFormTrees = [];
+let _eventFormPendingInvites = [];
+
+async function _eventFormLoadTrees(){
+  const primary = el('evf-tree-primary');
+  const extraContainer = document.getElementById('evf-extra-trees');
+  if (!primary && !extraContainer) return;
+  try {
+    const res = await apiFetch('/api/collections/trees/records?perPage=200&sort=name');
+    if (res.ok) {
+      const trees = (await res.json()).items || [];
+      _eventFormTrees = trees;
+      if (primary) {
+        primary.innerHTML = '<option value="">— Select primary tree —</option>' +
+          trees.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
+      }
+      if (extraContainer) {
+        extraContainer.innerHTML = trees.map(t =>
+          `<label style="display:flex;align-items:center;gap:.4rem;margin:.25rem 0;font-size:.92rem">
+            <input type="checkbox" value="${t.id}" />
+            <span>${esc(t.name)}</span>
+          </label>`
+        ).join('');
+      }
+    }
+  } catch { /* ignore */ }
+}
+
+function _eventFormBuildExtraTrees(selectedTreeIds){
+  const container = document.getElementById('evf-extra-trees');
+  if (!container) return;
+  const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+  checkboxes.forEach(cb => {
+    cb.checked = selectedTreeIds.includes(cb.value);
+  });
+}
+
+async function _eventFormLoadExistingInvites(eventId){
+  try {
+    const res = await apiFetch(`/api/collections/event_invites/records?filter=(event="${eventId}")&perPage=200`);
+    if (res.ok) {
+      const invites = (await res.json()).items || [];
+      _eventFormPendingInvites = invites.map(i => ({
+        id: i.id,
+        inviteType: i.invite_type,
+        userId: i.user || null,
+        email: i.email || null,
+        guestName: i.guest_name || null
+      }));
+      _eventFormRenderPendingInvites();
+    }
+  } catch { /* ignore */ }
+}
+
+function _eventFormRenderPendingInvites(){
+  const container = document.getElementById('evf-pending-invites');
+  if (!container) return;
+  if (_eventFormPendingInvites.length === 0) {
+    container.innerHTML = '<p style="font-size:.82rem;color:var(--text-muted);margin:.5rem 0">No pending invites.</p>';
+    return;
+  }
+  container.innerHTML = _eventFormPendingInvites.map((invite, idx) => {
+    const label = invite.inviteType === 'user'
+      ? (invite.userId ? `User invite (${invite.userId.slice(0,8)}...)` : 'User invite')
+      : `Email invite (${esc(invite.email || '')})${invite.guestName ? ` as "${esc(invite.guestName)}"` : ''}`;
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:.4rem;background:var(--bg-hover);border-radius:.3rem;margin:.25rem 0">
+      <span style="font-size:.9rem">${label}</span>
+      <button class="btn btn-danger btn-sm" onclick="_eventFormRemoveInvite(${idx})">Remove</button>
+    </div>`;
+  }).join('');
+}
+
+function _eventFormRemoveInvite(index){
+  _eventFormPendingInvites.splice(index, 1);
+  _eventFormRenderPendingInvites();
+}
+
+function _eventFormShowEmailInvite(){
+  const area = document.getElementById('evf-email-invite-area');
+  if (area) area.style.display = 'block';
+}
+
+let _eventFormUserSearchTimer = null;
+let _eventFormAllUsers = null;
+
+async function _eventFormRunUserSearch(q){
+  clearTimeout(_eventFormUserSearchTimer);
+  _eventFormUserSearchTimer = setTimeout(async () => {
+    const resEl = document.getElementById('evf-invite-results');
+    if (!resEl) return;
+    const query = q.trim();
+    if (!query){ resEl.innerHTML = ''; return; }
+
+    if (!_eventFormAllUsers) {
+      const r = await apiFetch('/api/collections/users/records?filter=(approved=true)&perPage=500&sort=name&fields=id,name,email,phone');
+      _eventFormAllUsers = r.ok ? (await r.json()).items || [] : [];
+    }
+
+    const lower = query.toLowerCase();
+    const selectedUserIds = _eventFormPendingInvites.filter(i => i.inviteType === 'user').map(i => i.userId);
+    const matches = _eventFormAllUsers.filter(u => {
+      const name = (u.name || '').toLowerCase();
+      const email = (u.email || '').toLowerCase();
+      return (name.includes(lower) || email.includes(lower)) && !selectedUserIds.includes(u.id);
+    }).slice(0, 8);
+
+    if (matches.length === 0) {
+      resEl.innerHTML = '<p style="font-size:.82rem;color:var(--text-muted);padding:.5rem">No matching users found.</p>';
+      return;
+    }
+
+    const rows = matches.map(u => {
+      const name = u.name || '—';
+      const email = u.email || '(email hidden)';
+      return `<div class="claim-result" onclick="_eventFormAddUserInvite('${u.id}','${esc(name)}')">
+        <div class="avatar" style="width:36px;height:36px;font-size:.8rem">${(name[0]||'?').toUpperCase()}</div>
+        <div><div class="cr-name">${esc(name)}</div><div class="cr-sub">${esc(email)}</div></div>
+      </div>`;
+    }).join('');
+    resEl.innerHTML = rows;
+  }, 200);
+}
+
+function _eventFormAddUserInvite(userId, userName){
+  const existing = _eventFormPendingInvites.find(i => i.inviteType === 'user' && i.userId === userId);
+  if (existing) {
+    const resEl = document.getElementById('evf-invite-results');
+    if (resEl) resEl.innerHTML = '<p style="font-size:.82rem;color:var(--text-muted);padding:.5rem">User already in invite list.</p>';
+    return;
+  }
+  _eventFormPendingInvites.push({
+    id: null,
+    inviteType: 'user',
+    userId: userId
+  });
+  document.getElementById('evf-invite-search').value = '';
+  document.getElementById('evf-invite-results').innerHTML = '';
+  _eventFormRenderPendingInvites();
+}
+
+function _eventFormAddEmailInvite(){
+  const email = val('evf-email');
+  const guestName = val('evf-guest-name');
+  if (!email) {
+    formErr('evf-error', 'Email address is required for email invites.');
+    return;
+  }
+  const existing = _eventFormPendingInvites.find(i => i.inviteType === 'email' && i.email === email);
+  if (existing) {
+    const area = document.getElementById('evf-email-invite-area');
+    if (area) formErr('evf-error', 'This email is already in the invite list.');
+    return;
+  }
+  _eventFormPendingInvites.push({
+    id: null,
+    inviteType: 'email',
+    email: email,
+    guestName: guestName || ''
+  });
+  document.getElementById('evf-email').value = '';
+  document.getElementById('evf-guest-name').value = '';
+  _eventFormRenderPendingInvites();
+}
+
 SCREENS.events = async function(params){
   if (params && params.event) { await renderEventDetail(params.event); return; }
   await renderEventsList();
@@ -3348,6 +3512,8 @@ async function setEventRsvp(eventId, status){
 
 function openEventForm(eventId){
   const isEdit = !!eventId;
+  _eventFormPendingInvites = [];
+  _eventFormTrees = [];
   openModal(`<h2 class="card-title">${isEdit ? 'Edit event' : 'New event'}</h2>
     <div id="evf-error" class="alert alert-error" style="display:none"></div>
     <div class="form-group"><label>Name</label><input id="evf-name" /></div>
@@ -3366,11 +3532,42 @@ function openEventForm(eventId){
     </div>
     <div class="form-group"><label>Description</label><textarea id="evf-desc"></textarea></div>
     <div class="form-group"><label>Cover photo</label><input id="evf-photo" type="file" accept="image/*" /></div>
+    <div class="form-group">
+      <label>Tree</label>
+      <select id="evf-tree-primary" style="width:100%"></select>
+    </div>
+    <div class="form-group">
+      <label>Extra trees</label>
+      <div id="evf-extra-trees" style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:.3rem;padding:.4rem"></div>
+    </div>
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+        <input type="checkbox" id="evf-invite-only" />
+        <span>Invite only (hide tree picker)</span>
+      </label>
+    </div>
+    <div class="form-group">
+      <label>Invite people</label>
+      <div style="display:flex;gap:.5rem;align-items:center;margin-bottom:.5rem">
+        <input id="evf-invite-search" placeholder="Search users by name or email..." style="flex:1" oninput="_eventFormRunUserSearch(this.value)" autocomplete="off" />
+        <button class="btn btn-outline btn-sm" onclick="_eventFormShowEmailInvite()">+ Email</button>
+      </div>
+      <div id="evf-invite-results" class="wiz-results"></div>
+      <div id="evf-email-invite-area" style="display:none;margin-top:.5rem">
+        <div style="display:flex;gap:.5rem;align-items:center">
+          <input id="evf-email" placeholder="Email address" style="flex:1" />
+          <input id="evf-guest-name" placeholder="Display name (optional)" style="flex:1" />
+          <button class="btn btn-outline btn-sm" onclick="_eventFormAddEmailInvite()">Add</button>
+        </div>
+      </div>
+      <div id="evf-pending-invites" style="margin-top:.5rem"></div>
+    </div>
     <div style="display:flex;gap:.6rem;margin-top:.75rem">
       <button class="btn btn-primary" onclick="saveEvent('${eventId || ''}')">Save</button>
       <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
       ${isEdit ? `<button class="btn btn-danger" style="margin-left:auto" onclick="deleteEvent('${eventId}')">Delete</button>` : ''}
     </div>`);
+  const treesLoaded = _eventFormLoadTrees();
   if (isEdit) {
     apiFetch(`/api/collections/events/records/${eventId}`).then(async r => {
       if (!r.ok) return;
@@ -3381,6 +3578,17 @@ function openEventForm(eventId){
       const s = el('evf-start');if (s) s.value = (e.start_date || '').slice(0,16);
       const en= el('evf-end');  if (en) en.value = (e.end_date || '').slice(0,16);
       const d = el('evf-desc'); if (d) d.value = e.description || '';
+      // Must wait for the tree <select>/checkboxes to actually have their <option>s
+      // populated before setting .value/.checked on them, or these silently no-op
+      // (setting .value on a <select> with no matching <option> yet is a no-op) —
+      // this raced and lost against _eventFormLoadTrees() in earlier testing.
+      await treesLoaded;
+      const pt = el('evf-tree-primary');
+      if (pt && e.tree) pt.value = e.tree;
+      const io = el('evf-invite-only');
+      if (io) io.checked = !!e.invite_only;
+      _eventFormBuildExtraTrees(e.extra_trees || []);
+      await _eventFormLoadExistingInvites(eventId);
     });
   }
 }
@@ -3398,11 +3606,23 @@ async function saveEvent(eventId){
   const loc = val('evf-loc'); if (loc) fd.append('location', loc);
   const desc = val('evf-desc'); if (desc) fd.append('description', desc);
   const photo = el('evf-photo').files[0]; if (photo) fd.append('cover_photo', photo);
+  const primaryTree = el('evf-tree-primary')?.value;
+  const extraTrees = Array.from(document.querySelectorAll('#evf-extra-trees input[type="checkbox"]:checked')).map(cb => cb.value);
+  const inviteOnly = el('evf-invite-only')?.checked || false;
+  if (primaryTree) fd.append('tree', primaryTree);
+  if (extraTrees.length > 0) {
+    extraTrees.forEach(tid => fd.append('extra_trees', tid));
+  } else if (eventId) {
+    // Editing: an empty selection must still be sent so unchecking every box
+    // actually clears the field, rather than PATCH leaving old values in place.
+    fd.append('extra_trees', '');
+  }
+  fd.append('invite_only', String(inviteOnly));
   if (!eventId) {
     fd.append('created_by', userId);
     fd.append('organizers', userId);
     const defaultTree = _defaultTreeForNewRecord();
-    if (defaultTree) fd.append('tree', defaultTree);
+    if (defaultTree && !primaryTree) fd.append('tree', defaultTree);
   }
   try {
     const res = eventId
@@ -3410,7 +3630,39 @@ async function saveEvent(eventId){
       : await apiFetch('/api/collections/events/records', { method:'POST', body: fd });
     if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Save failed'); }
     const saved = await res.json();
+    let saveError = null;
+    if (_eventFormPendingInvites.length > 0) {
+      for (const invite of _eventFormPendingInvites) {
+        try {
+          const inviteFd = new FormData();
+          inviteFd.append('event', saved.id);
+          inviteFd.append('invite_type', invite.inviteType);
+          if (invite.inviteType === 'user' && invite.userId) {
+            inviteFd.append('user', invite.userId);
+          }
+          if (invite.inviteType === 'email') {
+            inviteFd.append('email', invite.email);
+            inviteFd.append('guest_name', invite.guestName || '');
+          }
+          inviteFd.append('status', 'pending');
+          inviteFd.append('invited_by', userId);
+          const iRes = await apiFetch('/api/collections/event_invites/records', { method:'POST', body: inviteFd });
+          if (!iRes.ok) {
+            const d = await iRes.json();
+            saveError = d.message || 'Failed to create invite';
+            break;
+          }
+        } catch (e) {
+          saveError = e.message;
+          break;
+        }
+      }
+    }
     closeModal();
+    if (saveError) {
+      formErr('evf-error', saveError);
+      return;
+    }
     navigate('events', { event: saved.id });
   } catch (e) { formErr('evf-error', e.message); }
 }
