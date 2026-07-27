@@ -995,7 +995,7 @@ SCREENS.home = async function(){
         <div class="texture"></div>
         <div class="rh-left">
           <div class="rh-label">Welcome</div>
-          <div class="rh-name">Kelsall Family</div>
+          <div class="rh-name">${esc(((currentHomeTree && currentHomeTree.name) || 'Kelsall').trim() || 'Kelsall')} Family</div>
           <div class="rh-detail">Explore the tree, photos, and more.</div>
           <button class="btn btn-gold" style="margin-top:18px" onclick="navigate('events')">See events</button>
         </div>
