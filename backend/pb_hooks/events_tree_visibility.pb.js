@@ -23,6 +23,7 @@ onRecordsListRequest((e) => {
 
   const userDao = $app.dao();
   const userHomeTreeId = authRecord.get('home_tree');
+  const userId = authRecord.id;
 
   const visibleTreeSet = new Set();
 
@@ -44,10 +45,79 @@ onRecordsListRequest((e) => {
 
   const filtered = e.records.filter((record) => {
     const recordTreeId = record.get('tree');
+    const extraTrees = record.get('extra_trees') || [];
+    const inviteOnly = record.get('invite_only') === true;
+    const recordId = record.id;
+
     if (!recordTreeId || recordTreeId === '') {
+      if (inviteOnly) {
+        const organizers = record.get('organizers') || [];
+        const isOrganizer = organizers.includes(userId);
+        let hasInvite = false;
+        try {
+          const invites = userDao.findRecordsByFilter(
+            'event_invites',
+            'event = {:eventId} && invite_type = "user" && user = {:userId}',
+            '', 1, 0,
+            { eventId: recordId, userId: userId }
+          );
+          hasInvite = invites.length > 0;
+        } catch (lookupErr) {
+          // Fail open on data inconsistency
+        }
+        if (!hasInvite && !isFamilyAdmin && !isOrganizer) {
+          return false;
+        }
+      }
       return true;
     }
-    return visibleTreeSet.has(recordTreeId);
+
+    const audienceTreeSet = new Set();
+    audienceTreeSet.add(recordTreeId);
+    extraTrees.forEach((tid) => audienceTreeSet.add(tid));
+
+    for (const treeId of audienceTreeSet) {
+      try {
+        const tree = userDao.findRecordById('trees', treeId);
+        if (tree) {
+          const linkedTrees = tree.get('linked_trees') || [];
+          linkedTrees.forEach((lid) => visibleTreeSet.add(lid));
+        }
+      } catch (lookupErr) {
+        // Fail open on data inconsistency
+      }
+    }
+
+    let hasAccess = false;
+
+    if (inviteOnly) {
+      const organizers = record.get('organizers') || [];
+      const isOrganizer = organizers.includes(userId);
+      let hasInvite = false;
+      try {
+        const invites = userDao.findRecordsByFilter(
+          'event_invites',
+          'event = {:eventId} && invite_type = "user" && user = {:userId}',
+          '', 1, 0,
+          { eventId: recordId, userId: userId }
+        );
+        hasInvite = invites.length > 0;
+      } catch (lookupErr) {
+        // Fail open on data inconsistency
+      }
+      if (hasInvite || isFamilyAdmin || isOrganizer) {
+        hasAccess = true;
+      }
+    } else {
+      for (const treeId of audienceTreeSet) {
+        if (visibleTreeSet.has(treeId)) {
+          hasAccess = true;
+          break;
+        }
+      }
+    }
+
+    return hasAccess;
   });
 
   e.result.items = filtered;
@@ -66,13 +136,15 @@ onRecordViewRequest((e) => {
     return;
   }
 
+  const userDao = $app.dao();
   const userHomeTreeId = authRecord.get('home_tree');
+  const userId = authRecord.id;
+
   const visibleTreeSet = new Set();
 
   if (userHomeTreeId && userHomeTreeId !== '') {
     visibleTreeSet.add(userHomeTreeId);
     try {
-      const userDao = $app.dao();
       const homeTree = userDao.findRecordById('trees', userHomeTreeId);
       if (homeTree) {
         const linkedTrees = homeTree.get('linked_trees') || [];
@@ -87,7 +159,83 @@ onRecordViewRequest((e) => {
   userAdminTrees.forEach((tid) => visibleTreeSet.add(tid));
 
   const recordTreeId = e.record.get('tree');
-  if (recordTreeId && recordTreeId !== '' && !visibleTreeSet.has(recordTreeId)) {
+  const extraTrees = e.record.get('extra_trees') || [];
+  const inviteOnly = e.record.get('invite_only') === true;
+  const recordId = e.record.id;
+
+  if (!recordTreeId || recordTreeId === '') {
+    if (inviteOnly) {
+      const organizers = e.record.get('organizers') || [];
+      const isOrganizer = organizers.includes(userId);
+      let hasInvite = false;
+      try {
+        const invites = userDao.findRecordsByFilter(
+          'event_invites',
+          'event = {:eventId} && invite_type = "user" && user = {:userId}',
+          '', 1, 0,
+          { eventId: recordId, userId: userId }
+        );
+        hasInvite = invites.length > 0;
+      } catch (lookupErr) {
+        // Fail open
+      }
+      if (!hasInvite && !isFamilyAdmin && !isOrganizer) {
+        throw new NotFoundError('Not found.');
+      }
+    }
+    return;
+  }
+
+  const audienceTreeSet = new Set();
+  audienceTreeSet.add(recordTreeId);
+  extraTrees.forEach((tid) => audienceTreeSet.add(tid));
+
+  for (const treeId of audienceTreeSet) {
+    try {
+      const tree = userDao.findRecordById('trees', treeId);
+      if (tree) {
+        const linkedTrees = tree.get('linked_trees') || [];
+        linkedTrees.forEach((lid) => visibleTreeSet.add(lid));
+      }
+    } catch (lookupErr) {
+      // Fail open
+    }
+  }
+
+  let blocked = false;
+
+  if (inviteOnly) {
+    const organizers = e.record.get('organizers') || [];
+    const isOrganizer = organizers.includes(userId);
+    let hasInvite = false;
+    try {
+      const invites = userDao.findRecordsByFilter(
+        'event_invites',
+        'event = {:eventId} && invite_type = "user" && user = {:userId}',
+        '', 1, 0,
+        { eventId: recordId, userId: userId }
+      );
+      hasInvite = invites.length > 0;
+    } catch (lookupErr) {
+      // Fail open
+    }
+    if (!hasInvite && !isFamilyAdmin && !isOrganizer) {
+      blocked = true;
+    }
+  } else {
+    let hasAccess = false;
+    for (const treeId of audienceTreeSet) {
+      if (visibleTreeSet.has(treeId)) {
+        hasAccess = true;
+        break;
+      }
+    }
+    if (!hasAccess) {
+      blocked = true;
+    }
+  }
+
+  if (blocked) {
     throw new NotFoundError('Not found.');
   }
 }, 'events');
@@ -115,8 +263,23 @@ onRecordBeforeCreateRequest((e) => {
   userAdminTrees.forEach((tid) => writableTreeSet.add(tid));
 
   const newRecordTreeId = e.record.get('tree');
-  if (newRecordTreeId && newRecordTreeId !== '' && !writableTreeSet.has(newRecordTreeId)) {
-    throw new ForbiddenError('You do not have permission to create events for this tree.');
+  if (newRecordTreeId && newRecordTreeId !== '') {
+    const extraTrees = e.record.get('extra_trees') || [];
+    const audienceTreeSet = new Set();
+    audienceTreeSet.add(newRecordTreeId);
+    extraTrees.forEach((tid) => audienceTreeSet.add(tid));
+
+    let hasAccess = false;
+    for (const treeId of audienceTreeSet) {
+      if (writableTreeSet.has(treeId)) {
+        hasAccess = true;
+        break;
+      }
+    }
+
+    if (!hasAccess) {
+      throw new ForbiddenError('You do not have permission to create events for this tree.');
+    }
   }
 }, 'events');
 
@@ -144,8 +307,23 @@ onRecordBeforeUpdateRequest((e) => {
 
   const persistedRecord = $app.dao().findRecordById('events', e.record.id);
   const existingRecordTreeId = persistedRecord ? persistedRecord.get('tree') : '';
-  if (existingRecordTreeId && existingRecordTreeId !== '' && !writableTreeSet.has(existingRecordTreeId)) {
-    throw new ForbiddenError('You do not have permission to update events for this tree.');
+  if (existingRecordTreeId && existingRecordTreeId !== '') {
+    const extraTrees = persistedRecord.get('extra_trees') || [];
+    const audienceTreeSet = new Set();
+    audienceTreeSet.add(existingRecordTreeId);
+    extraTrees.forEach((tid) => audienceTreeSet.add(tid));
+
+    let hasAccess = false;
+    for (const treeId of audienceTreeSet) {
+      if (writableTreeSet.has(treeId)) {
+        hasAccess = true;
+        break;
+      }
+    }
+
+    if (!hasAccess) {
+      throw new ForbiddenError('You do not have permission to update events for this tree.');
+    }
   }
 }, 'events');
 
