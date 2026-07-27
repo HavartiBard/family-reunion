@@ -361,9 +361,9 @@ function renderSidebar(){
       <span class="ico">${n.ico}</span><span class="lbl">${esc(n.label)}</span>${badge}</button>`;
   }).join('');
 
-  const branch = (currentUser && currentUser.family_name) || 'Kelsall family';
   const treeName = ((currentHomeTree && currentHomeTree.name) || 'Kelsall').trim() || 'Kelsall';
   const logoLetter = treeName[0].toUpperCase();
+  const branch = `${treeName} family`;
   inner.innerHTML = `
     <div class="sb-brand">
       <div class="sb-logo">${esc(logoLetter)}</div>
