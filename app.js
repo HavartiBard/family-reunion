@@ -3437,11 +3437,13 @@ async function renderEventsList(){
 async function renderEventDetail(eventId){
   mountMain('<div class="screen-pad" style="max-width:860px"><div class="spinner"></div></div>');
   let event = null, myRsvp = null, goingCount = 0, maybeCount = 0;
+  let invites = [];
   try {
-    const [eRes, rRes, cRes] = await Promise.all([
+    const [eRes, rRes, cRes, iRes] = await Promise.all([
       apiFetch(`/api/collections/events/records/${eventId}?expand=organizers`),
       apiFetch(`/api/collections/event_rsvps/records?filter=${encodeURIComponent(`(event="${eventId}" && user="${userId}")`)}` + `&perPage=1`),
-      apiFetch(`/api/collections/event_rsvps/records?filter=${encodeURIComponent(`(event="${eventId}")`)}` + `&perPage=200`)
+      apiFetch(`/api/collections/event_rsvps/records?filter=${encodeURIComponent(`(event="${eventId}")`)}` + `&perPage=200`),
+      apiFetch(`/api/collections/event_invites/records?filter=${encodeURIComponent(`(event="${eventId}")`)}` + `&expand=user&perPage=200`)
     ]);
     if (eRes.ok) event = await eRes.json();
     if (rRes.ok) { const d = await rRes.json(); myRsvp = d.items && d.items[0]; }
@@ -3450,6 +3452,7 @@ async function renderEventDetail(eventId){
       goingCount = items.filter(r => r.status === 'going').length;
       maybeCount = items.filter(r => r.status === 'maybe').length;
     }
+    if (iRes.ok) { const d = await iRes.json(); invites = d.items || []; }
   } catch { /* ignore */ }
   if (!event) { mountMain('<div class="screen-pad"><div class="empty-state"><p>Event not found.</p></div></div>'); return; }
 
@@ -3488,6 +3491,36 @@ async function renderEventDetail(eventId){
         ${rsvpOpt('going', "I'm going")}${rsvpOpt('maybe', 'Maybe')}${rsvpOpt('no', "Can't make it")}
       </div>
     </div>
+    ${isOrganizer ? (() => {
+      if (invites.length === 0) {
+        return `<div class="card" style="margin-top:1.25rem">
+          <div class="section-label" style="margin-bottom:1rem">Invited</div>
+          <p style="font-size:.82rem;color:var(--text-muted);margin:0">No one has been invited yet.</p>
+        </div>`;
+      }
+      const statusBadge = (s) => {
+        if (s === 'pending') return '<span class="pill" style="background:var(--bg-hover);color:var(--text-muted)">Invited</span>';
+        if (s === 'going') return '<span class="pill" style="background:var(--accent-green);color:var(--text-sidebar-active)">Going</span>';
+        if (s === 'maybe') return '<span class="pill" style="background:var(--accent-gold);color:var(--accent-fg)">Maybe</span>';
+        if (s === 'no') return '<span class="pill" style="background:var(--danger-bg);color:var(--danger)">No</span>';
+        return `<span class="pill" style="background:var(--bg-hover);color:var(--text-muted)">${esc(s)}</span>`;
+      };
+      const rows = invites.map(inv => {
+        const inviteType = inv.invite_type || 'user';
+        const expandedUser = inv.expand && inv.expand.user;
+        const name = inviteType === 'user'
+          ? (expandedUser ? esc(expandedUser.name || expandedUser.email || 'Invited user') : 'Invited user')
+          : esc(inv.guest_name || inv.email || 'Guest');
+        return `<div style="display:flex;align-items:center;justify-content:space-between;padding:.6rem;background:var(--bg-hover);border-radius:.3rem;margin:.25rem 0">
+          <span style="font-size:.95rem">${name}</span>
+          ${statusBadge(inv.status || 'pending')}
+        </div>`;
+      }).join('');
+      return `<div class="card" style="margin-top:1.25rem">
+        <div class="section-label" style="margin-bottom:1rem">Invited</div>
+        ${rows}
+      </div>`;
+    })() : ''}
   </div>`);
 }
 
