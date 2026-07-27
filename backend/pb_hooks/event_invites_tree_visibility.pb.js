@@ -170,3 +170,52 @@ onRecordBeforeCreateRequest((e) => {
     e.record.set('token', token);
   }
 }, 'event_invites');
+
+onRecordAfterCreateRequest((e) => {
+  try {
+    const inviteType = e.record.get('invite_type');
+    if (inviteType !== 'user') {
+      return;
+    }
+
+    const userDao = $app.dao();
+    const inviteUserId = e.record.get('user');
+    if (!inviteUserId) {
+      return;
+    }
+
+    const eventId = e.record.get('event');
+    if (!eventId || eventId === '') {
+      return;
+    }
+
+    let event;
+    try {
+      event = userDao.findRecordById('events', eventId);
+    } catch (lookupErr) {
+      return;
+    }
+    if (!event) {
+      return;
+    }
+
+    const eventTitle = event.get('name');
+    if (!eventTitle || eventTitle === '') {
+      return;
+    }
+
+    const notificationsCollection = userDao.findCollectionByNameOrId('notifications');
+    const notificationRecord = new Record(notificationsCollection);
+    notificationRecord.set('user', inviteUserId);
+    notificationRecord.set('type', 'rsvp');
+    notificationRecord.set('title', 'You have been invited to an event');
+    notificationRecord.set('body', `You have been invited to "${eventTitle}".`);
+    notificationRecord.set('read', false);
+    notificationRecord.set('related_id', eventId);
+    notificationRecord.set('related_type', 'events');
+
+    userDao.saveRecord(notificationRecord);
+  } catch (err) {
+    // No-op: this hook must never crash event_invites writes.
+  }
+}, 'event_invites');
