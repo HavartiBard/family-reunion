@@ -643,7 +643,7 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
   resize:none;font-family:var(--font-ui)}
 .lb-comment-input:focus{outline:none;border-color:#666;background:#252525;color:#eee;box-shadow:none}
 .lb-comment-submit{margin-top:.4rem;width:100%;background:var(--accent-gold);
-  border:none;color:#1a1a0a;border-radius:8px;padding:.5rem;font-size:.85rem;
+  border:none;color:var(--accent-fg);border-radius:8px;padding:.5rem;font-size:.85rem;
   font-weight:600;cursor:pointer}
 .lb-comment-submit:hover{opacity:.88}
 .lb-tag-search{width:100%;background:#252525;border:1px solid #3a3a3a;color:#eee;
