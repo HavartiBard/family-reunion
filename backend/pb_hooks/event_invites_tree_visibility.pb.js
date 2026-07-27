@@ -112,42 +112,47 @@ onRecordBeforeCreateRequest((e) => {
     return;
   }
 
+  // NOTE: family_admin only bypasses the organizer-permission check below — it must
+  // NOT skip the whole callback, or it silently skips the mutual-exclusivity validation
+  // and (critically) token generation too. A family_admin-created invite previously got
+  // an empty token, which breaks the guest-RSVP flow entirely for admin-created invites
+  // (confirmed via a real browser test, not caught by earlier scratch-container testing
+  // because that test's requester happened not to be family_admin).
   const isFamilyAdmin = authRecord.get('family_admin') === true;
-  if (isFamilyAdmin) {
-    return;
-  }
 
-  const userDao = $app.dao();
-  const userId = authRecord.id;
+  if (!isFamilyAdmin) {
+    const userDao = $app.dao();
+    const userId = authRecord.id;
 
-  const eventId = e.record.get('event');
-  let invalid = false;
-  if (!eventId || eventId === '') {
-    invalid = true;
-  } else {
-    try {
-      const event = userDao.findRecordById('events', eventId);
-      if (!event) {
-        invalid = true;
-      } else {
-        const organizers = event.get('organizers') || [];
-        if (!organizers.includes(userId)) {
-          invalid = true;
-        }
-      }
-    } catch (lookupErr) {
-      // This is a permission CHECK, not a visibility filter — unlike the fail-open
-      // convention used elsewhere in this codebase for list/view hooks, a lookup
-      // failure here means the referenced event doesn't exist, which must fail
-      // CLOSED (reject the create), not open. Fail-open here would let anyone
-      // create an event_invites row against a bogus event id with no organizer
-      // check at all, since a nonexistent event has no organizers to check against.
+    const eventId = e.record.get('event');
+    let invalid = false;
+    if (!eventId || eventId === '') {
       invalid = true;
+    } else {
+      try {
+        const event = userDao.findRecordById('events', eventId);
+        if (!event) {
+          invalid = true;
+        } else {
+          const organizers = event.get('organizers') || [];
+          if (!organizers.includes(userId)) {
+            invalid = true;
+          }
+        }
+      } catch (lookupErr) {
+        // This is a permission CHECK, not a visibility filter — unlike the fail-open
+        // convention used elsewhere in this codebase for list/view hooks, a lookup
+        // failure here means the referenced event doesn't exist, which must fail
+        // CLOSED (reject the create), not open. Fail-open here would let anyone
+        // create an event_invites row against a bogus event id with no organizer
+        // check at all, since a nonexistent event has no organizers to check against.
+        invalid = true;
+      }
     }
-  }
 
-  if (invalid) {
-    throw new ForbiddenError('You do not have permission to create invites for this event.');
+    if (invalid) {
+      throw new ForbiddenError('You do not have permission to create invites for this event.');
+    }
   }
 
   const inviteType = e.record.get('invite_type');
