@@ -40,6 +40,35 @@
     return AVATAR_TINTS[i];
   }
 
+  function _hexToRgb(hex) {
+    const clean = hex.replace('#', '');
+    const full = clean.length === 3 ? clean.split('').map(c => c + c).join('') : clean;
+    return {
+      r: parseInt(full.slice(0, 2), 16),
+      g: parseInt(full.slice(2, 4), 16),
+      b: parseInt(full.slice(4, 6), 16),
+    };
+  }
+  function _toHex2(n) { return Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0'); }
+
+  function darkenHex(hex, amount) {
+    const { r, g, b } = _hexToRgb(hex);
+    const f = 1 - amount;
+    return `#${_toHex2(r * f)}${_toHex2(g * f)}${_toHex2(b * f)}`;
+  }
+
+  function contrastForeground(hex) {
+    const { r, g, b } = _hexToRgb(hex);
+    // WCAG-style relative luminance (sRGB, no gamma correction needed at this precision).
+    const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    return luminance > 0.55 ? '#1f2d27' : '#f4f1ea';
+  }
+
+  function hexToRgba(hex, alpha) {
+    const { r, g, b } = _hexToRgb(hex);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
   function daysUntil(dateStr, now) {
     const target = new Date(String(dateStr).slice(0, 10) + 'T00:00:00Z');
     const base = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
@@ -81,6 +110,7 @@
   return {
     esc, userInitials, personInitials, personYears, avatarTint, daysUntil,
     filterPeople, filterNews, groupNotifications, defaultPrivacy, defaultNotifPrefs,
+    darkenHex, contrastForeground, hexToRgba,
     AVATAR_TINTS
   };
 });

@@ -77,3 +77,21 @@ test('default privacy and notif prefs', () => {
   assert.deepStrictEqual(h.defaultPrivacy(), { phone: 'family', address: 'admins', directory: 'family' });
   assert.deepStrictEqual(h.defaultNotifPrefs(), { birthdays: true, new_members: true, photos: true, reunion: true });
 });
+
+test('darkenHex darkens a hex color by a percentage', () => {
+  assert.strictEqual(h.darkenHex('#c8952a', 0.18), '#a47a22');
+  assert.strictEqual(h.darkenHex('#000000', 0.5), '#000000'); // already black, stays black
+  assert.strictEqual(h.darkenHex('#ffffff', 0.18), '#d1d1d1');
+});
+
+test('contrastForeground picks light text on dark colors, dark text on light colors', () => {
+  assert.strictEqual(h.contrastForeground('#1a5276'), '#f4f1ea'); // dark navy -> light text
+  assert.strictEqual(h.contrastForeground('#c8952a'), '#1f2d27'); // mid gold -> dark text
+  assert.strictEqual(h.contrastForeground('#ffffff'), '#1f2d27'); // white -> dark text
+  assert.strictEqual(h.contrastForeground('#000000'), '#f4f1ea'); // black -> light text
+});
+
+test('hexToRgba converts hex + alpha to an rgba() string', () => {
+  assert.strictEqual(h.hexToRgba('#c8952a', 0.12), 'rgba(200,149,42,0.12)');
+  assert.strictEqual(h.hexToRgba('#000000', 1), 'rgba(0,0,0,1)');
+});
