@@ -269,7 +269,9 @@ const _DEFAULT_THEME = {
 };
 
 function applyHomeTreeTheme(tree){
-  const color = tree && tree.color;
+  const treeName = ((tree && tree.name) || 'Kelsall').trim() || 'Kelsall';
+  document.title = `${treeName} Family`;
+  const color = (tree && tree.color && isValidHexColor(tree.color)) ? tree.color : null;
   const root = document.documentElement.style;
   if (!color) {
     root.setProperty('--accent-gold', _DEFAULT_THEME.accentGold);
