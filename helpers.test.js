@@ -95,3 +95,14 @@ test('hexToRgba converts hex + alpha to an rgba() string', () => {
   assert.strictEqual(h.hexToRgba('#c8952a', 0.12), 'rgba(200,149,42,0.12)');
   assert.strictEqual(h.hexToRgba('#000000', 1), 'rgba(0,0,0,1)');
 });
+
+test('isValidHexColor accepts 3- and 6-digit hex, rejects everything else', () => {
+  assert.strictEqual(h.isValidHexColor('#c8952a'), true);
+  assert.strictEqual(h.isValidHexColor('#ABC'), true);
+  assert.strictEqual(h.isValidHexColor('c8952a'), false);   // missing #
+  assert.strictEqual(h.isValidHexColor('#gggggg'), false);  // non-hex chars
+  assert.strictEqual(h.isValidHexColor('#12345'), false);   // wrong length
+  assert.strictEqual(h.isValidHexColor(''), false);
+  assert.strictEqual(h.isValidHexColor(null), false);
+  assert.strictEqual(h.isValidHexColor(undefined), false);
+});

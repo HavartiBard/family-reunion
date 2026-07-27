@@ -69,6 +69,10 @@
     return `rgba(${r},${g},${b},${alpha})`;
   }
 
+  function isValidHexColor(hex) {
+    return typeof hex === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(hex);
+  }
+
   function daysUntil(dateStr, now) {
     const target = new Date(String(dateStr).slice(0, 10) + 'T00:00:00Z');
     const base = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
@@ -110,7 +114,7 @@
   return {
     esc, userInitials, personInitials, personYears, avatarTint, daysUntil,
     filterPeople, filterNews, groupNotifications, defaultPrivacy, defaultNotifPrefs,
-    darkenHex, contrastForeground, hexToRgba,
+    darkenHex, contrastForeground, hexToRgba, isValidHexColor,
     AVATAR_TINTS
   };
 });
