@@ -152,6 +152,7 @@ let unreadCount = 0;
 let pendingCount = 0;
 let currentAdminTrees = null;  // null = not loaded; [] = not branch admin; [{id,name}] = admin of these trees
 let branchPendingCount = 0;
+let currentHomeTree = null;  // null = no home_tree or not loaded; {id,name,color,...} = the trees record
 
 const NAV = [
   { tab:'home',          label:'Home',           ico:'⌂' },
@@ -254,12 +255,48 @@ function _launchAppShell(){
       <main id="main"></main>
     </div>
     <nav id="bottom-nav"></nav>`;
-  Promise.all([refreshUnread(), refreshPending(), loadBranchAdminState()]).then(() => {
+  Promise.all([refreshUnread(), refreshPending(), loadBranchAdminState(), loadHomeTreeTheme()]).then(() => {
     renderSidebar();
     const dl = new URLSearchParams(location.search).get('person');
     if (dl) navigate('tree', { person: dl });
     else navigate(currentTab());
   });
+}
+
+const _DEFAULT_THEME = {
+  accentGold: '#c8952a', accentGoldHover: '#a87a22',
+  accentFg: '#1f2d27', focusShadow: 'rgba(200,149,42,.12)', sbItemActiveBg: 'rgba(200,149,42,.18)',
+};
+
+function applyHomeTreeTheme(tree){
+  const color = tree && tree.color;
+  const root = document.documentElement.style;
+  if (!color) {
+    root.setProperty('--accent-gold', _DEFAULT_THEME.accentGold);
+    root.setProperty('--accent-gold-hover', _DEFAULT_THEME.accentGoldHover);
+    root.setProperty('--accent-fg', _DEFAULT_THEME.accentFg);
+    root.setProperty('--border-focus', _DEFAULT_THEME.accentGold);
+    root.setProperty('--focus-shadow', _DEFAULT_THEME.focusShadow);
+    root.setProperty('--sb-item-active-bg', _DEFAULT_THEME.sbItemActiveBg);
+    return;
+  }
+  root.setProperty('--accent-gold', color);
+  root.setProperty('--accent-gold-hover', darkenHex(color, 0.18));
+  root.setProperty('--accent-fg', contrastForeground(color));
+  root.setProperty('--border-focus', color);
+  root.setProperty('--focus-shadow', hexToRgba(color, 0.12));
+  root.setProperty('--sb-item-active-bg', hexToRgba(color, 0.18));
+}
+
+async function loadHomeTreeTheme(){
+  currentHomeTree = null;
+  if (currentUser && currentUser.home_tree) {
+    try {
+      const res = await apiFetch(`/api/collections/trees/records/${currentUser.home_tree}`);
+      if (res.ok) currentHomeTree = await res.json();
+    } catch { /* fall back to default branding below */ }
+  }
+  applyHomeTreeTheme(currentHomeTree);
 }
 
 async function refreshUnread(){
