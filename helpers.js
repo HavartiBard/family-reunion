@@ -80,6 +80,15 @@
     return diff > 0 ? diff : 0;
   }
 
+  function fmtEventDate(iso, opts) {
+    if (!iso) return '';
+    const withTime = opts && opts.withTime;
+    const style = withTime
+      ? { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }
+      : { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' };
+    return new Date(iso).toLocaleDateString('en-US', style);
+  }
+
   function _hay(p) {
     return [p.display_name, p.given_name, p.family_name, p.bio, _extractYear(p.birth_date)]
       .filter(Boolean).join(' ').toLowerCase();
@@ -112,7 +121,7 @@
   function defaultNotifPrefs() { return { birthdays: true, new_members: true, photos: true, reunion: true }; }
 
   return {
-    esc, userInitials, personInitials, personYears, avatarTint, daysUntil,
+    esc, userInitials, personInitials, personYears, avatarTint, daysUntil, fmtEventDate,
     filterPeople, filterNews, groupNotifications, defaultPrivacy, defaultNotifPrefs,
     darkenHex, contrastForeground, hexToRgba, isValidHexColor,
     AVATAR_TINTS

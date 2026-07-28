@@ -3407,11 +3407,6 @@ async function renderEventsList(){
   const upcoming = events.filter(e => e.start_date && new Date(e.start_date) >= now);
   const past     = events.filter(e => e.start_date && new Date(e.start_date) <  now);
 
-  function fmtDate(iso){
-    if (!iso) return '';
-    return new Date(iso).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric', year:'numeric' });
-  }
-
   function eventCard(e){
     const thumb = fileUrl('events', e, 'cover_photo');
     const icon  = EVENT_TYPE_ICONS[e.type] || '📅';
@@ -3422,7 +3417,7 @@ async function renderEventsList(){
       </div>
       <div class="ec-meta">
         <div class="ec-name">${esc(e.name)}</div>
-        <div class="ec-date">${esc(fmtDate(e.start_date))}</div>
+        <div class="ec-date">${esc(fmtEventDate(e.start_date))}</div>
         ${e.location ? `<div class="ec-loc">📍 ${esc(e.location)}</div>` : ''}
       </div>
     </div>`;
@@ -3471,8 +3466,6 @@ async function renderEventDetail(eventId){
   const organizers = (event.expand && event.expand.organizers) || [];
   const isOrganizer = organizers.some(o => o.id === userId) || (currentUser && currentUser.family_admin);
 
-  function fmtDate(iso){ return iso ? new Date(iso).toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit' }) : ''; }
-
   const curStatus = myRsvp ? myRsvp.status : '';
   const rsvpOpt = (key, label) => `<button class="ev-rsvp-opt${curStatus === key ? ' active' : ''}" onclick="setEventRsvp('${eventId}','${key}')">${label}</button>`;
 
@@ -3482,7 +3475,7 @@ async function renderEventDetail(eventId){
       ${thumb ? `<img src="${esc(thumb)}" alt="">` : `<div class="event-detail-hero-placeholder">${icon}</div>`}
     </div>
     <div class="event-info-bar">
-      <div><div class="eib-label">When</div><div class="eib-val">${esc(fmtDate(event.start_date))}</div></div>
+      <div><div class="eib-label">When</div><div class="eib-val">${esc(fmtEventDate(event.start_date, { withTime: true }))}</div></div>
       ${event.location ? `<div><div class="eib-label">Where</div><div class="eib-val">${esc(event.location)}</div></div>` : ''}
       <div><div class="eib-label">Headcount</div><div class="eib-val">${goingCount} going · ${maybeCount} maybe</div></div>
     </div>
@@ -5702,8 +5695,6 @@ async function showGuestRsvpPage(guestToken){
   const curStatus = event.status || 'pending';
   const guestName = event.guest_name || '';
 
-  function fmtDate(iso){ return iso ? new Date(iso).toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit' }) : ''; }
-
   const rsvpOpt = (key, label) => `<button class="ev-rsvp-opt${curStatus === key ? ' active' : ''}" onclick="guestSetRsvp('${guestToken}','${key}')">${label}</button>`;
 
   el('app').innerHTML = `<div class="screen-pad" style="max-width:860px">
@@ -5711,7 +5702,7 @@ async function showGuestRsvpPage(guestToken){
       ${thumb ? `<img src="${esc(thumb)}" alt="">` : `<div class="event-detail-hero-placeholder">${icon}</div>`}
     </div>
     <div class="event-info-bar">
-      <div><div class="eib-label">When</div><div class="eib-val">${esc(fmtDate(event.start_date))}</div></div>
+      <div><div class="eib-label">When</div><div class="eib-val">${esc(fmtEventDate(event.start_date, { withTime: true }))}</div></div>
       ${event.location ? `<div><div class="eib-label">Where</div><div class="eib-val">${esc(event.location)}</div></div>` : ''}
     </div>
     <h1 style="font-family:var(--font-display);font-size:2rem;font-weight:500;margin-top:1.5rem">${esc(event.name)}</h1>
