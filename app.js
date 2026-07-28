@@ -3802,8 +3802,15 @@ async function saveEvent(eventId){
     if (dayStartHour === '' || dayEndHour === '' || !Number.isFinite(dsh) || !Number.isFinite(deh) || dsh < 0 || deh > 24 || dsh >= deh) {
       return formErr('evf-error', 'Daily window end hour must be greater than the start hour (both between 0 and 24).');
     }
-    if (slotMinutes === '' || !(Number(slotMinutes) > 0)) {
-      return formErr('evf-error', 'Slot size must be a positive number of minutes.');
+    // `> 0` alone isn't enough — the Save button bypasses the input's own min="5"/
+    // max="180" constraints, so a value like 0.000001 would pass a bare positivity
+    // check, get persisted, and then renderEventDetail's grid loop
+    // (`h += slotMinutes / 60`) would advance by a near-zero amount, producing
+    // hundreds of millions of iterations for a normal daily window and hanging any
+    // browser that opens the event. Enforce the same 5-180 bounds the input declares.
+    const sm = Number(slotMinutes);
+    if (slotMinutes === '' || !Number.isFinite(sm) || sm < 5 || sm > 180) {
+      return formErr('evf-error', 'Slot size must be between 5 and 180 minutes.');
     }
   } else {
     if (!start) return formErr('evf-error', 'Start date is required.');
