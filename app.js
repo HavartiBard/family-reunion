@@ -5283,10 +5283,21 @@ async function loadComments(relatedId, relatedType, containerId){
   const container = el(containerId);
   if (!container) return;
   try {
-    const r = await apiFetch(`/api/collections/comments/records?filter=${encodeURIComponent(`(related_id="${relatedId}"&&related_type="${relatedType}")`)}` +
-      `&sort=created&perPage=100&expand=author`);
-    if (!r.ok){ container.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem">Could not load comments.</p>'; return; }
-    const items = (await r.json()).items || [];
+    // Paginate through every page rather than assuming 100 is enough — a thread past
+    // 100 comments would otherwise permanently hide comment 101 onward (including its
+    // own delete control) on every reload, not just the moment it's posted.
+    let items = [];
+    let page = 1;
+    let totalPages = 1;
+    do {
+      const r = await apiFetch(`/api/collections/comments/records?filter=${encodeURIComponent(`(related_id="${relatedId}"&&related_type="${relatedType}")`)}` +
+        `&sort=created&perPage=100&page=${page}&expand=author`);
+      if (!r.ok){ container.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem">Could not load comments.</p>'; return; }
+      const d = await r.json();
+      totalPages = d.totalPages || 1;
+      items = items.concat(d.items || []);
+      page++;
+    } while (page <= totalPages);
     if (!items.length){ container.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem">No comments yet.</p>'; return; }
     container.innerHTML = items.map(c => {
       const author = c.expand && c.expand.author;
