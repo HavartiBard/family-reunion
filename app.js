@@ -3559,7 +3559,11 @@ async function renderEventDetail(eventId){
             else cellClass += ' overlap-' + overlapCount;
           }
           if (isSelected) cellClass += ' active';
-          const finalizeBtn = isOrganizer ? `<button class="avail-finalize" data-slot="${esc(slotIsoStr)}" onclick="finalizePollSlot('${eventId}', '${slotIsoStr}')">Pick</button>` : '';
+          // stopPropagation is required — this button is nested inside the cell's own
+          // onclick="toggleAvailabilitySlot(...)", so without it, clicking "Pick" also
+          // toggled the organizer's own availability for that slot (even when they then
+          // cancelled the finalize confirmation dialog).
+          const finalizeBtn = isOrganizer ? `<button class="avail-finalize" data-slot="${esc(slotIsoStr)}" onclick="event.stopPropagation(); finalizePollSlot('${eventId}', '${slotIsoStr}')">Pick</button>` : '';
           rowsHtml += `<td class="${cellClass}" data-slot="${esc(slotIsoStr)}" onclick="toggleAvailabilitySlot('${eventId}', '${slotIsoStr}')">${finalizeBtn}</td>`;
         }
         rowsHtml += '</tr>';
@@ -3779,9 +3783,14 @@ function openEventForm(eventId){
         _eventFormTogglePollMode();
         const prs = el('evf-poll-range-start'); if (prs) prs.value = e.date_poll_range_start || '';
         const pre = el('evf-poll-range-end');   if (pre) pre.value = e.date_poll_range_end || '';
-        const pds = el('evf-poll-day-start-hour'); if (pds) pds.value = e.date_poll_day_start_hour || '9';
-        const pde = el('evf-poll-day-end-hour');   if (pde) pde.value = e.date_poll_day_end_hour || '21';
-        const psm = el('evf-poll-slot-minutes');   if (psm) psm.value = e.date_poll_slot_minutes || '30';
+        // Use an explicit null/undefined check rather than `||` — PocketBase returns a
+        // real numeric 0 for a poll window that legitimately starts at midnight, and
+        // `0 || '9'` would silently discard that in favor of the fallback, both on
+        // display and (if the user then saved without touching this field) for real.
+        const withFallback = (v, fallback) => (v === null || v === undefined ? fallback : v);
+        const pds = el('evf-poll-day-start-hour'); if (pds) pds.value = withFallback(e.date_poll_day_start_hour, '9');
+        const pde = el('evf-poll-day-end-hour');   if (pde) pde.value = withFallback(e.date_poll_day_end_hour, '21');
+        const psm = el('evf-poll-slot-minutes');   if (psm) psm.value = withFallback(e.date_poll_slot_minutes, '30');
       }
       _eventFormBuildExtraTrees(e.extra_trees || []);
       await _eventFormLoadExistingInvites(eventId);
@@ -3802,9 +3811,37 @@ async function saveEvent(eventId){
   const start = val('evf-start');
   const pollMode = el('evf-poll-mode')?.checked || false;
   if (!name) return formErr('evf-error', 'Name is required.');
+  // The Save button's onclick calls this directly, bypassing the native number/date
+  // constraint validation the inputs' min/max/type attributes would otherwise provide —
+  // so every poll setting needs an explicit check here. Without it, an organizer could
+  // open a poll with no range end (grid with no day cells), an inverted window (end
+  // hour <= start hour), or a slot size of 0 — the last of which makes the detail
+  // page's rendering loop (`for (h = start; h < end; h += slotMinutes/60)`) infinite
+  // since it would never advance, hanging every browser that opens the event.
+  let pollRangeStart, pollRangeEnd, dayStartHour, dayEndHour, slotMinutes;
   if (pollMode) {
-    const pollRangeStart = val('evf-poll-range-start');
+    pollRangeStart = val('evf-poll-range-start');
+    pollRangeEnd = val('evf-poll-range-end');
+    dayStartHour = val('evf-poll-day-start-hour');
+    dayEndHour = val('evf-poll-day-end-hour');
+    slotMinutes = val('evf-poll-slot-minutes');
     if (!pollRangeStart) return formErr('evf-error', 'Poll range start date is required.');
+    if (!pollRangeEnd) return formErr('evf-error', 'Poll range end date is required.');
+    if (pollRangeEnd < pollRangeStart) return formErr('evf-error', 'Poll range end must be on or after the start date.');
+    const dsh = Number(dayStartHour), deh = Number(dayEndHour);
+    if (dayStartHour === '' || dayEndHour === '' || !Number.isFinite(dsh) || !Number.isFinite(deh) || dsh < 0 || deh > 24 || dsh >= deh) {
+      return formErr('evf-error', 'Daily window end hour must be greater than the start hour (both between 0 and 24).');
+    }
+    // `> 0` alone isn't enough — the Save button bypasses the input's own min="5"/
+    // max="180" constraints, so a value like 0.000001 would pass a bare positivity
+    // check, get persisted, and then renderEventDetail's grid loop
+    // (`h += slotMinutes / 60`) would advance by a near-zero amount, producing
+    // hundreds of millions of iterations for a normal daily window and hanging any
+    // browser that opens the event. Enforce the same 5-180 bounds the input declares.
+    const sm = Number(slotMinutes);
+    if (slotMinutes === '' || !Number.isFinite(sm) || sm < 5 || sm > 180) {
+      return formErr('evf-error', 'Slot size must be between 5 and 180 minutes.');
+    }
   } else {
     if (!start) return formErr('evf-error', 'Start date is required.');
   }
@@ -3812,18 +3849,13 @@ async function saveEvent(eventId){
   fd.append('name', name);
   fd.append('type', el('evf-type').value);
   if (pollMode) {
-    const pollRangeStart = val('evf-poll-range-start');
-    const pollRangeEnd = val('evf-poll-range-end');
-    const dayStartHour = val('evf-poll-day-start-hour');
-    const dayEndHour = val('evf-poll-day-end-hour');
-    const slotMinutes = val('evf-poll-slot-minutes');
     fd.append('start_date', new Date(pollRangeStart).toISOString());
     fd.append('date_poll_status', 'open');
-    if (pollRangeStart) fd.append('date_poll_range_start', pollRangeStart);
-    if (pollRangeEnd) fd.append('date_poll_range_end', pollRangeEnd);
-    if (dayStartHour) fd.append('date_poll_day_start_hour', dayStartHour);
-    if (dayEndHour) fd.append('date_poll_day_end_hour', dayEndHour);
-    if (slotMinutes) fd.append('date_poll_slot_minutes', slotMinutes);
+    fd.append('date_poll_range_start', pollRangeStart);
+    fd.append('date_poll_range_end', pollRangeEnd);
+    fd.append('date_poll_day_start_hour', dayStartHour);
+    fd.append('date_poll_day_end_hour', dayEndHour);
+    fd.append('date_poll_slot_minutes', slotMinutes);
   } else {
     fd.append('start_date', new Date(start).toISOString());
     const end = val('evf-end'); if (end) fd.append('end_date', new Date(end).toISOString());
