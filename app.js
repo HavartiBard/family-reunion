@@ -3442,13 +3442,14 @@ async function renderEventsList(){
 async function renderEventDetail(eventId){
   mountMain('<div class="screen-pad" style="max-width:860px"><div class="spinner"></div></div>');
   let event = null, myRsvp = null, goingCount = 0, maybeCount = 0;
-  let invites = [];
+  let invites = [], myAvailability = null;
   try {
-    const [eRes, rRes, cRes, iRes] = await Promise.all([
+    const [eRes, rRes, cRes, iRes, avRes] = await Promise.all([
       apiFetch(`/api/collections/events/records/${eventId}?expand=organizers`),
       apiFetch(`/api/collections/event_rsvps/records?filter=${encodeURIComponent(`(event="${eventId}" && user="${userId}")`)}` + `&perPage=1`),
       apiFetch(`/api/collections/event_rsvps/records?filter=${encodeURIComponent(`(event="${eventId}")`)}` + `&perPage=200`),
-      apiFetch(`/api/collections/event_invites/records?filter=${encodeURIComponent(`(event="${eventId}")`)}` + `&expand=user&perPage=200`)
+      apiFetch(`/api/collections/event_invites/records?filter=${encodeURIComponent(`(event="${eventId}")`)}` + `&expand=user&perPage=200`),
+      apiFetch(`/api/collections/event_availability/records?filter=${encodeURIComponent(`(event="${eventId}" && user="${userId}")`)}&perPage=1`)
     ]);
     if (eRes.ok) event = await eRes.json();
     if (rRes.ok) { const d = await rRes.json(); myRsvp = d.items && d.items[0]; }
@@ -3458,6 +3459,7 @@ async function renderEventDetail(eventId){
       maybeCount = items.filter(r => r.status === 'maybe').length;
     }
     if (iRes.ok) { const d = await iRes.json(); invites = d.items || []; }
+    if (avRes.ok) { const d = await avRes.json(); myAvailability = d.items && d.items[0]; }
   } catch { /* ignore */ }
   if (!event) { mountMain('<div class="screen-pad"><div class="empty-state"><p>Event not found.</p></div></div>'); return; }
 
@@ -3494,6 +3496,47 @@ async function renderEventDetail(eventId){
         ${rsvpOpt('going', "I'm going")}${rsvpOpt('maybe', 'Maybe')}${rsvpOpt('no', "Can't make it")}
       </div>
     </div>
+    ${event.date_poll_status === 'open' ? (() => {
+      const days = [];
+      const start = new Date(event.date_poll_range_start + 'T00:00:00Z');
+      const end = new Date(event.date_poll_range_end + 'T00:00:00Z');
+      for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+        days.push(new Date(d.getTime()).toISOString().slice(0, 10));
+      }
+      const dayHeaders = days.map(day => {
+        const d = new Date(day + 'T00:00:00Z');
+        return `<th class="avail-day-header">${esc(d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric', timeZone:'UTC' }))}</th>`;
+      }).join('');
+      let rowsHtml = '';
+      for (let h = event.date_poll_day_start_hour; h < event.date_poll_day_end_hour; h += event.date_poll_slot_minutes / 60) {
+        const hourInt = Math.floor(h);
+        const minute = Math.round((h - hourInt) * 60);
+        // timeZone:'UTC' keeps this consistent with the slot values themselves (constructed
+        // via setUTCHours below) - without it, toLocaleDateString/toLocaleTimeString silently
+        // convert to the viewer's local time, which shifted the displayed day backward by one
+        // for any timezone behind UTC (confirmed: range_start "2026-09-01" rendered as "Aug 31").
+        const timeLabel = new Date(`2000-01-01T${String(hourInt).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00Z`)
+          .toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit', timeZone:'UTC' });
+        rowsHtml += `<tr class="avail-time-row"><td class="avail-time-label">${esc(timeLabel)}</td>`;
+        for (const day of days) {
+          const slotIso = new Date(day + 'T00:00:00Z');
+          slotIso.setUTCHours(hourInt, minute, 0, 0);
+          const slotIsoStr = slotIso.toISOString();
+          const isSelected = myAvailability && myAvailability.slots && myAvailability.slots.includes(slotIsoStr);
+          rowsHtml += `<td class="avail-cell${isSelected ? ' active' : ''}" data-slot="${esc(slotIsoStr)}" onclick="toggleAvailabilitySlot('${eventId}', '${slotIsoStr}')"></td>`;
+        }
+        rowsHtml += '</tr>';
+      }
+      return `<div class="card" style="margin-top:1.25rem">
+        <div class="section-label" style="margin-bottom:1rem">Available slots</div>
+        <div style="overflow-x:auto">
+          <table class="avail-grid">
+            <thead><tr><th></th>${dayHeaders}</tr></thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        </div>
+      </div>`;
+    })() : ''}
     ${isOrganizer ? (() => {
       if (invites.length === 0) {
         return `<div class="card" style="margin-top:1.25rem">
@@ -3525,6 +3568,29 @@ async function renderEventDetail(eventId){
       </div>`;
     })() : ''}
   </div>`);
+}
+
+async function toggleAvailabilitySlot(eventId, slotIso){
+  try {
+    const chkRes = await apiFetch(`/api/collections/event_availability/records?filter=${encodeURIComponent(`(event="${eventId}" && user="${userId}")`)}&perPage=1`);
+    const existing = chkRes.ok ? ((await chkRes.json()).items || [])[0] : null;
+    let res;
+    if (existing) {
+      const currentSlots = existing.slots || [];
+      const newSlots = currentSlots.includes(slotIso)
+        ? currentSlots.filter(s => s !== slotIso)
+        : [...currentSlots, slotIso];
+      res = await apiFetch(`/api/collections/event_availability/records/${existing.id}`, {
+        method:'PATCH', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ slots: newSlots }) });
+    } else {
+      res = await apiFetch('/api/collections/event_availability/records', {
+        method:'POST', headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ event: eventId, user: userId, slots: [slotIso] }) });
+    }
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not save availability'); }
+    toast('Availability saved.', 'success');
+    await renderEventDetail(eventId);
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 async function setEventRsvp(eventId, status){
@@ -3583,6 +3649,26 @@ function openEventForm(eventId){
       </label>
     </div>
     <div class="form-group">
+      <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+        <input type="checkbox" id="evf-poll-mode" onchange="_eventFormTogglePollMode()" />
+        <span>Open a date poll</span>
+      </label>
+    </div>
+    <div id="evf-poll-settings" style="display:none;margin-bottom:.75rem">
+      <div class="row-2">
+        <div class="form-group"><label>Poll range start</label><input type="date" id="evf-poll-range-start" /></div>
+        <div class="form-group"><label>Poll range end</label><input type="date" id="evf-poll-range-end" /></div>
+      </div>
+      <div class="row-2">
+        <div class="form-group"><label>Daily window start (hour)</label><input type="number" id="evf-poll-day-start-hour" min="0" max="24" value="9" /></div>
+        <div class="form-group"><label>Daily window end (hour)</label><input type="number" id="evf-poll-day-end-hour" min="0" max="24" value="21" /></div>
+      </div>
+      <div class="form-group">
+        <label>Slot size (minutes)</label>
+        <input type="number" id="evf-poll-slot-minutes" min="5" max="180" step="5" value="30" />
+      </div>
+    </div>
+    <div class="form-group">
       <label>Invite people</label>
       <div style="display:flex;gap:.5rem;align-items:center;margin-bottom:.5rem">
         <input id="evf-invite-search" placeholder="Search users by name or email..." style="flex:1" oninput="_eventFormRunUserSearch(this.value)" autocomplete="off" />
@@ -3623,22 +3709,62 @@ function openEventForm(eventId){
       if (pt && e.tree) pt.value = e.tree;
       const io = el('evf-invite-only');
       if (io) io.checked = !!e.invite_only;
+      const pm = el('evf-poll-mode');
+      if (pm && e.date_poll_status === 'open') {
+        pm.checked = true;
+        _eventFormTogglePollMode();
+        const prs = el('evf-poll-range-start'); if (prs) prs.value = e.date_poll_range_start || '';
+        const pre = el('evf-poll-range-end');   if (pre) pre.value = e.date_poll_range_end || '';
+        const pds = el('evf-poll-day-start-hour'); if (pds) pds.value = e.date_poll_day_start_hour || '9';
+        const pde = el('evf-poll-day-end-hour');   if (pde) pde.value = e.date_poll_day_end_hour || '21';
+        const psm = el('evf-poll-slot-minutes');   if (psm) psm.value = e.date_poll_slot_minutes || '30';
+      }
       _eventFormBuildExtraTrees(e.extra_trees || []);
       await _eventFormLoadExistingInvites(eventId);
     });
   }
 }
 
+function _eventFormTogglePollMode(){
+  const pollMode = el('evf-poll-mode')?.checked || false;
+  const pollSettings = el('evf-poll-settings');
+  const dateRow = document.querySelector('#evf-start,#evf-end')?.closest('.row-2');
+  if (pollSettings) pollSettings.style.display = pollMode ? 'block' : 'none';
+  if (dateRow) dateRow.style.display = pollMode ? 'none' : '';
+}
+
 async function saveEvent(eventId){
   const name = val('evf-name');
   const start = val('evf-start');
+  const pollMode = el('evf-poll-mode')?.checked || false;
   if (!name) return formErr('evf-error', 'Name is required.');
-  if (!start) return formErr('evf-error', 'Start date is required.');
+  if (pollMode) {
+    const pollRangeStart = val('evf-poll-range-start');
+    if (!pollRangeStart) return formErr('evf-error', 'Poll range start date is required.');
+  } else {
+    if (!start) return formErr('evf-error', 'Start date is required.');
+  }
   const fd = new FormData();
   fd.append('name', name);
   fd.append('type', el('evf-type').value);
-  fd.append('start_date', new Date(start).toISOString());
-  const end = val('evf-end'); if (end) fd.append('end_date', new Date(end).toISOString());
+  if (pollMode) {
+    const pollRangeStart = val('evf-poll-range-start');
+    const pollRangeEnd = val('evf-poll-range-end');
+    const dayStartHour = val('evf-poll-day-start-hour');
+    const dayEndHour = val('evf-poll-day-end-hour');
+    const slotMinutes = val('evf-poll-slot-minutes');
+    fd.append('start_date', new Date(pollRangeStart).toISOString());
+    fd.append('date_poll_status', 'open');
+    if (pollRangeStart) fd.append('date_poll_range_start', pollRangeStart);
+    if (pollRangeEnd) fd.append('date_poll_range_end', pollRangeEnd);
+    if (dayStartHour) fd.append('date_poll_day_start_hour', dayStartHour);
+    if (dayEndHour) fd.append('date_poll_day_end_hour', dayEndHour);
+    if (slotMinutes) fd.append('date_poll_slot_minutes', slotMinutes);
+  } else {
+    fd.append('start_date', new Date(start).toISOString());
+    const end = val('evf-end'); if (end) fd.append('end_date', new Date(end).toISOString());
+    fd.append('date_poll_status', 'none');
+  }
   const loc = val('evf-loc'); if (loc) fd.append('location', loc);
   const desc = val('evf-desc'); if (desc) fd.append('description', desc);
   const photo = el('evf-photo').files[0]; if (photo) fd.append('cover_photo', photo);
