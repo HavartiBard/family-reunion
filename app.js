@@ -3458,11 +3458,24 @@ async function renderEventDetail(eventId){
       const items = (await cRes.json()).items || [];
       goingCount = items.filter(r => r.status === 'going').length;
       maybeCount = items.filter(r => r.status === 'maybe').length;
-      for (const r of items) {
-        if (r.user) rsvpsByUser[r.user] = r.status;
-      }
     }
     if (iRes.ok) { const d = await iRes.json(); invites = d.items || []; }
+    // Build the invited-list RSVP-status map from a query scoped to just the invited
+    // users, not by scanning the full per-event RSVP list above — that list is capped
+    // at perPage=200, so for an event with more than 200 RSVPs (plausible once
+    // non-invited attendees also RSVP) an invited user's own row could be on a page
+    // never fetched, silently falling back to the stale invite status.
+    const userInviteIds = invites.filter(i => i.invite_type === 'user' && i.user).map(i => i.user);
+    if (userInviteIds.length > 0) {
+      const userFilter = userInviteIds.map(id => `user="${id}"`).join(' || ');
+      const inviteeRsvpRes = await apiFetch(`/api/collections/event_rsvps/records?filter=${encodeURIComponent(`(event="${eventId}") && (${userFilter})`)}&perPage=200`);
+      if (inviteeRsvpRes.ok) {
+        const items = (await inviteeRsvpRes.json()).items || [];
+        for (const r of items) {
+          if (r.user) rsvpsByUser[r.user] = r.status;
+        }
+      }
+    }
     if (avRes.ok) { const d = await avRes.json(); myAvailability = d.items && d.items[0]; }
     if (allAvRes.ok) { const d = await allAvRes.json(); allAvailability = d.items || []; }
   } catch { /* ignore */ }
