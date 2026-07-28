@@ -3442,14 +3442,15 @@ async function renderEventsList(){
 async function renderEventDetail(eventId){
   mountMain('<div class="screen-pad" style="max-width:860px"><div class="spinner"></div></div>');
   let event = null, myRsvp = null, goingCount = 0, maybeCount = 0;
-  let invites = [], myAvailability = null;
+  let invites = [], myAvailability = null, allAvailability = [];
   try {
-    const [eRes, rRes, cRes, iRes, avRes] = await Promise.all([
+    const [eRes, rRes, cRes, iRes, avRes, allAvRes] = await Promise.all([
       apiFetch(`/api/collections/events/records/${eventId}?expand=organizers`),
       apiFetch(`/api/collections/event_rsvps/records?filter=${encodeURIComponent(`(event="${eventId}" && user="${userId}")`)}` + `&perPage=1`),
       apiFetch(`/api/collections/event_rsvps/records?filter=${encodeURIComponent(`(event="${eventId}")`)}` + `&perPage=200`),
       apiFetch(`/api/collections/event_invites/records?filter=${encodeURIComponent(`(event="${eventId}")`)}` + `&expand=user&perPage=200`),
-      apiFetch(`/api/collections/event_availability/records?filter=${encodeURIComponent(`(event="${eventId}" && user="${userId}")`)}&perPage=1`)
+      apiFetch(`/api/collections/event_availability/records?filter=${encodeURIComponent(`(event="${eventId}" && user="${userId}")`)}&perPage=1`),
+      apiFetch(`/api/collections/event_availability/records?filter=${encodeURIComponent(`(event="${eventId}")`)}&perPage=200`)
     ]);
     if (eRes.ok) event = await eRes.json();
     if (rRes.ok) { const d = await rRes.json(); myRsvp = d.items && d.items[0]; }
@@ -3460,6 +3461,7 @@ async function renderEventDetail(eventId){
     }
     if (iRes.ok) { const d = await iRes.json(); invites = d.items || []; }
     if (avRes.ok) { const d = await avRes.json(); myAvailability = d.items && d.items[0]; }
+    if (allAvRes.ok) { const d = await allAvRes.json(); allAvailability = d.items || []; }
   } catch { /* ignore */ }
   if (!event) { mountMain('<div class="screen-pad"><div class="empty-state"><p>Event not found.</p></div></div>'); return; }
 
@@ -3507,14 +3509,19 @@ async function renderEventDetail(eventId){
         const d = new Date(day + 'T00:00:00Z');
         return `<th class="avail-day-header">${esc(d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric', timeZone:'UTC' }))}</th>`;
       }).join('');
+      
+      const slotCounts = {};
+      for (const entry of allAvailability) {
+        const slots = entry.slots || [];
+        for (const slotIso of slots) {
+          slotCounts[slotIso] = (slotCounts[slotIso] || 0) + 1;
+        }
+      }
+      
       let rowsHtml = '';
       for (let h = event.date_poll_day_start_hour; h < event.date_poll_day_end_hour; h += event.date_poll_slot_minutes / 60) {
         const hourInt = Math.floor(h);
         const minute = Math.round((h - hourInt) * 60);
-        // timeZone:'UTC' keeps this consistent with the slot values themselves (constructed
-        // via setUTCHours below) - without it, toLocaleDateString/toLocaleTimeString silently
-        // convert to the viewer's local time, which shifted the displayed day backward by one
-        // for any timezone behind UTC (confirmed: range_start "2026-09-01" rendered as "Aug 31").
         const timeLabel = new Date(`2000-01-01T${String(hourInt).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00Z`)
           .toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit', timeZone:'UTC' });
         rowsHtml += `<tr class="avail-time-row"><td class="avail-time-label">${esc(timeLabel)}</td>`;
@@ -3523,11 +3530,25 @@ async function renderEventDetail(eventId){
           slotIso.setUTCHours(hourInt, minute, 0, 0);
           const slotIsoStr = slotIso.toISOString();
           const isSelected = myAvailability && myAvailability.slots && myAvailability.slots.includes(slotIsoStr);
-          rowsHtml += `<td class="avail-cell${isSelected ? ' active' : ''}" data-slot="${esc(slotIsoStr)}" onclick="toggleAvailabilitySlot('${eventId}', '${slotIsoStr}')"></td>`;
+          const overlapCount = slotCounts[slotIsoStr] || 0;
+          let cellClass = 'avail-cell';
+          if (overlapCount > 0) {
+            if (overlapCount >= 3) cellClass += ' overlap-3plus';
+            else cellClass += ' overlap-' + overlapCount;
+          }
+          if (isSelected) cellClass += ' active';
+          const finalizeBtn = isOrganizer ? `<button class="avail-finalize" data-slot="${esc(slotIsoStr)}" onclick="finalizePollSlot('${eventId}', '${slotIsoStr}')">Pick</button>` : '';
+          rowsHtml += `<td class="${cellClass}" data-slot="${esc(slotIsoStr)}" onclick="toggleAvailabilitySlot('${eventId}', '${slotIsoStr}')">${finalizeBtn}</td>`;
         }
         rowsHtml += '</tr>';
       }
+      const finalizeSection = isOrganizer ? `
+        <div style="margin-bottom:.75rem">
+          <button class="btn btn-outline btn-sm" onclick="document.querySelectorAll('.avail-finalize').forEach(b => b.classList.toggle('visible'))">Finalize a time</button>
+          <span style="font-size:.78rem;color:var(--text-muted);margin-left:.5rem">Click "Pick" on any cell to finalize the event</span>
+        </div>` : '';
       return `<div class="card" style="margin-top:1.25rem">
+        ${finalizeSection}
         <div class="section-label" style="margin-bottom:1rem">Available slots</div>
         <div style="overflow-x:auto">
           <table class="avail-grid">
@@ -3589,6 +3610,19 @@ async function toggleAvailabilitySlot(eventId, slotIso){
     }
     if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not save availability'); }
     toast('Availability saved.', 'success');
+    await renderEventDetail(eventId);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function finalizePollSlot(eventId, slotIso){
+  const label = new Date(slotIso).toLocaleString('en-US', { weekday:'long', month:'long', day:'numeric', hour:'numeric', minute:'2-digit', timeZone:'UTC' });
+  if (!confirm(`Finalize this event for ${label}? This closes the poll.`)) return;
+  try {
+    const res = await apiFetch(`/api/collections/events/records/${eventId}`, {
+      method:'PATCH', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ start_date: slotIso, date_poll_status: 'closed' }) });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not finalize event'); }
+    toast('Event date finalized.', 'success');
     await renderEventDetail(eventId);
   } catch (e) { toast(e.message, 'error'); }
 }
