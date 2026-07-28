@@ -42,6 +42,14 @@ test('daysUntil counts whole days, floored at 0', () => {
   assert.strictEqual(h.daysUntil('2026-06-01', now), 0); // past -> 0, never negative
 });
 
+test('fmtEventDate formats short (default) and long-with-time variants', () => {
+  const iso = '2026-09-01T18:00:00Z';
+  assert.strictEqual(h.fmtEventDate(iso), 'Tue, Sep 1, 2026');
+  assert.ok(h.fmtEventDate(iso, { withTime: true }).startsWith('Tuesday, September 1, 2026'));
+  assert.strictEqual(h.fmtEventDate(''), '');
+  assert.strictEqual(h.fmtEventDate(null), '');
+});
+
 test('filterPeople matches name, bio, and birth year', () => {
   const people = [
     { display_name: 'Walter Bender', given_name: 'Walter', family_name: 'Bender', bio: 'founder', birth_date: '1947' },
