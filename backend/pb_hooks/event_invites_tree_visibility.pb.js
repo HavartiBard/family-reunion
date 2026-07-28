@@ -4,9 +4,11 @@
 // those files for the full list of confirmed JSVM findings this is built on. `event_invites`
 // has no `tree` field of its own — visibility is derived via its required `event` relation.
 //
-// Write-path hooks are not needed: the existing collection rule (`@request.auth.id != "" &&
-// @request.auth.approved = true`) is intentionally broad, and precise scoping for
-// update/delete is already handled by the organizer/family_admin rule from the events hook.
+// Update/delete authorization: the collection rule (`@request.auth.id != "" &&
+// @request.auth.approved = true`) is intentionally broad — any approved user could otherwise
+// update/delete any invite row. Before-update/before-delete below restrict this to the
+// organizer of the invite's event or family_admin, mirroring events_tree_visibility.pb.js's
+// own before-update/before-delete pattern.
 //
 // Every callback below is a single, fully self-contained closure with zero references to
 // sibling top-level declarations.
@@ -173,6 +175,80 @@ onRecordBeforeCreateRequest((e) => {
   if (!tokenField || tokenField === '') {
     const token = Array.from({length: 40}, () => Math.floor(Math.random() * 36).toString(36)).join('');
     e.record.set('token', token);
+  }
+}, 'event_invites');
+
+onRecordBeforeUpdateRequest((e) => {
+  const authRecord = e.httpContext.get('authRecord');
+
+  if (!authRecord) {
+    return;
+  }
+
+  const isFamilyAdmin = authRecord.get('family_admin') === true;
+  if (isFamilyAdmin) {
+    return;
+  }
+
+  const userDao = $app.dao();
+  const userId = authRecord.id;
+
+  const persistedRecord = userDao.findRecordById('event_invites', e.record.id);
+  const eventId = persistedRecord ? persistedRecord.get('event') : '';
+
+  let isOrganizer = false;
+  if (eventId && eventId !== '') {
+    try {
+      const event = userDao.findRecordById('events', eventId);
+      if (event) {
+        const organizers = event.get('organizers') || [];
+        isOrganizer = organizers.includes(userId);
+      }
+    } catch (lookupErr) {
+      // This is a permission CHECK, not a visibility filter — fail CLOSED. A missing/
+      // unreadable parent event means there is no organizer to authorize against.
+      isOrganizer = false;
+    }
+  }
+
+  if (!isOrganizer) {
+    throw new ForbiddenError('You do not have permission to update this invite.');
+  }
+}, 'event_invites');
+
+onRecordBeforeDeleteRequest((e) => {
+  const authRecord = e.httpContext.get('authRecord');
+
+  if (!authRecord) {
+    return;
+  }
+
+  const isFamilyAdmin = authRecord.get('family_admin') === true;
+  if (isFamilyAdmin) {
+    return;
+  }
+
+  const userDao = $app.dao();
+  const userId = authRecord.id;
+
+  const eventId = e.record.get('event');
+
+  let isOrganizer = false;
+  if (eventId && eventId !== '') {
+    try {
+      const event = userDao.findRecordById('events', eventId);
+      if (event) {
+        const organizers = event.get('organizers') || [];
+        isOrganizer = organizers.includes(userId);
+      }
+    } catch (lookupErr) {
+      // Fail CLOSED — same reasoning as the update hook above.
+      isOrganizer = false;
+    }
+  }
+
+  if (!isOrganizer) {
+    throw new ForbiddenError('You do not have permission to delete this invite.');
   }
 }, 'event_invites');
 
