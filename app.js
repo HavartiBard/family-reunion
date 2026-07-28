@@ -3494,14 +3494,26 @@ async function renderEventDetail(eventId){
       if (sRes.ok) { const d = await sRes.json(); locationSuggestions = d.items || []; }
       if (locationSuggestions.length > 0) {
         const suggestionFilter = locationSuggestions.map(s => `suggestion="${s.id}"`).join(' || ');
-        const vRes = await apiFetch(`/api/collections/event_location_votes/records?filter=${encodeURIComponent(`(${suggestionFilter})`)}&perPage=200`);
-        if (vRes.ok) {
-          const voteItems = (await vRes.json()).items || [];
-          for (const v of voteItems) {
+        // A single perPage=200 page isn't enough once an event's suggestions collectively
+        // draw more than 200 votes (plausible for a well-attended event with several
+        // options) — under-fetching would both undercount displayed totals AND, if the
+        // current user's own vote landed on an unfetched page, make the UI think they
+        // haven't voted, so clicking upvote would attempt a duplicate POST that the
+        // unique (suggestion, user) index rejects, leaving them unable to un-vote. Paginate
+        // through every page rather than assuming one is enough.
+        let votePage = 1;
+        let voteTotalPages = 1;
+        do {
+          const vRes = await apiFetch(`/api/collections/event_location_votes/records?filter=${encodeURIComponent(`(${suggestionFilter})`)}&perPage=200&page=${votePage}`);
+          if (!vRes.ok) break;
+          const d = await vRes.json();
+          voteTotalPages = d.totalPages || 1;
+          for (const v of (d.items || [])) {
             locationVoteCounts[v.suggestion] = (locationVoteCounts[v.suggestion] || 0) + 1;
             if (v.user === userId) myLocationVotes[v.suggestion] = v.id;
           }
-        }
+          votePage++;
+        } while (votePage <= voteTotalPages);
       }
     }
   } catch { /* ignore */ }
@@ -3605,16 +3617,31 @@ async function renderEventDetail(eventId){
       </div>`;
     })() : ''}
     ${event.location_poll_status === 'open' ? (() => {
+      // A suggestion's `url` is arbitrary approved-user-submitted text, not a validated
+      // link — esc() alone doesn't escape quotes (unsafe in an href attribute, same class
+      // of bug as the guest-RSVP name fix elsewhere in this codebase) and, separately, an
+      // unrestricted scheme would let a `javascript:` URL execute on click. Only render as
+      // a real clickable link when it parses as http(s); otherwise show the (still-escaped)
+      // text without turning it into an anchor.
+      const safeHttpUrl = (raw) => {
+        try {
+          const parsed = new URL(raw, location.href);
+          return (parsed.protocol === 'http:' || parsed.protocol === 'https:') ? parsed.href : null;
+        } catch { return null; }
+      };
       const suggestionRows = locationSuggestions.map(s => {
         const voteCount = locationVoteCounts[s.id] || 0;
         const myVoteId = myLocationVotes[s.id];
         const hasVoted = !!myVoteId;
+        const safeUrl = s.url ? safeHttpUrl(s.url) : null;
         return `<div class="card" style="margin-top:.75rem;padding:1rem">
           <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem">
             <div style="flex:1">
               <div style="font-weight:600">${esc(s.name)}</div>
               ${s.address ? `<div style="font-size:.85rem;color:var(--text-muted);margin-top:.15rem">${esc(s.address)}</div>` : ''}
-              ${s.url ? `<div style="margin-top:.25rem"><a href="${esc(s.url)}" target="_blank" rel="noopener" class="link" style="font-size:.85rem">${esc(s.url)}</a></div>` : ''}
+              ${s.url ? (safeUrl
+                ? `<div style="margin-top:.25rem"><a href="${escAttr(safeUrl)}" target="_blank" rel="noopener" class="link" style="font-size:.85rem">${esc(s.url)}</a></div>`
+                : `<div style="margin-top:.25rem;font-size:.85rem">${esc(s.url)}</div>`) : ''}
               ${s.notes ? `<div style="font-size:.85rem;margin-top:.35rem">${esc(s.notes)}</div>` : ''}
               ${s.capacity ? `<div style="font-size:.78rem;color:var(--text-muted);margin-top:.35rem">Capacity: ${esc(String(s.capacity))}</div>` : ''}
             </div>
