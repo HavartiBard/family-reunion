@@ -27,6 +27,14 @@ routerAdd('GET', '/api/guest-invite/:token', (c) => {
     throw new NotFoundError('Invite not found.');
   }
 
+  // Guest routes are for email-type invites only. A "user"-type invite's token is not a
+  // guest credential — that invitee has a real account and must go through the normal
+  // authenticated RSVP flow. Without this check, anyone who obtained a user-type invite's
+  // token (e.g. it leaking via a shared link) could read/modify that invite unauthenticated.
+  if (invite.get('invite_type') !== 'email') {
+    throw new NotFoundError('Invite not found.');
+  }
+
   const eventId = invite.get('event');
   let event = null;
   let eventNotFound = false;
@@ -92,6 +100,12 @@ routerAdd('POST', '/api/guest-invite/:token/rsvp', (c) => {
   }
 
   if (!invite || inviteNotFound) {
+    throw new NotFoundError('Invite not found.');
+  }
+
+  // Guest routes are for email-type invites only — see the same check in the GET handler
+  // above for why.
+  if (invite.get('invite_type') !== 'email') {
     throw new NotFoundError('Invite not found.');
   }
 
