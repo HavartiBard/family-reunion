@@ -193,25 +193,34 @@ onRecordBeforeUpdateRequest((e) => {
   const userDao = $app.dao();
   const userId = authRecord.id;
 
-  const persistedRecord = userDao.findRecordById('event_invites', e.record.id);
-  const eventId = persistedRecord ? persistedRecord.get('event') : '';
-
-  let isOrganizer = false;
-  if (eventId && eventId !== '') {
+  const isOrganizerOfEvent = (eventId) => {
+    if (!eventId || eventId === '') {
+      return false;
+    }
     try {
       const event = userDao.findRecordById('events', eventId);
-      if (event) {
-        const organizers = event.get('organizers') || [];
-        isOrganizer = organizers.includes(userId);
+      if (!event) {
+        return false;
       }
+      const organizers = event.get('organizers') || [];
+      return organizers.includes(userId);
     } catch (lookupErr) {
       // This is a permission CHECK, not a visibility filter — fail CLOSED. A missing/
-      // unreadable parent event means there is no organizer to authorize against.
-      isOrganizer = false;
+      // unreadable event is not one this requester is authorized against.
+      return false;
     }
-  }
+  };
 
-  if (!isOrganizer) {
+  const persistedRecord = userDao.findRecordById('event_invites', e.record.id);
+  const persistedEventId = persistedRecord ? persistedRecord.get('event') : '';
+  const incomingEventId = e.record.get('event');
+
+  // Check BOTH the invite's current (persisted) event and the incoming/requested event —
+  // otherwise an organizer of event A could create an invite for A, then PATCH its `event`
+  // relation to point at event B (which they don't organize), moving that invite (and the
+  // access it grants — a user-invite's visibility, or an email-invite's guest-RSVP token)
+  // into an event they have no authority over.
+  if (!isOrganizerOfEvent(persistedEventId) || !isOrganizerOfEvent(incomingEventId)) {
     throw new ForbiddenError('You do not have permission to update this invite.');
   }
 }, 'event_invites');
