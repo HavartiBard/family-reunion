@@ -3624,9 +3624,35 @@ async function renderEventDetail(eventId){
   </div>`);
 }
 
-async function toggleAvailabilitySlot(eventId, slotIso){
+// Rapid clicks on the availability grid must not race: each click's fetch-then-write
+// cycle (GET current slots, then PATCH/POST the toggled result) needs to see the
+// PREVIOUS click's write, not the state from before it started. Without this, two fast
+// clicks each fetch "no record yet"/the same pre-click slots and race to write —
+// losing one click's selection, and (before the (event,user) unique index existed)
+// racing to create two rows for the same pair. Chaining every call onto a single
+// promise serializes the whole GET+write cycle per click, not just the writes.
+let _availabilityToggleQueue = Promise.resolve();
+
+function toggleAvailabilitySlot(eventId, slotIso){
+  // Capture the initiating session's user id at click time, not at execution time — if
+  // several toggles are queued and the user signs out (then someone else signs in) on
+  // the same page before the queue drains, a queued callback reading the live `userId`
+  // global at execution time would save/attribute the click to whichever account is
+  // current by then, not who actually clicked.
+  const initiatingUserId = userId;
+  const run = _availabilityToggleQueue.then(() => {
+    if (userId !== initiatingUserId) return; // session changed under this queued click — drop it
+    return _doToggleAvailabilitySlot(eventId, slotIso, initiatingUserId);
+  });
+  // Keep the queue moving even if this click's request failed — a failed toggle must
+  // not permanently block every later click on the grid.
+  _availabilityToggleQueue = run.catch(() => {});
+  return run;
+}
+
+async function _doToggleAvailabilitySlot(eventId, slotIso, forUserId){
   try {
-    const chkRes = await apiFetch(`/api/collections/event_availability/records?filter=${encodeURIComponent(`(event="${eventId}" && user="${userId}")`)}&perPage=1`);
+    const chkRes = await apiFetch(`/api/collections/event_availability/records?filter=${encodeURIComponent(`(event="${eventId}" && user="${forUserId}")`)}&perPage=1`);
     const existing = chkRes.ok ? ((await chkRes.json()).items || [])[0] : null;
     let res;
     if (existing) {
@@ -3639,11 +3665,16 @@ async function toggleAvailabilitySlot(eventId, slotIso){
     } else {
       res = await apiFetch('/api/collections/event_availability/records', {
         method:'POST', headers:{ 'Content-Type':'application/json' },
-        body: JSON.stringify({ event: eventId, user: userId, slots: [slotIso] }) });
+        body: JSON.stringify({ event: eventId, user: forUserId, slots: [slotIso] }) });
     }
     if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not save availability'); }
-    toast('Availability saved.', 'success');
-    await renderEventDetail(eventId);
+    // Only re-render if we're still looking at the session that initiated this toggle —
+    // a queued render after a session change would redraw the event page with the new
+    // user's identity mid-navigation.
+    if (userId === forUserId) {
+      toast('Availability saved.', 'success');
+      await renderEventDetail(eventId);
+    }
   } catch (e) { toast(e.message, 'error'); }
 }
 
