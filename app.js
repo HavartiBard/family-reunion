@@ -3442,7 +3442,7 @@ async function renderEventsList(){
 async function renderEventDetail(eventId){
   mountMain('<div class="screen-pad" style="max-width:860px"><div class="spinner"></div></div>');
   let event = null, myRsvp = null, goingCount = 0, maybeCount = 0;
-  let invites = [], myAvailability = null, allAvailability = [];
+  let invites = [], myAvailability = null, allAvailability = [], rsvpsByUser = {};
   try {
     const [eRes, rRes, cRes, iRes, avRes, allAvRes] = await Promise.all([
       apiFetch(`/api/collections/events/records/${eventId}?expand=organizers`),
@@ -3458,6 +3458,9 @@ async function renderEventDetail(eventId){
       const items = (await cRes.json()).items || [];
       goingCount = items.filter(r => r.status === 'going').length;
       maybeCount = items.filter(r => r.status === 'maybe').length;
+      for (const r of items) {
+        if (r.user) rsvpsByUser[r.user] = r.status;
+      }
     }
     if (iRes.ok) { const d = await iRes.json(); invites = d.items || []; }
     if (avRes.ok) { const d = await avRes.json(); myAvailability = d.items && d.items[0]; }
@@ -3578,9 +3581,16 @@ async function renderEventDetail(eventId){
         const name = inviteType === 'user'
           ? (expandedUser ? esc(expandedUser.name || expandedUser.email || 'Invited user') : 'Invited user')
           : esc(inv.guest_name || inv.email || 'Guest');
+        // For user-type invites, the invitee's real RSVP lives in event_rsvps (set via
+        // setEventRsvp on the event screen) — event_invites.status for a "user" invite only
+        // ever reflects invite acknowledgment, never gets updated when they actually RSVP.
+        // Fall back to inv.status (effectively always "pending") if they haven't RSVP'd yet.
+        const displayStatus = inviteType === 'user'
+          ? (rsvpsByUser[inv.user] || inv.status || 'pending')
+          : (inv.status || 'pending');
         return `<div style="display:flex;align-items:center;justify-content:space-between;padding:.6rem;background:var(--bg-hover);border-radius:.3rem;margin:.25rem 0">
           <span style="font-size:.95rem">${name}</span>
-          ${statusBadge(inv.status || 'pending')}
+          ${statusBadge(displayStatus)}
         </div>`;
       }).join('');
       return `<div class="card" style="margin-top:1.25rem">
