@@ -3726,7 +3726,7 @@ function openEventForm(eventId){
       <div id="evf-pending-invites" style="margin-top:.5rem"></div>
     </div>
     <div style="display:flex;gap:.6rem;margin-top:.75rem">
-      <button class="btn btn-primary" onclick="saveEvent('${eventId || ''}')">Save</button>
+      <button id="evf-save-btn" class="btn btn-primary" onclick="saveEvent('${eventId || ''}')">Save</button>
       <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
       ${isEdit ? `<button class="btn btn-danger" style="margin-left:auto" onclick="deleteEvent('${eventId}')">Delete</button>` : ''}
     </div>`);
@@ -3841,6 +3841,15 @@ async function saveEvent(eventId){
     const saved = await res.json();
     let saveError = null;
 
+    // The event itself is now persisted regardless of what happens below. If this was a
+    // brand-new event and the user has to retry after an invite failure, the retry must
+    // PATCH saved.id rather than POST a second event — repoint both the Save button (for
+    // an actual retry click) and the eventId used later in this call for notify/navigate.
+    if (!eventId) {
+      const saveBtn = document.getElementById('evf-save-btn');
+      if (saveBtn) saveBtn.setAttribute('onclick', `saveEvent('${saved.id}')`);
+    }
+
     // Reconcile invites: only POST invites that don't already exist (id === null —
     // an already-persisted invite is left alone, not recreated), and DELETE any invite
     // removed from the pending list during this edit. Recreating every retained invite
@@ -3868,6 +3877,12 @@ async function saveEvent(eventId){
           saveError = d.message || 'Failed to create invite';
           break outer;
         }
+        // Mark this invite as persisted immediately — otherwise a retry after a LATER
+        // invite/delete failure would re-POST this already-successful one, recreating
+        // the duplicate-row/duplicate-notification problem this reconciliation exists
+        // to fix.
+        const iBody = await iRes.json();
+        invite.id = iBody.id;
       } catch (e) {
         saveError = e.message;
         break outer;
@@ -3875,7 +3890,11 @@ async function saveEvent(eventId){
     }
 
     if (!saveError) {
-      for (const removedId of _eventFormRemovedInviteIds) {
+      // Iterate a copy and splice each id out of the real queue as its DELETE succeeds —
+      // otherwise a retry after a later deletion's failure re-attempts an already-completed
+      // delete, gets a not-found response for it, and never reaches the invite that still
+      // needs removing.
+      for (const removedId of _eventFormRemovedInviteIds.slice()) {
         try {
           const dRes = await apiFetch(`/api/collections/event_invites/records/${removedId}`, { method:'DELETE' });
           if (!dRes.ok) {
@@ -3883,6 +3902,7 @@ async function saveEvent(eventId){
             saveError = d.message || 'Failed to remove invite';
             break;
           }
+          _eventFormRemovedInviteIds.splice(_eventFormRemovedInviteIds.indexOf(removedId), 1);
         } catch (e) {
           saveError = e.message;
           break;
