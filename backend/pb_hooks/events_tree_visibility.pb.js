@@ -25,6 +25,16 @@ onRecordsListRequest((e) => {
   const userHomeTreeId = authRecord.get('home_tree');
   const userId = authRecord.id;
 
+  // The REQUESTER's own visible-tree set — computed once from only the requester's own
+  // home_tree/admin_trees data, and NEVER mutated afterward. A prior version of this hook
+  // mutated this same Set with each RECORD's own tree/extra_trees' linked_trees while
+  // filtering — since Array.filter's closure shares one Set across every record, that
+  // let one event's linked-tree membership "leak" forward and wrongly grant access to a
+  // later, unrelated event in the same list response (and, for a single event whose own
+  // tree/extra_trees happen to be mutually linked, could even self-bypass by adding its
+  // own audience trees to the set it was about to check itself against). Fixed by keeping
+  // this set requester-only and expanding each record's OWN audience into a separate,
+  // per-record local set instead (see recordAudienceIsVisible below).
   const visibleTreeSet = new Set();
 
   if (userHomeTreeId && userHomeTreeId !== '') {
@@ -72,16 +82,20 @@ onRecordsListRequest((e) => {
       return true;
     }
 
-    const audienceTreeSet = new Set();
-    audienceTreeSet.add(recordTreeId);
-    extraTrees.forEach((tid) => audienceTreeSet.add(tid));
+    // This record's own audience trees, expanded through THEIR OWN linked_trees into a
+    // local set that only exists for this one record's check — never written back into
+    // the shared visibleTreeSet above.
+    const recordAudienceSet = new Set();
+    recordAudienceSet.add(recordTreeId);
+    extraTrees.forEach((tid) => recordAudienceSet.add(tid));
 
-    for (const treeId of audienceTreeSet) {
+    const expandedAudienceSet = new Set(recordAudienceSet);
+    for (const treeId of recordAudienceSet) {
       try {
         const tree = userDao.findRecordById('trees', treeId);
         if (tree) {
           const linkedTrees = tree.get('linked_trees') || [];
-          linkedTrees.forEach((lid) => visibleTreeSet.add(lid));
+          linkedTrees.forEach((lid) => expandedAudienceSet.add(lid));
         }
       } catch (lookupErr) {
         // Fail open on data inconsistency
@@ -109,7 +123,7 @@ onRecordsListRequest((e) => {
         hasAccess = true;
       }
     } else {
-      for (const treeId of audienceTreeSet) {
+      for (const treeId of expandedAudienceSet) {
         if (visibleTreeSet.has(treeId)) {
           hasAccess = true;
           break;
@@ -186,16 +200,19 @@ onRecordViewRequest((e) => {
     return;
   }
 
-  const audienceTreeSet = new Set();
-  audienceTreeSet.add(recordTreeId);
-  extraTrees.forEach((tid) => audienceTreeSet.add(tid));
+  // Local, per-record set only — see onRecordsListRequest's comment above for why this
+  // must never be merged back into the shared visibleTreeSet.
+  const recordAudienceSet = new Set();
+  recordAudienceSet.add(recordTreeId);
+  extraTrees.forEach((tid) => recordAudienceSet.add(tid));
 
-  for (const treeId of audienceTreeSet) {
+  const expandedAudienceSet = new Set(recordAudienceSet);
+  for (const treeId of recordAudienceSet) {
     try {
       const tree = userDao.findRecordById('trees', treeId);
       if (tree) {
         const linkedTrees = tree.get('linked_trees') || [];
-        linkedTrees.forEach((lid) => visibleTreeSet.add(lid));
+        linkedTrees.forEach((lid) => expandedAudienceSet.add(lid));
       }
     } catch (lookupErr) {
       // Fail open
@@ -224,7 +241,7 @@ onRecordViewRequest((e) => {
     }
   } else {
     let hasAccess = false;
-    for (const treeId of audienceTreeSet) {
+    for (const treeId of expandedAudienceSet) {
       if (visibleTreeSet.has(treeId)) {
         hasAccess = true;
         break;

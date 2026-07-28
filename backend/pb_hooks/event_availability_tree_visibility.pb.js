@@ -82,16 +82,23 @@ onRecordsListRequest((e) => {
         return true;
       }
 
-      const audienceTreeSet = new Set();
-      audienceTreeSet.add(recordTreeId);
-      extraTrees.forEach((tid) => audienceTreeSet.add(tid));
+      // This event's own audience trees, expanded through THEIR OWN linked_trees into a
+      // local set scoped to this one record only — never written back into the shared
+      // visibleTreeSet above, which must stay derived from the REQUESTER's own trees only
+      // (a prior version mutated the shared set with each event's own linked_trees while
+      // filtering, letting one event's tree links leak forward and wrongly grant access to
+      // a later, unrelated event in the same list response).
+      const recordAudienceSet = new Set();
+      recordAudienceSet.add(recordTreeId);
+      extraTrees.forEach((tid) => recordAudienceSet.add(tid));
 
-      for (const treeId of audienceTreeSet) {
+      const expandedAudienceSet = new Set(recordAudienceSet);
+      for (const treeId of recordAudienceSet) {
         try {
           const tree = userDao.findRecordById('trees', treeId);
           if (tree) {
             const linkedTrees = tree.get('linked_trees') || [];
-            linkedTrees.forEach((lid) => visibleTreeSet.add(lid));
+            linkedTrees.forEach((lid) => expandedAudienceSet.add(lid));
           }
         } catch (lookupErr) {
           // Fail open on data inconsistency
@@ -119,7 +126,7 @@ onRecordsListRequest((e) => {
           hasAccess = true;
         }
       } else {
-        for (const treeId of audienceTreeSet) {
+        for (const treeId of expandedAudienceSet) {
           if (visibleTreeSet.has(treeId)) {
             hasAccess = true;
             break;
@@ -203,16 +210,18 @@ onRecordViewRequest((e) => {
             }
           }
         } else {
-          const audienceTreeSet = new Set();
-          audienceTreeSet.add(recordTreeId);
-          extraTrees.forEach((tid) => audienceTreeSet.add(tid));
+          // Local, per-record set only — see onRecordsListRequest's comment above.
+          const recordAudienceSet = new Set();
+          recordAudienceSet.add(recordTreeId);
+          extraTrees.forEach((tid) => recordAudienceSet.add(tid));
 
-          for (const treeId of audienceTreeSet) {
+          const expandedAudienceSet = new Set(recordAudienceSet);
+          for (const treeId of recordAudienceSet) {
             try {
               const tree = userDao.findRecordById('trees', treeId);
               if (tree) {
                 const linkedTrees = tree.get('linked_trees') || [];
-                linkedTrees.forEach((lid) => visibleTreeSet.add(lid));
+                linkedTrees.forEach((lid) => expandedAudienceSet.add(lid));
               }
             } catch (lookupErr) {
               // Fail open
@@ -239,7 +248,7 @@ onRecordViewRequest((e) => {
             }
           } else {
             let hasAccess = false;
-            for (const treeId of audienceTreeSet) {
+            for (const treeId of expandedAudienceSet) {
               if (visibleTreeSet.has(treeId)) {
                 hasAccess = true;
                 break;
