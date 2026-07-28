@@ -69,11 +69,15 @@ migrate((db) => {
   }
   dao.saveCollection(events);
 
-  const event_location_suggestions = dao.findCollectionByNameOrId("event_location_suggestions");
-  dao.deleteCollection(event_location_suggestions);
-
+  // event_location_votes must be deleted BEFORE event_location_suggestions — its
+  // `suggestion` field references that collection, and PocketBase refuses to delete a
+  // collection while another collection's schema still has a relation field pointing at
+  // it. Deleting suggestions first would abort the rollback right here, permanently.
   const event_location_votes = dao.findCollectionByNameOrId("event_location_votes");
   dao.deleteCollection(event_location_votes);
+
+  const event_location_suggestions = dao.findCollectionByNameOrId("event_location_suggestions");
+  dao.deleteCollection(event_location_suggestions);
 
   const comments = dao.findCollectionByNameOrId("comments");
   const field2 = comments.schema.getFieldByName("related_type");
