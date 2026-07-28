@@ -5868,7 +5868,7 @@ async function showGuestRsvpPage(guestToken){
     <h1 style="font-family:var(--font-display);font-size:2rem;font-weight:500;margin-top:1.5rem">${esc(event.name)}</h1>
     ${event.description ? `<div class="card" style="margin-top:1.25rem"><p style="line-height:1.6">${esc(event.description)}</p></div>` : ''}
     <div class="card" style="margin-top:1.25rem">
-      <div class="form-group"><label>Your name</label><input id="guest-name-input" value="${esc(guestName)}" placeholder="So the host knows who's coming" /></div>
+      <div class="form-group"><label>Your name</label><input id="guest-name-input" value="${escAttr(guestName)}" placeholder="So the host knows who's coming" /></div>
       <div class="section-label" style="margin:1rem 0">Will you be there?</div>
       <div class="ev-rsvp-row">
         ${rsvpOpt('going', "I'm going")}${rsvpOpt('maybe', 'Maybe')}${rsvpOpt('no', "Can't make it")}
