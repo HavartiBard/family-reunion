@@ -3645,9 +3645,20 @@ async function renderEventDetail(eventId){
               ${s.notes ? `<div style="font-size:.85rem;margin-top:.35rem">${esc(s.notes)}</div>` : ''}
               ${s.capacity ? `<div style="font-size:.78rem;color:var(--text-muted);margin-top:.35rem">Capacity: ${esc(String(s.capacity))}</div>` : ''}
             </div>
-            <button class="btn btn-sm ${hasVoted ? 'btn-gold' : 'btn-outline'}" onclick="toggleLocationVote('${eventId}','${s.id}',${hasVoted ? `'${myVoteId}'` : 'null'})">
-              ▲ ${voteCount}
-            </button>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.4rem">
+              <button class="btn btn-sm ${hasVoted ? 'btn-gold' : 'btn-outline'}" onclick="toggleLocationVote('${eventId}','${s.id}',${hasVoted ? `'${myVoteId}'` : 'null'})">
+                ▲ ${voteCount}
+              </button>
+              ${isOrganizer ? `<button class="btn btn-outline btn-sm" onclick="finalizeLocationSuggestion('${eventId}','${s.id}')">Finalize</button>` : ''}
+            </div>
+          </div>
+          <div class="album-comments" style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid var(--border-default)">
+            <div id="loc-cmt-list-${s.id}"><div class="spinner"></div></div>
+            <div class="comment-form">
+              <textarea id="loc-cmt-input-${s.id}" class="comment-input" rows="2" placeholder="Add a comment…"></textarea>
+              <button class="btn btn-primary btn-sm comment-submit"
+                onclick="submitComment('${s.id}','event_location_suggestion','loc-cmt-list-${s.id}','loc-cmt-input-${s.id}')">Post</button>
+            </div>
           </div>
         </div>`;
       }).join('');
@@ -3707,6 +3718,15 @@ async function renderEventDetail(eventId){
       </div>`;
     })() : ''}
   </div>`);
+
+  // Comment threads render into placeholder containers synchronously created above —
+  // populate each asynchronously after mount, same two-step pattern the album detail
+  // page already uses for its single comment thread (loadComments after mountMain).
+  if (event.location_poll_status === 'open') {
+    for (const s of locationSuggestions) {
+      loadComments(s.id, 'event_location_suggestion', `loc-cmt-list-${s.id}`);
+    }
+  }
 }
 
 // Rapid clicks on the availability grid must not race: each click's fetch-then-write
@@ -3824,6 +3844,27 @@ async function submitLocationSuggestion(eventId){
       method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
     if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not submit suggestion'); }
     toast('Location suggested.', 'success');
+    await renderEventDetail(eventId);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function finalizeLocationSuggestion(eventId, suggestionId){
+  // Fetch the suggestion fresh rather than passing its name through the onclick
+  // attribute string — a name containing a quote could otherwise break out of the
+  // inline handler (the exact apostrophe-embedding bug already fixed elsewhere in this
+  // codebase's event form; this button must not reintroduce it).
+  try {
+    const sRes = await apiFetch(`/api/collections/event_location_suggestions/records/${suggestionId}`);
+    if (!sRes.ok) throw new Error('Could not load suggestion');
+    const suggestion = await sRes.json();
+
+    if (!confirm(`Finalize this event at "${suggestion.name}"? This closes the location poll.`)) return;
+
+    const res = await apiFetch(`/api/collections/events/records/${eventId}`, {
+      method:'PATCH', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ location: suggestion.address || suggestion.name, location_poll_status: 'closed' }) });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not finalize event'); }
+    toast('Event location finalized.', 'success');
     await renderEventDetail(eventId);
   } catch (e) { toast(e.message, 'error'); }
 }
