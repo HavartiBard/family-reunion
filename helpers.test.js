@@ -43,9 +43,16 @@ test('daysUntil counts whole days, floored at 0', () => {
 });
 
 test('fmtEventDate formats short (default) and long-with-time variants', () => {
+  // fmtEventDate renders in the host's local timezone (correctly), so the expected
+  // short/long labels must be derived the same way rather than hardcoded — hardcoding
+  // "Sep 1" broke under e.g. `TZ=Asia/Tokyo node --test helpers.test.js`, where this UTC
+  // instant is already Sep 2 locally.
   const iso = '2026-09-01T18:00:00Z';
-  assert.strictEqual(h.fmtEventDate(iso), 'Tue, Sep 1, 2026');
-  assert.ok(h.fmtEventDate(iso, { withTime: true }).startsWith('Tuesday, September 1, 2026'));
+  const date = new Date(iso);
+  const expectedShort = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  const expectedLongPrefix = date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  assert.strictEqual(h.fmtEventDate(iso), expectedShort);
+  assert.ok(h.fmtEventDate(iso, { withTime: true }).startsWith(expectedLongPrefix));
   assert.strictEqual(h.fmtEventDate(''), '');
   assert.strictEqual(h.fmtEventDate(null), '');
 });
