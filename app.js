@@ -3624,7 +3624,24 @@ async function renderEventDetail(eventId){
   </div>`);
 }
 
-async function toggleAvailabilitySlot(eventId, slotIso){
+// Rapid clicks on the availability grid must not race: each click's fetch-then-write
+// cycle (GET current slots, then PATCH/POST the toggled result) needs to see the
+// PREVIOUS click's write, not the state from before it started. Without this, two fast
+// clicks each fetch "no record yet"/the same pre-click slots and race to write —
+// losing one click's selection, and (before the (event,user) unique index existed)
+// racing to create two rows for the same pair. Chaining every call onto a single
+// promise serializes the whole GET+write cycle per click, not just the writes.
+let _availabilityToggleQueue = Promise.resolve();
+
+function toggleAvailabilitySlot(eventId, slotIso){
+  const run = _availabilityToggleQueue.then(() => _doToggleAvailabilitySlot(eventId, slotIso));
+  // Keep the queue moving even if this click's request failed — a failed toggle must
+  // not permanently block every later click on the grid.
+  _availabilityToggleQueue = run.catch(() => {});
+  return run;
+}
+
+async function _doToggleAvailabilitySlot(eventId, slotIso){
   try {
     const chkRes = await apiFetch(`/api/collections/event_availability/records?filter=${encodeURIComponent(`(event="${eventId}" && user="${userId}")`)}&perPage=1`);
     const existing = chkRes.ok ? ((await chkRes.json()).items || [])[0] : null;
