@@ -183,6 +183,9 @@ function mountMain(html){ const m = el('main'); if (m) m.innerHTML = html; }
 function apiFetch(path, opts = {}){
   return fetch(API + path, { ...opts, headers:{ Authorization: token, ...(opts.headers || {}) } });
 }
+function guestRsvpFetch(path, opts = {}){
+  return fetch(API + path, opts);
+}
 function currentTab(){ return new URLSearchParams(location.search).get('tab') || 'home'; }
 function val(id){ const e = el(id); return e ? e.value.trim() : ''; }
 
@@ -217,6 +220,13 @@ async function init(){
     return handleAppleAuthCallback();
   }
   if (location.search.includes('code=') || location.hash.includes('code=')) return handleOAuthCallback();
+
+  // Guest RSVP page (public, unauthenticated, via guest-invite/:token)
+  const urlParams = new URLSearchParams(location.search);
+  if (urlParams.has('guest')) {
+    const guestToken = urlParams.get('guest');
+    if (guestToken) { await showGuestRsvpPage(guestToken); return; }
+  }
 
   if (!token) return showAuth();
   try {
@@ -5660,6 +5670,74 @@ SCREENS.branchadmin = async function(){
     ${personsHtml}
   </div>`);
 };
+
+// ── Guest RSVP page (public, unauthenticated, via guest-invite/:token) ───────
+// Renders directly into #app (no sidebar/#main shell exists pre-auth) - do NOT
+// use mountMain() here, it targets the authenticated app shell's #main, which
+// this page never creates.
+async function showGuestRsvpPage(guestToken){
+  clearInterval(rollerTimer);
+  el('app').innerHTML = '<div class="screen-pad" style="max-width:860px"><div class="spinner"></div></div>';
+
+  let event = null;
+  try {
+    // The GET response is a single flat object carrying both the public event
+    // fields AND the invite's own status/guest_name (see event_guest_rsvp.pb.js)
+    // - there is no separate /rsvp GET route (that path is POST-only), so
+    // status/guest_name must be read directly off this one response.
+    const eRes = await guestRsvpFetch(`/api/guest-invite/${guestToken}`);
+    if (eRes.ok) event = await eRes.json();
+  } catch { /* ignore */ }
+
+  if (!event || !event.id) {
+    el('app').innerHTML = `<div class="screen-pad"><div class="empty-state">
+      <p>Invalid or expired invitation link.</p>
+      <button class="btn btn-outline" style="margin-top:1rem" onclick="location.reload()">Try again</button>
+    </div></div>`;
+    return;
+  }
+
+  const thumb = fileUrl('events', event, 'cover_photo');
+  const icon  = EVENT_TYPE_ICONS[event.type] || '📅';
+  const curStatus = event.status || 'pending';
+  const guestName = event.guest_name || '';
+
+  function fmtDate(iso){ return iso ? new Date(iso).toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit' }) : ''; }
+
+  const rsvpOpt = (key, label) => `<button class="ev-rsvp-opt${curStatus === key ? ' active' : ''}" onclick="guestSetRsvp('${guestToken}','${key}')">${label}</button>`;
+
+  el('app').innerHTML = `<div class="screen-pad" style="max-width:860px">
+    <div class="event-detail-hero" style="margin-top:.75rem">
+      ${thumb ? `<img src="${esc(thumb)}" alt="">` : `<div class="event-detail-hero-placeholder">${icon}</div>`}
+    </div>
+    <div class="event-info-bar">
+      <div><div class="eib-label">When</div><div class="eib-val">${esc(fmtDate(event.start_date))}</div></div>
+      ${event.location ? `<div><div class="eib-label">Where</div><div class="eib-val">${esc(event.location)}</div></div>` : ''}
+    </div>
+    <h1 style="font-family:var(--font-display);font-size:2rem;font-weight:500;margin-top:1.5rem">${esc(event.name)}</h1>
+    ${event.description ? `<div class="card" style="margin-top:1.25rem"><p style="line-height:1.6">${esc(event.description)}</p></div>` : ''}
+    <div class="card" style="margin-top:1.25rem">
+      <div class="form-group"><label>Your name</label><input id="guest-name-input" value="${esc(guestName)}" placeholder="So the host knows who's coming" /></div>
+      <div class="section-label" style="margin:1rem 0">Will you be there?</div>
+      <div class="ev-rsvp-row">
+        ${rsvpOpt('going', "I'm going")}${rsvpOpt('maybe', 'Maybe')}${rsvpOpt('no', "Can't make it")}
+      </div>
+    </div>
+  </div>`;
+}
+
+async function guestSetRsvp(guestToken, status){
+  try {
+    const res = await guestRsvpFetch(`/api/guest-invite/${guestToken}/rsvp`, {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ status, guest_name: el('guest-name-input')?.value || '' })
+    });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not save RSVP'); }
+    toast('RSVP saved.', 'success');
+    await showGuestRsvpPage(guestToken);
+  } catch (e) { toast(e.message, 'error'); }
+}
 
 // ── Placeholder screens (replaced by screen modules appended below) ──────────
 for (const n of NAV) if (!SCREENS[n.tab]) SCREENS[n.tab] = () =>
