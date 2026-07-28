@@ -3228,6 +3228,7 @@ const EVENT_TYPE_ICONS = { reunion:'🏕', birthday:'🎂', wedding:'💍', holi
 
 let _eventFormTrees = [];
 let _eventFormPendingInvites = [];
+let _eventFormRemovedInviteIds = [];
 
 async function _eventFormLoadTrees(){
   const primary = el('evf-tree-primary');
@@ -3267,6 +3268,7 @@ async function _eventFormLoadExistingInvites(eventId){
   try {
     const res = await apiFetch(`/api/collections/event_invites/records?filter=(event="${eventId}")&perPage=200`);
     if (res.ok) {
+      _eventFormRemovedInviteIds = [];
       const invites = (await res.json()).items || [];
       _eventFormPendingInvites = invites.map(i => ({
         id: i.id,
@@ -3299,6 +3301,10 @@ function _eventFormRenderPendingInvites(){
 }
 
 function _eventFormRemoveInvite(index){
+  const removed = _eventFormPendingInvites[index];
+  if (removed && removed.id) {
+    _eventFormRemovedInviteIds.push(removed.id);
+  }
   _eventFormPendingInvites.splice(index, 1);
   _eventFormRenderPendingInvites();
 }
@@ -3340,7 +3346,7 @@ async function _eventFormRunUserSearch(q){
     const rows = matches.map(u => {
       const name = u.name || '—';
       const email = u.email || '(email hidden)';
-      return `<div class="claim-result" onclick="_eventFormAddUserInvite('${u.id}','${esc(name)}')">
+      return `<div class="claim-result" onclick="_eventFormAddUserInvite('${u.id}')">
         <div class="avatar" style="width:36px;height:36px;font-size:.8rem">${(name[0]||'?').toUpperCase()}</div>
         <div><div class="cr-name">${esc(name)}</div><div class="cr-sub">${esc(email)}</div></div>
       </div>`;
@@ -3349,7 +3355,7 @@ async function _eventFormRunUserSearch(q){
   }, 200);
 }
 
-function _eventFormAddUserInvite(userId, userName){
+function _eventFormAddUserInvite(userId){
   const existing = _eventFormPendingInvites.find(i => i.inviteType === 'user' && i.userId === userId);
   if (existing) {
     const resEl = document.getElementById('evf-invite-results');
@@ -3649,6 +3655,7 @@ async function setEventRsvp(eventId, status){
 function openEventForm(eventId){
   const isEdit = !!eventId;
   _eventFormPendingInvites = [];
+  _eventFormRemovedInviteIds = [];
   _eventFormTrees = [];
   openModal(`<h2 class="card-title">${isEdit ? 'Edit event' : 'New event'}</h2>
     <div id="evf-error" class="alert alert-error" style="display:none"></div>
@@ -3719,7 +3726,7 @@ function openEventForm(eventId){
       <div id="evf-pending-invites" style="margin-top:.5rem"></div>
     </div>
     <div style="display:flex;gap:.6rem;margin-top:.75rem">
-      <button class="btn btn-primary" onclick="saveEvent('${eventId || ''}')">Save</button>
+      <button id="evf-save-btn" class="btn btn-primary" onclick="saveEvent('${eventId || ''}')">Save</button>
       <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
       ${isEdit ? `<button class="btn btn-danger" style="margin-left:auto" onclick="deleteEvent('${eventId}')">Delete</button>` : ''}
     </div>`);
@@ -3805,7 +3812,13 @@ async function saveEvent(eventId){
   const primaryTree = el('evf-tree-primary')?.value;
   const extraTrees = Array.from(document.querySelectorAll('#evf-extra-trees input[type="checkbox"]:checked')).map(cb => cb.value);
   const inviteOnly = el('evf-invite-only')?.checked || false;
-  if (primaryTree) fd.append('tree', primaryTree);
+  if (primaryTree) {
+    fd.append('tree', primaryTree);
+  } else if (eventId) {
+    // Editing: selecting the blank option must still clear an existing primary tree,
+    // same reasoning as extra_trees below — an omitted field leaves the old value in place.
+    fd.append('tree', '');
+  }
   if (extraTrees.length > 0) {
     extraTrees.forEach(tid => fd.append('extra_trees', tid));
   } else if (eventId) {
@@ -3827,38 +3840,84 @@ async function saveEvent(eventId){
     if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Save failed'); }
     const saved = await res.json();
     let saveError = null;
-    if (_eventFormPendingInvites.length > 0) {
-      for (const invite of _eventFormPendingInvites) {
+
+    // The event itself is now persisted regardless of what happens below. If this was a
+    // brand-new event and the user has to retry after an invite failure, the retry must
+    // PATCH saved.id rather than POST a second event — repoint both the Save button (for
+    // an actual retry click) and the eventId used later in this call for notify/navigate.
+    if (!eventId) {
+      const saveBtn = document.getElementById('evf-save-btn');
+      if (saveBtn) saveBtn.setAttribute('onclick', `saveEvent('${saved.id}')`);
+    }
+
+    // Reconcile invites: only POST invites that don't already exist (id === null —
+    // an already-persisted invite is left alone, not recreated), and DELETE any invite
+    // removed from the pending list during this edit. Recreating every retained invite
+    // (the previous behavior) produced duplicate rows/notifications on a plain edit, and
+    // never deleting removed ones meant revoking someone's invite-only access didn't work.
+    outer:
+    for (const invite of _eventFormPendingInvites) {
+      if (invite.id) continue;
+      try {
+        const inviteFd = new FormData();
+        inviteFd.append('event', saved.id);
+        inviteFd.append('invite_type', invite.inviteType);
+        if (invite.inviteType === 'user' && invite.userId) {
+          inviteFd.append('user', invite.userId);
+        }
+        if (invite.inviteType === 'email') {
+          inviteFd.append('email', invite.email);
+          inviteFd.append('guest_name', invite.guestName || '');
+        }
+        inviteFd.append('status', 'pending');
+        inviteFd.append('invited_by', userId);
+        const iRes = await apiFetch('/api/collections/event_invites/records', { method:'POST', body: inviteFd });
+        if (!iRes.ok) {
+          const d = await iRes.json();
+          saveError = d.message || 'Failed to create invite';
+          break outer;
+        }
+        // Mark this invite as persisted immediately — otherwise a retry after a LATER
+        // invite/delete failure would re-POST this already-successful one, recreating
+        // the duplicate-row/duplicate-notification problem this reconciliation exists
+        // to fix.
+        const iBody = await iRes.json();
+        invite.id = iBody.id;
+      } catch (e) {
+        saveError = e.message;
+        break outer;
+      }
+    }
+
+    if (!saveError) {
+      // Iterate a copy and splice each id out of the real queue as its DELETE succeeds —
+      // otherwise a retry after a later deletion's failure re-attempts an already-completed
+      // delete, gets a not-found response for it, and never reaches the invite that still
+      // needs removing.
+      for (const removedId of _eventFormRemovedInviteIds.slice()) {
         try {
-          const inviteFd = new FormData();
-          inviteFd.append('event', saved.id);
-          inviteFd.append('invite_type', invite.inviteType);
-          if (invite.inviteType === 'user' && invite.userId) {
-            inviteFd.append('user', invite.userId);
-          }
-          if (invite.inviteType === 'email') {
-            inviteFd.append('email', invite.email);
-            inviteFd.append('guest_name', invite.guestName || '');
-          }
-          inviteFd.append('status', 'pending');
-          inviteFd.append('invited_by', userId);
-          const iRes = await apiFetch('/api/collections/event_invites/records', { method:'POST', body: inviteFd });
-          if (!iRes.ok) {
-            const d = await iRes.json();
-            saveError = d.message || 'Failed to create invite';
+          const dRes = await apiFetch(`/api/collections/event_invites/records/${removedId}`, { method:'DELETE' });
+          if (!dRes.ok) {
+            const d = await dRes.json();
+            saveError = d.message || 'Failed to remove invite';
             break;
           }
+          _eventFormRemovedInviteIds.splice(_eventFormRemovedInviteIds.indexOf(removedId), 1);
         } catch (e) {
           saveError = e.message;
           break;
         }
       }
     }
-    closeModal();
+
     if (saveError) {
+      // Keep the modal open so the error is actually visible — the event (and any
+      // invites/deletes already committed above) has already been saved at this point,
+      // so silently closing here would hide a partially-applied audience change.
       formErr('evf-error', saveError);
       return;
     }
+    closeModal();
     navigate('events', { event: saved.id });
   } catch (e) { formErr('evf-error', e.message); }
 }
