@@ -3449,6 +3449,7 @@ async function renderEventDetail(eventId){
   mountMain('<div class="screen-pad" style="max-width:860px"><div class="spinner"></div></div>');
   let event = null, myRsvp = null, goingCount = 0, maybeCount = 0;
   let invites = [], myAvailability = null, allAvailability = [], rsvpsByUser = {};
+  let locationSuggestions = [], locationVoteCounts = {}, myLocationVotes = {};
   try {
     const [eRes, rRes, cRes, iRes, avRes, allAvRes] = await Promise.all([
       apiFetch(`/api/collections/events/records/${eventId}?expand=organizers`),
@@ -3484,6 +3485,37 @@ async function renderEventDetail(eventId){
     }
     if (avRes.ok) { const d = await avRes.json(); myAvailability = d.items && d.items[0]; }
     if (allAvRes.ok) { const d = await allAvRes.json(); allAvailability = d.items || []; }
+
+    // Location suggestions/votes only matter while the poll is open, and fetching votes
+    // needs the suggestion ids first — fetched sequentially after `event` resolves rather
+    // than folded into the initial Promise.all above.
+    if (event && event.location_poll_status === 'open') {
+      const sRes = await apiFetch(`/api/collections/event_location_suggestions/records?filter=${encodeURIComponent(`(event="${eventId}")`)}&sort=created&perPage=200`);
+      if (sRes.ok) { const d = await sRes.json(); locationSuggestions = d.items || []; }
+      if (locationSuggestions.length > 0) {
+        const suggestionFilter = locationSuggestions.map(s => `suggestion="${s.id}"`).join(' || ');
+        // A single perPage=200 page isn't enough once an event's suggestions collectively
+        // draw more than 200 votes (plausible for a well-attended event with several
+        // options) — under-fetching would both undercount displayed totals AND, if the
+        // current user's own vote landed on an unfetched page, make the UI think they
+        // haven't voted, so clicking upvote would attempt a duplicate POST that the
+        // unique (suggestion, user) index rejects, leaving them unable to un-vote. Paginate
+        // through every page rather than assuming one is enough.
+        let votePage = 1;
+        let voteTotalPages = 1;
+        do {
+          const vRes = await apiFetch(`/api/collections/event_location_votes/records?filter=${encodeURIComponent(`(${suggestionFilter})`)}&perPage=200&page=${votePage}`);
+          if (!vRes.ok) break;
+          const d = await vRes.json();
+          voteTotalPages = d.totalPages || 1;
+          for (const v of (d.items || [])) {
+            locationVoteCounts[v.suggestion] = (locationVoteCounts[v.suggestion] || 0) + 1;
+            if (v.user === userId) myLocationVotes[v.suggestion] = v.id;
+          }
+          votePage++;
+        } while (votePage <= voteTotalPages);
+      }
+    }
   } catch { /* ignore */ }
   if (!event) { mountMain('<div class="screen-pad"><div class="empty-state"><p>Event not found.</p></div></div>'); return; }
 
@@ -3581,6 +3613,59 @@ async function renderEventDetail(eventId){
             <thead><tr><th></th>${dayHeaders}</tr></thead>
             <tbody>${rowsHtml}</tbody>
           </table>
+        </div>
+      </div>`;
+    })() : ''}
+    ${event.location_poll_status === 'open' ? (() => {
+      // A suggestion's `url` is arbitrary approved-user-submitted text, not a validated
+      // link — esc() alone doesn't escape quotes (unsafe in an href attribute, same class
+      // of bug as the guest-RSVP name fix elsewhere in this codebase) and, separately, an
+      // unrestricted scheme would let a `javascript:` URL execute on click. Only render as
+      // a real clickable link when it parses as http(s); otherwise show the (still-escaped)
+      // text without turning it into an anchor.
+      const safeHttpUrl = (raw) => {
+        try {
+          const parsed = new URL(raw, location.href);
+          return (parsed.protocol === 'http:' || parsed.protocol === 'https:') ? parsed.href : null;
+        } catch { return null; }
+      };
+      const suggestionRows = locationSuggestions.map(s => {
+        const voteCount = locationVoteCounts[s.id] || 0;
+        const myVoteId = myLocationVotes[s.id];
+        const hasVoted = !!myVoteId;
+        const safeUrl = s.url ? safeHttpUrl(s.url) : null;
+        return `<div class="card" style="margin-top:.75rem;padding:1rem">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem">
+            <div style="flex:1">
+              <div style="font-weight:600">${esc(s.name)}</div>
+              ${s.address ? `<div style="font-size:.85rem;color:var(--text-muted);margin-top:.15rem">${esc(s.address)}</div>` : ''}
+              ${s.url ? (safeUrl
+                ? `<div style="margin-top:.25rem"><a href="${escAttr(safeUrl)}" target="_blank" rel="noopener" class="link" style="font-size:.85rem">${esc(s.url)}</a></div>`
+                : `<div style="margin-top:.25rem;font-size:.85rem">${esc(s.url)}</div>`) : ''}
+              ${s.notes ? `<div style="font-size:.85rem;margin-top:.35rem">${esc(s.notes)}</div>` : ''}
+              ${s.capacity ? `<div style="font-size:.78rem;color:var(--text-muted);margin-top:.35rem">Capacity: ${esc(String(s.capacity))}</div>` : ''}
+            </div>
+            <button class="btn btn-sm ${hasVoted ? 'btn-gold' : 'btn-outline'}" onclick="toggleLocationVote('${eventId}','${s.id}',${hasVoted ? `'${myVoteId}'` : 'null'})">
+              ▲ ${voteCount}
+            </button>
+          </div>
+        </div>`;
+      }).join('');
+      return `<div class="card" style="margin-top:1.25rem">
+        <div class="section-label" style="margin-bottom:1rem">Suggested locations</div>
+        ${suggestionRows || '<p style="font-size:.82rem;color:var(--text-muted);margin:0">No locations suggested yet.</p>'}
+        <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border-default)">
+          <div class="section-label" style="margin-bottom:.75rem">Suggest a location</div>
+          <div class="form-group"><label>Name</label><input id="els-name" placeholder="e.g. Grandma's backyard" /></div>
+          <div class="row-2">
+            <div class="form-group"><label>Address</label><input id="els-address" /></div>
+            <div class="form-group"><label>Link</label><input id="els-url" placeholder="https://…" /></div>
+          </div>
+          <div class="row-2">
+            <div class="form-group"><label>Notes</label><input id="els-notes" /></div>
+            <div class="form-group"><label>Capacity</label><input id="els-capacity" type="number" min="1" /></div>
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="submitLocationSuggestion('${eventId}')">Suggest a location</button>
         </div>
       </div>`;
     })() : ''}
@@ -3710,6 +3795,39 @@ async function setEventRsvp(eventId, status){
   } catch (e) { toast(e.message, 'error'); }
 }
 
+async function toggleLocationVote(eventId, suggestionId, existingVoteId){
+  try {
+    let res;
+    if (existingVoteId) {
+      // Toggle-off is a delete, not a status flip — a vote has no mutable state.
+      res = await apiFetch(`/api/collections/event_location_votes/records/${existingVoteId}`, { method:'DELETE' });
+    } else {
+      res = await apiFetch('/api/collections/event_location_votes/records', {
+        method:'POST', headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ suggestion: suggestionId, user: userId }) });
+    }
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not save vote'); }
+    await renderEventDetail(eventId);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function submitLocationSuggestion(eventId){
+  const name = val('els-name');
+  if (!name) return toast('Location name is required.', 'error');
+  try {
+    const body = { event: eventId, suggested_by: userId, name };
+    const address = val('els-address'); if (address) body.address = address;
+    const url = val('els-url'); if (url) body.url = url;
+    const notes = val('els-notes'); if (notes) body.notes = notes;
+    const capacity = val('els-capacity'); if (capacity) body.capacity = Number(capacity);
+    const res = await apiFetch('/api/collections/event_location_suggestions/records', {
+      method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not submit suggestion'); }
+    toast('Location suggested.', 'success');
+    await renderEventDetail(eventId);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
 function openEventForm(eventId){
   const isEdit = !!eventId;
   _eventFormPendingInvites = [];
@@ -3751,6 +3869,12 @@ function openEventForm(eventId){
       <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
         <input type="checkbox" id="evf-poll-mode" onchange="_eventFormTogglePollMode()" />
         <span>Open a date poll</span>
+      </label>
+    </div>
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+        <input type="checkbox" id="evf-location-poll-mode" />
+        <span>Open a location poll</span>
       </label>
     </div>
     <div id="evf-poll-settings" style="display:none;margin-bottom:.75rem">
@@ -3823,6 +3947,8 @@ function openEventForm(eventId){
         const pde = el('evf-poll-day-end-hour');   if (pde) pde.value = withFallback(e.date_poll_day_end_hour, '21');
         const psm = el('evf-poll-slot-minutes');   if (psm) psm.value = withFallback(e.date_poll_slot_minutes, '30');
       }
+      const lpm = el('evf-location-poll-mode');
+      if (lpm) lpm.checked = e.location_poll_status === 'open';
       _eventFormBuildExtraTrees(e.extra_trees || []);
       await _eventFormLoadExistingInvites(eventId);
     });
@@ -3913,6 +4039,15 @@ async function saveEvent(eventId){
     fd.append('extra_trees', '');
   }
   fd.append('invite_only', String(inviteOnly));
+  // Independent of date_poll_status/pollMode above — an event can have neither, either,
+  // or both polls open at once. Mirrors date_poll_status's own unconditional every-save
+  // write (checked -> 'open', unchecked -> 'none'), same pattern, same tradeoff (editing
+  // an event after its poll was finalized/closed will reset this back to 'none' rather
+  // than preserving 'closed', since the checkbox only ever prefills checked for 'open' —
+  // pre-existing behavior for date_poll_status, kept consistent here rather than
+  // introduced as a one-off special case for location polls alone).
+  const locationPollMode = el('evf-location-poll-mode')?.checked || false;
+  fd.append('location_poll_status', locationPollMode ? 'open' : 'none');
   if (!eventId) {
     fd.append('created_by', userId);
     fd.append('organizers', userId);
