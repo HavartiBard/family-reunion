@@ -8,6 +8,13 @@ test('esc escapes HTML metacharacters', () => {
   assert.strictEqual(h.esc(null), '');
 });
 
+test('escAttr escapes quotes in addition to HTML metacharacters', () => {
+  assert.strictEqual(h.escAttr(`<b> & "x" 'y'`), '&lt;b&gt; &amp; &quot;x&quot; &#39;y&#39;');
+  assert.strictEqual(h.escAttr(null), '');
+  // A crafted attribute-breakout attempt must not leave a live quote in the output.
+  assert.ok(!h.escAttr('" autofocus onfocus=alert(1) x="').includes('"'));
+});
+
 test('userInitials takes up to two uppercase initials', () => {
   assert.strictEqual(h.userInitials({ name: 'Jane Q Public' }), 'JQ');
   assert.strictEqual(h.userInitials({ email: 'sam@x.com' }), 'S');

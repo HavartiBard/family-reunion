@@ -12,6 +12,14 @@
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
+  // esc() alone is not safe inside a quoted HTML attribute (e.g. value="${...}") — it
+  // doesn't escape quote characters, so a value containing a double quote can break out
+  // of the attribute and inject arbitrary markup/attributes. Use this wherever untrusted
+  // text is interpolated directly into an attribute value string.
+  function escAttr(s) {
+    return esc(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
   function initialsFrom(str) {
     return (str || '?').trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2) || '?';
   }
@@ -121,7 +129,7 @@
   function defaultNotifPrefs() { return { birthdays: true, new_members: true, photos: true, reunion: true }; }
 
   return {
-    esc, userInitials, personInitials, personYears, avatarTint, daysUntil, fmtEventDate,
+    esc, escAttr, userInitials, personInitials, personYears, avatarTint, daysUntil, fmtEventDate,
     filterPeople, filterNews, groupNotifications, defaultPrivacy, defaultNotifPrefs,
     darkenHex, contrastForeground, hexToRgba, isValidHexColor,
     AVATAR_TINTS
