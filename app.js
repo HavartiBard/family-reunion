@@ -3242,6 +3242,7 @@ const EVENT_TYPE_ICONS = { reunion:'🏕', birthday:'🎂', wedding:'💍', holi
 let _eventFormTrees = [];
 let _eventFormPendingInvites = [];
 let _eventFormRemovedInviteIds = [];
+let _eventFormShouldClearExtraTrees = false;
 
 async function _eventFormLoadTrees(){
   const primary = el('evf-tree-primary');
@@ -3318,6 +3319,14 @@ function _eventFormRemoveInvite(index){
 function _eventFormShowEmailInvite(){
   const area = document.getElementById('evf-email-invite-area');
   if (area) area.style.display = 'block';
+}
+
+function _eventFormClearExtraTrees(){
+  const display = el('evf-extra-trees-display');
+  const area = el('evf-extra-trees-area');
+  if (display) display.innerHTML = '<p style="font-size:.82rem;color:var(--text-muted);margin:.25rem 0">None preserved.</p>';
+  if (area) area.style.display = 'none';
+  _eventFormShouldClearExtraTrees = true;
 }
 
 // These two are still used by the EXISTING _eventFormRunUserSearch below — an earlier
@@ -4310,6 +4319,7 @@ function renderEventEditPage(eventId){
   _eventFormPendingInvites = [];
   _eventFormRemovedInviteIds = [];
   _eventFormTrees = [];
+  _eventFormShouldClearExtraTrees = false;
   _eventFormDepthSuggestAreaVisible = false;
   _eventFormDepthRootTouched = false;
   _eventFormDepthPreviewResults = null;
@@ -4347,6 +4357,11 @@ function renderEventEditPage(eventId){
         <p style="margin:0 0 .35rem 0;font-size:.82rem;color:var(--text-muted)">Anyone in these trees (or linked to them by marriage) can see this event, even without a direct invite. Use Invite-only to restrict visibility to just the people you invite below.</p>
         <label>Tree</label>
         <select id="evf-tree-primary" style="width:100%"></select>
+      </div>
+      <div class="form-group" id="evf-extra-trees-area" style="display:none">
+        <label>Additional trees (read-only, preserved from previous save)</label>
+        <div id="evf-extra-trees-display" style="margin-top:.25rem"></div>
+        <button class="btn btn-outline btn-sm" onclick="_eventFormClearExtraTrees()" style="margin-top:.5rem">Clear preserved trees</button>
       </div>
       <div class="form-group">
         <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
@@ -4467,18 +4482,28 @@ function renderEventEditPage(eventId){
         // Guard by injecting the event's tree as an extra option if it's missing.
         const alreadyPresent = (_eventFormTrees || []).some(ft => ft.id === e.tree);
         if (!alreadyPresent) {
-          try {
-            const tr = await apiFetch(`/api/collections/trees/records/${e.tree}`);
-            if (tr.ok) {
-              const treeRec = await tr.json();
-              const opt = document.createElement('option');
-              opt.value = treeRec.id;
-              opt.textContent = treeRec.name;
-              pt.insertBefore(opt, pt.firstChild);
-            }
-          } catch { /* ignore — falls through to the no-op below if this fails */ }
+          const opt = document.createElement('option');
+          opt.value = e.tree;
+          opt.textContent = '[Tree unavailable]';
+          pt.insertBefore(opt, pt.firstChild);
         }
         pt.value = e.tree;
+      }
+      const etArea = el('evf-extra-trees-area');
+      if (etArea) {
+        const extraTrees = e.extra_trees || [];
+        const extraTreesDisplay = el('evf-extra-trees-display');
+        if (extraTreesDisplay) {
+          if (extraTrees.length === 0) {
+            extraTreesDisplay.innerHTML = '<p style="font-size:.82rem;color:var(--text-muted);margin:.25rem 0">None preserved.</p>';
+          } else {
+            extraTreesDisplay.innerHTML = extraTrees.map(tid => {
+              const treeName = (_eventFormTrees || []).find(t => t.id === tid)?.name || '[Tree unavailable]';
+              return `<div style="padding:.35rem .5rem;background:var(--bg-hover);border-radius:.25rem;margin:.25rem 0;font-size:.88rem">${esc(treeName)}</div>`;
+            }).join('');
+          }
+        }
+        etArea.style.display = extraTrees.length > 0 ? 'block' : 'none';
       }
       const io = el('evf-invite-only');
       if (io) io.checked = !!e.invite_only;
@@ -4592,8 +4617,18 @@ async function saveEvent(eventId){
   }
   // extra_trees has no UI control anymore (removed — the picker only ever showed
   // every tree in the system with no scoping, which wasn't useful in practice) —
-  // deliberately never appended here, so PATCH leaves any existing extra_trees value
-  // on an event untouched rather than clobbering it just because this UI can't edit it.
+  // deliberately never appended during normal saves, so PATCH leaves any existing
+  // extra_trees value untouched. However, if the user explicitly clicked "Clear preserved
+  // trees" in the UI, send an explicit empty array to remove them.
+  if (_eventFormShouldClearExtraTrees) {
+    // An empty string (not '[]') is this codebase's established convention for
+    // clearing a multi-relation field via multipart FormData — matches the same
+    // pattern already used for the `tree` field's own blank-selection case above.
+    // A literal '[]' would be interpreted as a single relation id "[]" and fail
+    // PocketBase's id validation rather than clearing the field.
+    fd.append('extra_trees', '');
+    _eventFormShouldClearExtraTrees = false;
+  }
   fd.append('invite_only', String(inviteOnly));
   // Independent of date_poll_status/pollMode above — an event can have neither, either,
   // or both polls open at once. Mirrors date_poll_status's own unconditional every-save
