@@ -269,7 +269,12 @@ function _launchAppShell(){
     renderSidebar();
     const dl = new URLSearchParams(location.search).get('person');
     if (dl) navigate('tree', { person: dl });
-    else navigate(currentTab());
+    // Pass through every param from the initial URL (not just a hardcoded subset) so
+    // a cold load or reload of a deep link like ?tab=events&event=<id>&edit=1 actually
+    // lands on that screen — navigate() rebuilds the URL from scratch using only the
+    // params it's given, so calling it with none (as navigate(currentTab()) alone
+    // does) silently drops everything but the tab itself.
+    else navigate(currentTab(), Object.fromEntries(new URLSearchParams(location.search)));
   });
 }
 
@@ -4321,6 +4326,8 @@ function renderEventEditPage(eventId){
       </div>
       <div class="form-group"><label>Description</label><textarea id="evf-desc"></textarea></div>
       <div class="form-group"><label>Cover photo</label><input id="evf-photo" type="file" accept="image/*" /></div>
+    </div>
+    <div id="evf-audience" class="evf-section" style="display:none">
       <div class="form-group">
         <p style="margin:0 0 .35rem 0;font-size:.82rem;color:var(--text-muted)">Anyone in these trees (or linked to them by marriage) can see this event, even without a direct invite. Use Invite-only to restrict visibility to just the people you invite below.</p>
         <label>Tree</label>
@@ -4336,8 +4343,6 @@ function renderEventEditPage(eventId){
           <span>Invite only (hide tree picker)</span>
         </label>
       </div>
-    </div>
-    <div id="evf-audience" class="evf-section" style="display:none">
       <div class="form-group">
         <label>Invite people</label>
         <div style="display:flex;gap:.5rem;align-items:center;margin-bottom:.5rem">
