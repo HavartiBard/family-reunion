@@ -3402,7 +3402,7 @@ function _eventFormRunDepthRootSearch(q){
     const query = q.trim();
     if (!query){ resEl.innerHTML=''; return; }
 
-    const r = await apiFetch('/api/collections/persons/records?perPage=6&filter='+encodeURIComponent(`display_name~"${query}"`));
+    const r = await apiFetch('/api/collections/persons/records?perPage=500&filter='+encodeURIComponent(`display_name~"${query}"`));
     if (reqId !== _eventFormDepthRootSearchReqId) return;
     const items = r.ok ? (await r.json()).items : [];
     _eventFormDepthRootResults = items;
@@ -3561,7 +3561,7 @@ function _eventFormConfirmDepthInvites(){
         if (_eventFormPendingInvites.some(i => i.inviteType === 'user' && i.userId === p.linked_user)) continue;
 
         const checkbox = document.getElementById(`evf-depth-suggest-${accountId}`);
-        if (checkbox && checkbox.checked){
+        if (checkbox && checkbox.checked && !checkbox.disabled){
           _eventFormPendingInvites.push({
             id: null,
             inviteType: 'user',
