@@ -3520,6 +3520,7 @@ async function _eventFormPreviewDepthInvites(){
       } else {
         const p = persons.find(x => x.id === unit.personIds[0]);
         const name = unit.personIds.length === 1 && p ? esc(p.display_name) : esc(unit.surnameLabel);
+        const placeholderName = unit.personIds.length === 1 && p ? p.display_name : unit.surnameLabel;
         const memberCount = unit.personIds.length;
         const label = unit.personIds.length === 1 ? name : `The ${name} family — ${memberCount} members`;
         const noAccounts = unit.personIds.every(id => !persons.find(x => x.id === id)?.linked_user);
@@ -3531,7 +3532,7 @@ async function _eventFormPreviewDepthInvites(){
           </div>
           ${noAccounts ? `
             <div style="display:flex;gap:.5rem;align-items:center;padding-left:2.5rem;margin-left:.5rem;border-left:1px solid var(--border)">
-              <input type="email" id="evf-depth-email-${unit.personIds[0]}" placeholder="Email for ${escAttr(unit.surnameLabel)} (optional)" style="flex:1" />
+              <input type="email" id="evf-depth-email-${unit.personIds[0]}" placeholder="Email for ${escAttr(placeholderName)} (optional)" style="flex:1" />
             </div>
           ` : ''}
         `;
