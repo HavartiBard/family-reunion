@@ -128,3 +128,207 @@ test('isValidHexColor accepts 3- and 6-digit hex, rejects everything else', () =
   assert.strictEqual(h.isValidHexColor(null), false);
   assert.strictEqual(h.isValidHexColor(undefined), false);
 });
+
+test('findFamilyByDepth and groupIntoFamilyUnits', async () => {
+  const persons = [
+    { id: 'gpa', display_name: 'Grandpa', birth_surname: 'Smith', father: '', mother: '' },
+    { id: 'gma', display_name: 'Grandma', birth_surname: 'Smith', father: '', mother: '' },
+    { id: 'dad', display_name: 'Dad', birth_surname: 'Smith', father: 'gpa', mother: 'gma' },
+    { id: 'mom', display_name: 'Mom', birth_surname: 'Jones', father: '', mother: '' },
+    { id: 'kid1', display_name: 'Kid 1', birth_surname: 'Smith', father: 'dad', mother: 'mom' },
+    { id: 'kid2', display_name: 'Kid 2', birth_surname: 'Smith', father: 'dad', mother: 'mom' }
+  ];
+  const couples = [
+    { id: 'c1', partner_a: 'dad', partner_b: 'mom', status: 'married' }
+  ];
+
+  test('depth=1 from kid1 returns parents and siblings', () => {
+    const result = h.findFamilyByDepth('kid1', 1, persons, couples);
+    assert.ok(result.personIds instanceof Set);
+    const ids = Array.from(result.personIds).sort();
+    assert.deepStrictEqual(ids, ['dad', 'kid1', 'kid2', 'mom']);
+  });
+
+  test('depth=2 from kid1 returns grandparents too', () => {
+    const result = h.findFamilyByDepth('kid1', 2, persons, couples);
+    const ids = Array.from(result.personIds).sort();
+    assert.deepStrictEqual(ids, ['dad', 'gma', 'gpa', 'kid1', 'kid2', 'mom']);
+  });
+
+  test('intermarriage case: same descendant via multiple ancestor paths', () => {
+    const interpersons = [
+      { id: 'gpa', display_name: 'Grandpa A', birth_surname: 'A', father: '', mother: '' },
+      { id: 'gma', display_name: 'Grandma A', birth_surname: 'A', father: '', mother: '' },
+      { id: 'pa1', display_name: 'Parent A', birth_surname: 'A', father: 'gpa', mother: 'gma' },
+      { id: 'pa2', display_name: 'Parent B', birth_surname: 'A', father: 'gpa', mother: 'gma' },
+      { id: 'child', display_name: 'Child', birth_surname: 'A', father: 'pa1', mother: 'pa2' }
+    ];
+    const intercouples = [];
+    const result = h.findFamilyByDepth('child', 1, interpersons, intercouples);
+    const ids = Array.from(result.personIds);
+    assert.ok(ids.includes('pa1'));
+    assert.ok(ids.includes('pa2'));
+    assert.ok(ids.includes('child'));
+    assert.strictEqual(ids.length, 3);
+  });
+
+  test('degradation when tree does not go back far enough', () => {
+    const shallowPersons = [
+      { id: 'parent', display_name: 'Parent', birth_surname: 'X', father: '', mother: '' },
+      { id: 'child', display_name: 'Child', birth_surname: 'X', father: 'parent', mother: '' }
+    ];
+    const shallowCouples = [];
+    const result = h.findFamilyByDepth('child', 2, shallowPersons, shallowCouples);
+    const ids = Array.from(result.personIds).sort();
+    assert.deepStrictEqual(ids, ['child', 'parent']);
+  });
+
+  test('spouse included but their separate family line is NOT pulled in', () => {
+    const spousePersons = [
+      { id: 'me', display_name: 'Me', birth_surname: 'Myer', father: '', mother: '' },
+      { id: 'spouse', display_name: 'Spouse', birth_surname: 'Spousey', father: '', mother: '' },
+      { id: 'spouse_parent', display_name: "Spouse's Parent", birth_surname: 'Spousey', father: '', mother: '' }
+    ];
+    const spouseCouples = [
+      { id: 'c1', partner_a: 'me', partner_b: 'spouse', status: 'married' }
+    ];
+    const result = h.findFamilyByDepth('me', 1, spousePersons, spouseCouples);
+    const ids = Array.from(result.personIds).sort();
+    assert.deepStrictEqual(ids, ['me', 'spouse']);
+  });
+
+  test('asymmetric degradation: a half-sibling reachable only via a degraded branch is still found', () => {
+    // dad's line goes back 2 full generations (gpa/gma); mom has no recorded parents at
+    // all, so her branch degrades at level 1 — she must still anchor her OWN down-walk
+    // (regression test for a bug where topmostAncestors got overwritten each level
+    // instead of accumulating per-branch, silently dropping degraded branches' own
+    // lateral relatives — e.g. this exact half-sibling, reachable only via mom).
+    const persons = [
+      { id: 'gpa', father: '', mother: '' },
+      { id: 'gma', father: '', mother: '' },
+      { id: 'dad', father: 'gpa', mother: 'gma' },
+      { id: 'mom', father: '', mother: '' },
+      { id: 'other_dad', father: '', mother: '' },
+      { id: 'kid1', father: 'dad', mother: 'mom' },
+      { id: 'kid2', father: 'dad', mother: 'mom' },
+      { id: 'kid3', father: 'other_dad', mother: 'mom' }
+    ];
+    const couples = [
+      { id: 'c1', partner_a: 'dad', partner_b: 'mom', status: 'married' },
+      { id: 'c2', partner_a: 'other_dad', partner_b: 'mom', status: 'divorced' }
+    ];
+    const result = h.findFamilyByDepth('kid1', 2, persons, couples);
+    assert.ok(result.personIds.has('kid3'), 'half-sibling via degraded mom-branch must be included');
+    const ids = Array.from(result.personIds).sort();
+    assert.deepStrictEqual(ids, ['dad', 'gma', 'gpa', 'kid1', 'kid2', 'kid3', 'mom']);
+  });
+
+  test('groupIntoFamilyUnits: a single unpartnered parent plus children groups into ONE unit', () => {
+    // Regression test for a bug where the children-lookup loop iterated
+    // unitPersonIds.slice(0, -1) — for a lone parent with no spouse in the set,
+    // unitPersonIds was just [parentId], and slicing off the "last" element left an
+    // empty array, skipping the children lookup entirely and splitting what should be
+    // one family unit into one separate unit per person.
+    const persons = [
+      { id: 'single_parent', birth_surname: 'Lee', father: '', mother: '' },
+      { id: 'kidA', father: 'single_parent', mother: '', birth_surname: 'Lee' },
+      { id: 'kidB', father: 'single_parent', mother: '', birth_surname: 'Lee' }
+    ];
+    const units = h.groupIntoFamilyUnits(['single_parent', 'kidA', 'kidB'], persons, []);
+    assert.strictEqual(units.length, 1);
+    assert.deepStrictEqual(units[0].personIds.sort(), ['kidA', 'kidB', 'single_parent']);
+  });
+
+  test('groupIntoFamilyUnits fully accountless nuclear family', () => {
+    const persons = [
+      { id: 'dad', display_name: 'Dad', birth_surname: 'Smith', father: '', mother: '' },
+      { id: 'mom', display_name: 'Mom', birth_surname: 'Jones', father: '', mother: '' },
+      { id: 'kid1', display_name: 'Kid 1', birth_surname: 'Smith', father: 'dad', mother: 'mom' },
+      { id: 'kid2', display_name: 'Kid 2', birth_surname: 'Smith', father: 'dad', mother: 'mom' }
+    ];
+    const couples = [{ id: 'c1', partner_a: 'dad', partner_b: 'mom', status: 'married' }];
+    const personIds = new Set(['dad', 'mom', 'kid1', 'kid2']);
+    const units = h.groupIntoFamilyUnits(Array.from(personIds), persons, couples);
+    assert.strictEqual(units.length, 1);
+    const unit = units[0];
+    assert.deepStrictEqual(unit.personIds.sort(), ['dad', 'kid1', 'kid2', 'mom']);
+    assert.strictEqual(unit.hasAnyAccount, false);
+    assert.deepStrictEqual(unit.accountHolderIds.sort(), []);
+    assert.deepStrictEqual(unit.accountlessIds.sort(), ['dad', 'kid1', 'kid2', 'mom']);
+    assert.ok(unit.surnameLabel === 'Smith' || unit.surnameLabel === 'Jones');
+  });
+
+  test('groupIntoFamilyUnits mixed account status', () => {
+    const persons = [
+      { id: 'dad', display_name: 'Dad', birth_surname: 'Smith', father: '', mother: '', linked_user: 'u1' },
+      { id: 'mom', display_name: 'Mom', birth_surname: 'Jones', father: '', mother: '' },
+      { id: 'kid1', display_name: 'Kid 1', birth_surname: 'Smith', father: 'dad', mother: 'mom' }
+    ];
+    const couples = [{ id: 'c1', partner_a: 'dad', partner_b: 'mom', status: 'married' }];
+    const personIds = new Set(['dad', 'mom', 'kid1']);
+    const units = h.groupIntoFamilyUnits(Array.from(personIds), persons, couples);
+    assert.strictEqual(units.length, 1);
+    const unit = units[0];
+    assert.deepStrictEqual(unit.personIds.sort(), ['dad', 'kid1', 'mom']);
+    assert.strictEqual(unit.hasAnyAccount, true);
+    assert.deepStrictEqual(unit.accountHolderIds, ['dad']);
+    assert.deepStrictEqual(unit.accountlessIds.sort(), ['kid1', 'mom']);
+  });
+
+  await test('groupIntoFamilyUnits lone individual with no partner/children', () => {
+    const persons = [
+      { id: 'aunt', display_name: 'Aunt', birth_surname: 'Smith', father: '', mother: '' }
+    ];
+    const couples = [];
+    const personIds = new Set(['aunt']);
+    const units = h.groupIntoFamilyUnits(Array.from(personIds), persons, couples);
+    assert.strictEqual(units.length, 1);
+    const unit = units[0];
+    assert.deepStrictEqual(unit.personIds, ['aunt']);
+    assert.strictEqual(unit.hasAnyAccount, false);
+    assert.deepStrictEqual(unit.accountHolderIds, []);
+    assert.deepStrictEqual(unit.accountlessIds, ['aunt']);
+  });
+
+  await test('groupIntoFamilyUnits: an adult child with their own spouse/children forms a separate unit', () => {
+    // Regression test (Codex review): findFamilyByDepth's insertion order puts ancestors
+    // first, so a grandparent is commonly processed before their adult child. Without a
+    // check for "does this child already head their own nuclear family," the grandparent
+    // absorbed the child into ITS unit, leaving the child's own spouse/kids stranded in
+    // an incomplete separate grouping instead of together with the child.
+    const persons = [
+      { id: 'grandparent', birth_surname: 'Old', father: '', mother: '' },
+      { id: 'adult_child', father: 'grandparent', mother: '', birth_surname: 'Old' },
+      { id: 'childs_spouse', birth_surname: 'New', father: '', mother: '' },
+      { id: 'grandchild', father: 'adult_child', mother: 'childs_spouse', birth_surname: 'Old' }
+    ];
+    const couples = [{ id: 'c1', partner_a: 'adult_child', partner_b: 'childs_spouse', status: 'married' }];
+    const ids = ['grandparent', 'adult_child', 'childs_spouse', 'grandchild'];
+    const units = h.groupIntoFamilyUnits(ids, persons, couples);
+    assert.strictEqual(units.length, 2);
+    const sorted = units.map(u => u.personIds.slice().sort());
+    assert.ok(sorted.some(u => u.length === 1 && u[0] === 'grandparent'));
+    assert.ok(sorted.some(u => u.length === 3 && u.join(',') === ['adult_child', 'childs_spouse', 'grandchild'].sort().join(',')));
+  });
+
+  await test('groupIntoFamilyUnits: divorced ex-partners are NOT grouped as one household', () => {
+    const persons = [
+      { id: 'exA', birth_surname: 'Alpha', father: '', mother: '' },
+      { id: 'exB', birth_surname: 'Beta', father: '', mother: '' }
+    ];
+    const couples = [{ id: 'c1', partner_a: 'exA', partner_b: 'exB', status: 'divorced' }];
+    const units = h.groupIntoFamilyUnits(['exA', 'exB'], persons, couples);
+    assert.strictEqual(units.length, 2);
+  });
+
+  await test('groupIntoFamilyUnits: family label comes from the parent, not a majority vote over children', () => {
+    const persons = [
+      { id: 'parent', birth_surname: 'Jones', father: '', mother: '' },
+      { id: 'kid1', father: 'parent', mother: '', birth_surname: 'Smith' },
+      { id: 'kid2', father: 'parent', mother: '', birth_surname: 'Smith' }
+    ];
+    const units = h.groupIntoFamilyUnits(['parent', 'kid1', 'kid2'], persons, []);
+    assert.strictEqual(units.length, 1);
+    assert.strictEqual(units[0].surnameLabel, 'Jones');
+  });
+});
