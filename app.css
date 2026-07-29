@@ -12,6 +12,7 @@
   --focus-shadow:rgba(200,149,42,.12);
   --accent-fg:#1f2d27; --sb-item-active-bg:rgba(200,149,42,.18);
   --danger:#c04040; --danger-bg:#fdf2f2; --danger-border:#f5d5d5;
+  --info:#1e5b8a; --info-bg:#eef6fc; --info-border:#dbeaf5;
   --font-display:'Newsreader',Georgia,serif;
   --font-ui:'Schibsted Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   --shadow-card:0 1px 6px rgba(31,45,39,.05);
@@ -112,6 +113,7 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
 .alert{padding:.7rem 1rem;border-radius:10px;font-size:.88rem;margin-bottom:1rem}
 .alert-error{background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger-border)}
 .alert-success{background:#eef6ef;color:var(--accent-green);border:1px solid #cfe0d2}
+.alert-info{background:var(--info-bg);color:var(--info);border:1px solid var(--info-border)}
 
 .empty-state{text-align:center;padding:2.5rem 1rem;color:var(--text-muted)}
 .empty-state .emoji{font-size:2.5rem;margin-bottom:.6rem}
@@ -813,3 +815,11 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
 .btn-ghost{background:none;border:none;color:var(--text-muted);cursor:pointer;padding:.3rem .5rem;
   font-size:.85rem;border-radius:8px}
 .btn-ghost:hover{background:var(--bg-hover);color:var(--text-primary)}
+
+/* ── Event edit page tabs ──────────────────────────────────────────────── */
+.evf-tabs{display:flex;gap:.5rem;margin-bottom:1.25rem;border-bottom:2px solid var(--border-default)}
+.evf-tab{padding:.5rem .9rem;border-radius:8px 8px 0 0;font-size:.9rem;font-weight:500;
+  color:var(--text-muted);cursor:pointer;transition:all .15s ease}
+.evf-tab:hover{color:var(--text-primary)}
+.evf-tab.active{background:var(--bg-card);color:var(--accent-gold);border:2px solid var(--border-default);
+  border-bottom-color:transparent;margin-bottom:-.25rem}
