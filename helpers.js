@@ -106,6 +106,203 @@
     if (!q) return people.slice();
     return people.filter(p => _hay(p).includes(q));
   }
+
+  function findFamilyByDepth(rootPersonId, depth, persons, couples) {
+    const personMap = new Map();
+    for (const p of persons) personMap.set(p.id, p);
+
+    const ancestorSet = new Set();
+    // topmostAncestors must accumulate per-branch, not get overwritten each level — if one
+    // branch (e.g. father's line) reaches the full requested depth while another (e.g.
+    // mother's, no recorded parents) dead-ends earlier, BOTH the depth-N ancestor(s) on the
+    // full branch AND the dead-end person on the degraded branch are "topmost" for their
+    // own line and must each anchor their own down-walk below. Overwriting with only the
+    // last-computed level (as an earlier draft did) silently drops the degraded branch's
+    // own lateral relatives (e.g. half-siblings reachable only via that dead-ended parent)
+    // — confirmed empirically with a fixture where a half-sibling via a parent-with-no-
+    // recorded-ancestors was missing from the result.
+    const topmostAncestors = new Set();
+
+    if (depth <= 0) {
+      topmostAncestors.add(rootPersonId);
+    } else {
+      let currentLevel = [rootPersonId];
+      for (let level = 1; level <= depth; level++) {
+        const nextLevel = [];
+        for (const pid of currentLevel) {
+          const person = personMap.get(pid);
+          const father = person && person.father;
+          const mother = person && person.mother;
+          if (!father && !mother) {
+            topmostAncestors.add(pid); // this branch dead-ends here
+            continue;
+          }
+          if (father) nextLevel.push(father);
+          if (mother) nextLevel.push(mother);
+        }
+        for (const pid of nextLevel) ancestorSet.add(pid);
+        if (level === depth) {
+          for (const pid of nextLevel) topmostAncestors.add(pid); // reached full depth
+        }
+        currentLevel = nextLevel;
+        if (currentLevel.length === 0) break;
+      }
+    }
+
+    const lateralSet = new Set();
+    let lateralCurrent = Array.from(topmostAncestors);
+    for (let level = 1; level <= depth && lateralCurrent.length > 0; level++) {
+      const nextLevel = [];
+      for (const pid of lateralCurrent) {
+        for (const p of persons) {
+          if ((p.father === pid || p.mother === pid) && !lateralSet.has(p.id)) {
+            lateralSet.add(p.id);
+            nextLevel.push(p.id);
+          }
+        }
+      }
+      lateralCurrent = nextLevel;
+    }
+
+    const descendantSet = new Set();
+    let descCurrent = [rootPersonId];
+    for (let level = 1; level <= depth && descCurrent.length > 0; level++) {
+      const nextLevel = [];
+      for (const pid of descCurrent) {
+        for (const p of persons) {
+          if ((p.father === pid || p.mother === pid) && !descendantSet.has(p.id)) {
+            descendantSet.add(p.id);
+            nextLevel.push(p.id);
+          }
+        }
+      }
+      descCurrent = nextLevel;
+    }
+
+    const union = new Set();
+    for (const id of ancestorSet) union.add(id);
+    for (const id of lateralSet) union.add(id);
+    for (const id of descendantSet) union.add(id);
+    union.add(rootPersonId);
+
+    const coupleMap = new Map();
+    for (const c of couples) {
+      if (c.status === 'divorced') continue;
+      if (!coupleMap.has(c.partner_a)) coupleMap.set(c.partner_a, []);
+      if (!coupleMap.has(c.partner_b)) coupleMap.set(c.partner_b, []);
+      coupleMap.get(c.partner_a).push(c.partner_b);
+      coupleMap.get(c.partner_b).push(c.partner_a);
+    }
+
+    const withSpouses = new Set(union);
+    for (const pid of union) {
+      const spouses = coupleMap.get(pid) || [];
+      for (const spouseId of spouses) withSpouses.add(spouseId);
+    }
+
+    return { personIds: withSpouses };
+  }
+
+  function groupIntoFamilyUnits(personIds, persons, couples) {
+    const personSet = new Set(personIds);
+    const personMap = new Map();
+    for (const p of persons) personMap.set(p.id, p);
+
+    const coupleMap = new Map();
+    for (const c of couples) {
+      if (!personSet.has(c.partner_a) || !personSet.has(c.partner_b)) continue;
+      if (!coupleMap.has(c.partner_a)) coupleMap.set(c.partner_a, []);
+      if (!coupleMap.has(c.partner_b)) coupleMap.set(c.partner_b, []);
+      coupleMap.get(c.partner_a).push(c.partner_b);
+      coupleMap.get(c.partner_b).push(c.partner_a);
+    }
+
+    const childMap = new Map();
+    for (const p of persons) {
+      if (!personSet.has(p.id)) continue;
+      if (p.father && personSet.has(p.father)) {
+        if (!childMap.has(p.father)) childMap.set(p.father, new Set());
+        childMap.get(p.father).add(p.id);
+      }
+      if (p.mother && personSet.has(p.mother)) {
+        if (!childMap.has(p.mother)) childMap.set(p.mother, new Set());
+        childMap.get(p.mother).add(p.id);
+      }
+    }
+
+    const units = [];
+    const assigned = new Set();
+
+    for (const pid of personIds) {
+      if (assigned.has(pid)) continue;
+      const unitPersonIds = [pid];
+      assigned.add(pid);
+
+      const spouses = coupleMap.get(pid) || [];
+      for (const spouseId of spouses) {
+        if (!assigned.has(spouseId)) {
+          unitPersonIds.push(spouseId);
+          assigned.add(spouseId);
+        }
+      }
+
+      // Snapshot the parent(s) (pid + any spouse just added) BEFORE appending children —
+      // an earlier draft iterated `unitPersonIds.slice(0, -1)` here, which for a single
+      // unpartnered parent (unitPersonIds === [pid], nothing else added yet) sliced down
+      // to an empty array and skipped the children lookup entirely, silently splitting a
+      // single-parent-plus-children unit into one separate unit per person instead of one
+      // combined unit — confirmed empirically (a single parent + 2 kids produced 3 units,
+      // not 1). Iterate a full snapshot of the parent set instead.
+      const parentIds = unitPersonIds.slice();
+      for (const memberId of parentIds) {
+        const children = childMap.get(memberId) || [];
+        for (const childId of children) {
+          if (!assigned.has(childId)) {
+            unitPersonIds.push(childId);
+            assigned.add(childId);
+          }
+        }
+      }
+
+      const unitPersons = unitPersonIds.map(id => personMap.get(id));
+      const accountHolderIds = unitPersonIds.filter(id => personMap.get(id)?.linked_user);
+      const accountlessIds = unitPersonIds.filter(id => !personMap.get(id)?.linked_user);
+
+      let surnameLabel = 'Family';
+      const surnames = unitPersonIds
+        .map(id => {
+          const p = personMap.get(id);
+          return (p && (p.birth_surname || p.family_name || '')) || '';
+        })
+        .filter(Boolean);
+
+      if (surnames.length > 0) {
+        const counts = {};
+        let maxCount = 0;
+        let mostCommon = surnames[0];
+        for (const s of surnames) {
+          counts[s] = (counts[s] || 0) + 1;
+          if (counts[s] > maxCount) {
+            maxCount = counts[s];
+            mostCommon = s;
+          }
+        }
+        surnameLabel = mostCommon || 'Family';
+      }
+
+      const hasAnyAccount = accountHolderIds.length > 0;
+
+      units.push({
+        personIds: unitPersonIds,
+        hasAnyAccount: hasAnyAccount,
+        accountHolderIds: accountHolderIds,
+        accountlessIds: accountlessIds,
+        surnameLabel: surnameLabel
+      });
+    }
+
+    return units;
+  }
   function filterNews(news, query) {
     const q = (query || '').trim().toLowerCase();
     if (!q) return news.slice();
@@ -132,6 +329,7 @@
     esc, escAttr, userInitials, personInitials, personYears, avatarTint, daysUntil, fmtEventDate,
     filterPeople, filterNews, groupNotifications, defaultPrivacy, defaultNotifPrefs,
     darkenHex, contrastForeground, hexToRgba, isValidHexColor,
+    findFamilyByDepth, groupIntoFamilyUnits,
     AVATAR_TINTS
   };
 });
