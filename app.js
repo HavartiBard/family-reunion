@@ -3405,6 +3405,7 @@ function _eventFormRunDepthRootSearch(q){
     const r = await apiFetch('/api/collections/persons/records?perPage=500&filter='+encodeURIComponent(`display_name~"${query}"`));
     if (reqId !== _eventFormDepthRootSearchReqId) return;
     const items = r.ok ? (await r.json()).items : [];
+    if (reqId !== _eventFormDepthRootSearchReqId) return;
     _eventFormDepthRootResults = items;
 
     resEl.innerHTML = items.map(p =>
