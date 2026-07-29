@@ -4516,7 +4516,13 @@ function renderEventEditPage(eventId){
           opt.textContent = '[Tree unavailable]';
           pt.insertBefore(opt, pt.firstChild);
         }
+        // Setting .value programmatically does NOT fire the native 'change' event
+        // that _eventFormOnTreeChanged is wired to via onchange= — only genuine user
+        // interaction does. Call it explicitly here too, or an invite search started
+        // against whatever tree was selected before this async event-record fetch
+        // resolved would stay "current" even after the real tree loads underneath it.
         pt.value = e.tree;
+        _eventFormOnTreeChanged();
       }
       const etArea = el('evf-extra-trees-area');
       if (etArea) {
