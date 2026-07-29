@@ -724,6 +724,7 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
 .notif-row{display:flex;align-items:flex-start;gap:.75rem;padding:.75rem;border-radius:10px;
   border:1px solid var(--border-default);background:var(--bg-card);margin-bottom:.4rem;cursor:default}
 .notif-row.unread{background:#faf7f2;border-color:#e8dfc8}
+.notif-icon{font-size:1.2rem;width:1.4em;text-align:center;flex-shrink:0;margin-top:.15rem}
 .notif-dot{width:8px;height:8px;border-radius:50%;background:var(--accent-gold);flex-shrink:0;margin-top:.35rem}
 .notif-dot.read{background:transparent}
 .notif-body{flex:1}
