@@ -3391,12 +3391,12 @@ function _eventFormRunDepthRootSearch(q){
   const idInput = document.getElementById('evf-depth-root-id');
   if (idInput) idInput.value = '';
   _eventFormInvalidateDepthPreview();
+  // Bump the token the instant the input changes, not just when the debounced
+  // callback fires below — an already-in-flight fetch from a still-earlier
+  // keystroke could otherwise outlive this call and still pass the check.
+  const reqId = ++_eventFormDepthRootSearchReqId;
   clearTimeout(_eventFormDepthRootTimer);
   _eventFormDepthRootTimer = setTimeout(async ()=>{
-    // Two debounced searches can still have overlapping in-flight fetches if the
-    // organizer types again right as the first one's network request starts —
-    // tag this one and discard its result if a newer search has since begun.
-    const reqId = ++_eventFormDepthRootSearchReqId;
     const resEl = document.getElementById('evf-depth-root-results');
     if (!resEl) return;
     const query = q.trim();
@@ -3540,6 +3540,7 @@ async function _eventFormPreviewDepthInvites(){
     resultsEl.innerHTML = html;
     actionsEl.style.display = 'flex';
   } catch (e){
+    if (gen !== _eventFormDepthRequestGen) return;
     resultsEl.innerHTML = `<p style="font-size:.82rem;color:var(--text-muted);padding:.5rem">Error: ${esc(e.message)}</p>`;
   }
 }
