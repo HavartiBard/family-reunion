@@ -353,3 +353,162 @@ onRecordViewRequest((e) => {
     throw new NotFoundError('Not found.');
   }
 }, 'comments');
+
+onRecordBeforeCreateRequest((e) => {
+  const authRecord = e.httpContext.get('authRecord');
+
+  if (!authRecord) {
+    return;
+  }
+
+  const isFamilyAdmin = authRecord.get('family_admin') === true;
+  if (isFamilyAdmin) {
+    return;
+  }
+
+  const userDao = $app.dao();
+  const userHomeTreeId = authRecord.get('home_tree');
+  const userId = authRecord.id;
+
+  const visibleTreeSet = new Set();
+
+  if (userHomeTreeId && userHomeTreeId !== '') {
+    visibleTreeSet.add(userHomeTreeId);
+    try {
+      const homeTree = userDao.findRecordById('trees', userHomeTreeId);
+      if (homeTree) {
+        const linkedTrees = homeTree.get('linked_trees') || [];
+        linkedTrees.forEach((lid) => visibleTreeSet.add(lid));
+      }
+    } catch (lookupErr) {
+      // Fail open on data inconsistency
+    }
+  }
+
+  const userAdminTrees = authRecord.get('admin_trees') || [];
+  userAdminTrees.forEach((tid) => visibleTreeSet.add(tid));
+
+  const relatedType = e.record.get('related_type');
+  const relatedId = e.record.get('related_id');
+
+  let blocked = false;
+
+  if (relatedId && relatedId !== '') {
+    try {
+      if (relatedType === 'event_location_suggestion') {
+        const suggestion = userDao.findRecordById('event_location_suggestions', relatedId);
+        if (suggestion) {
+          const eventId = suggestion.get('event');
+          if (eventId && eventId !== '') {
+            const event = userDao.findRecordById('events', eventId);
+            if (event) {
+              const recordTreeId = event.get('tree');
+              const extraTrees = event.get('extra_trees') || [];
+              const inviteOnly = event.get('invite_only') === true;
+
+              if (!recordTreeId || recordTreeId === '') {
+                if (!inviteOnly) {
+                  blocked = false;
+                } else {
+                  const organizers = event.get('organizers') || [];
+                  const isOrganizer = organizers.includes(userId);
+                  let hasInvite = false;
+                  try {
+                    const invites = userDao.findRecordsByFilter(
+                      'event_invites',
+                      'event = {:eventId} && invite_type = "user" && user = {:userId}',
+                      '', 1, 0,
+                      { eventId: eventId, userId: userId }
+                    );
+                    hasInvite = invites.length > 0;
+                  } catch (lookupErr) {
+                    // Fail open on data inconsistency
+                  }
+                  if (!hasInvite && !isFamilyAdmin && !isOrganizer) {
+                    blocked = true;
+                  }
+                }
+              } else {
+                const recordAudienceSet = new Set();
+                recordAudienceSet.add(recordTreeId);
+                extraTrees.forEach((tid) => recordAudienceSet.add(tid));
+
+                const expandedAudienceSet = new Set(recordAudienceSet);
+                for (const treeId of recordAudienceSet) {
+                  try {
+                    const tree = userDao.findRecordById('trees', treeId);
+                    if (tree) {
+                      const linkedTrees = tree.get('linked_trees') || [];
+                      linkedTrees.forEach((lid) => expandedAudienceSet.add(lid));
+                    }
+                  } catch (lookupErr) {
+                    // Fail open on data inconsistency
+                  }
+                }
+
+                if (inviteOnly) {
+                  const organizers = event.get('organizers') || [];
+                  const isOrganizer = organizers.includes(userId);
+                  let hasInvite = false;
+                  try {
+                    const invites = userDao.findRecordsByFilter(
+                      'event_invites',
+                      'event = {:eventId} && invite_type = "user" && user = {:userId}',
+                      '', 1, 0,
+                      { eventId: eventId, userId: userId }
+                    );
+                    hasInvite = invites.length > 0;
+                  } catch (lookupErr) {
+                    // Fail open on data inconsistency
+                  }
+                  if (!hasInvite && !isFamilyAdmin && !isOrganizer) {
+                    blocked = true;
+                  }
+                } else {
+                  let isVisible = false;
+                  for (const treeId of expandedAudienceSet) {
+                    if (visibleTreeSet.has(treeId)) {
+                      isVisible = true;
+                      break;
+                    }
+                  }
+                  if (!isVisible) {
+                    blocked = true;
+                  }
+                }
+              }
+            }
+          }
+        }
+      } else if (relatedType === 'album') {
+        const album = userDao.findRecordById('albums', relatedId);
+        if (album) {
+          const albumTreeId = album.get('tree');
+          if (albumTreeId && albumTreeId !== '' && !visibleTreeSet.has(albumTreeId)) {
+            blocked = true;
+          }
+        }
+      } else if (relatedType === 'photo') {
+        const photo = userDao.findRecordById('photos', relatedId);
+        if (photo) {
+          const albumId = photo.get('album');
+          if (albumId && albumId !== '') {
+            const album = userDao.findRecordById('albums', albumId);
+            if (album) {
+              const albumTreeId = album.get('tree');
+              if (albumTreeId && albumTreeId !== '' && !visibleTreeSet.has(albumTreeId)) {
+                blocked = true;
+              }
+            }
+          }
+        }
+      }
+    } catch (lookupErr) {
+      // Lookup failure — fail open, blocked stays false
+    }
+  }
+
+  if (blocked) {
+    throw new BadRequestError('Not visible.');
+  }
+}, 'comments');
