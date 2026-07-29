@@ -3325,6 +3325,10 @@ let _eventFormAllUsers = null;
 let _eventFormDepthSuggestAreaVisible = false;
 let _eventFormDepthRootTimer = null;
 let _eventFormDepthRootResults = [];
+// Set true the moment the organizer types or picks a root themselves, so the
+// async default-root initialization below knows not to clobber it if its
+// response arrives late (e.g. slow connection).
+let _eventFormDepthRootTouched = false;
 
 function _eventFormToggleDepthSuggest(){
   const area = document.getElementById('evf-depth-suggest-area');
@@ -3335,20 +3339,32 @@ function _eventFormToggleDepthSuggest(){
   } else {
     area.style.display = 'block';
     _eventFormDepthSuggestAreaVisible = true;
+    _eventFormDepthRootTouched = false;
     _eventFormInitializeDepthRootSearch();
   }
+}
+
+function _eventFormInvalidateDepthPreview(){
+  _eventFormDepthPreviewResults = null;
+  const resultsEl = document.getElementById('evf-depth-suggest-results');
+  const actionsEl = document.getElementById('evf-depth-suggest-actions');
+  if (resultsEl) resultsEl.innerHTML = '';
+  if (actionsEl) actionsEl.style.display = 'none';
 }
 
 async function _eventFormInitializeDepthRootSearch(){
   const searchInput = document.getElementById('evf-depth-root-search');
   const idInput = document.getElementById('evf-depth-root-id');
   if (!searchInput || !idInput) return;
-  
+
   const myPersonIdVal = await myPersonId();
+  if (_eventFormDepthRootTouched) return;
   if (myPersonIdVal){
     const r = await apiFetch(`/api/collections/persons/records/${myPersonIdVal}`);
+    if (_eventFormDepthRootTouched) return;
     if (r.ok){
       const p = await r.json();
+      if (_eventFormDepthRootTouched) return;
       searchInput.value = p.display_name || '';
       idInput.value = p.id;
     }
@@ -3359,8 +3375,10 @@ function _eventFormRunDepthRootSearch(q){
   // Editing the search text invalidates whatever root was previously selected —
   // clear the hidden id now so a stale previous selection can't silently survive
   // into Preview if the organizer types a new name but never clicks a result.
+  _eventFormDepthRootTouched = true;
   const idInput = document.getElementById('evf-depth-root-id');
   if (idInput) idInput.value = '';
+  _eventFormInvalidateDepthPreview();
   clearTimeout(_eventFormDepthRootTimer);
   _eventFormDepthRootTimer = setTimeout(async ()=>{
     const resEl = document.getElementById('evf-depth-root-results');
@@ -3389,6 +3407,7 @@ function _eventFormSetDepthRoot(id){
   // manual user-invite search's onclick (PR #130) — reintroduced here for the root-person
   // search, now fixed the same way: pass only the id, resolve the name from already-
   // fetched JS state instead of round-tripping it through an HTML attribute string.
+  _eventFormDepthRootTouched = true;
   const match = _eventFormDepthRootResults.find(p => p.id === id);
   const name = match ? match.display_name : '';
   const ri = document.getElementById('evf-depth-root-id');
@@ -3397,6 +3416,7 @@ function _eventFormSetDepthRoot(id){
   if (ri) ri.value = id;
   if (rs) rs.value = name;
   if (rr) rr.innerHTML = '';
+  _eventFormInvalidateDepthPreview();
 }
 
 let _eventFormDepthPreviewResults = null;
@@ -4242,6 +4262,9 @@ function openEventForm(eventId){
   _eventFormPendingInvites = [];
   _eventFormRemovedInviteIds = [];
   _eventFormTrees = [];
+  _eventFormDepthSuggestAreaVisible = false;
+  _eventFormDepthRootTouched = false;
+  _eventFormDepthPreviewResults = null;
   openModal(`<h2 class="card-title">${isEdit ? 'Edit event' : 'New event'}</h2>
     <div id="evf-error" class="alert alert-error" style="display:none"></div>
     <div class="form-group"><label>Name</label><input id="evf-name" /></div>
@@ -4324,7 +4347,7 @@ function openEventForm(eventId){
         <div style="display:flex;gap:.5rem;align-items:center;margin-top:.5rem">
           <label style="display:flex;align-items:center;gap:.4rem;font-size:.92rem">
             Generations deep:
-            <input type="number" id="evf-depth" min="1" max="5" value="2" style="width:3rem" />
+            <input type="number" id="evf-depth" min="1" max="5" value="2" style="width:3rem" oninput="_eventFormInvalidateDepthPreview()" />
           </label>
           <button class="btn btn-outline btn-sm" onclick="_eventFormPreviewDepthInvites()">Preview</button>
         </div>
