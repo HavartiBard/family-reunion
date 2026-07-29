@@ -289,4 +289,46 @@ test('findFamilyByDepth and groupIntoFamilyUnits', async () => {
     assert.deepStrictEqual(unit.accountHolderIds, []);
     assert.deepStrictEqual(unit.accountlessIds, ['aunt']);
   });
+
+  await test('groupIntoFamilyUnits: an adult child with their own spouse/children forms a separate unit', () => {
+    // Regression test (Codex review): findFamilyByDepth's insertion order puts ancestors
+    // first, so a grandparent is commonly processed before their adult child. Without a
+    // check for "does this child already head their own nuclear family," the grandparent
+    // absorbed the child into ITS unit, leaving the child's own spouse/kids stranded in
+    // an incomplete separate grouping instead of together with the child.
+    const persons = [
+      { id: 'grandparent', birth_surname: 'Old', father: '', mother: '' },
+      { id: 'adult_child', father: 'grandparent', mother: '', birth_surname: 'Old' },
+      { id: 'childs_spouse', birth_surname: 'New', father: '', mother: '' },
+      { id: 'grandchild', father: 'adult_child', mother: 'childs_spouse', birth_surname: 'Old' }
+    ];
+    const couples = [{ id: 'c1', partner_a: 'adult_child', partner_b: 'childs_spouse', status: 'married' }];
+    const ids = ['grandparent', 'adult_child', 'childs_spouse', 'grandchild'];
+    const units = h.groupIntoFamilyUnits(ids, persons, couples);
+    assert.strictEqual(units.length, 2);
+    const sorted = units.map(u => u.personIds.slice().sort());
+    assert.ok(sorted.some(u => u.length === 1 && u[0] === 'grandparent'));
+    assert.ok(sorted.some(u => u.length === 3 && u.join(',') === ['adult_child', 'childs_spouse', 'grandchild'].sort().join(',')));
+  });
+
+  await test('groupIntoFamilyUnits: divorced ex-partners are NOT grouped as one household', () => {
+    const persons = [
+      { id: 'exA', birth_surname: 'Alpha', father: '', mother: '' },
+      { id: 'exB', birth_surname: 'Beta', father: '', mother: '' }
+    ];
+    const couples = [{ id: 'c1', partner_a: 'exA', partner_b: 'exB', status: 'divorced' }];
+    const units = h.groupIntoFamilyUnits(['exA', 'exB'], persons, couples);
+    assert.strictEqual(units.length, 2);
+  });
+
+  await test('groupIntoFamilyUnits: family label comes from the parent, not a majority vote over children', () => {
+    const persons = [
+      { id: 'parent', birth_surname: 'Jones', father: '', mother: '' },
+      { id: 'kid1', father: 'parent', mother: '', birth_surname: 'Smith' },
+      { id: 'kid2', father: 'parent', mother: '', birth_surname: 'Smith' }
+    ];
+    const units = h.groupIntoFamilyUnits(['parent', 'kid1', 'kid2'], persons, []);
+    assert.strictEqual(units.length, 1);
+    assert.strictEqual(units[0].surnameLabel, 'Jones');
+  });
 });

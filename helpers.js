@@ -210,6 +210,10 @@
 
     const coupleMap = new Map();
     for (const c of couples) {
+      // Must match findFamilyByDepth's own divorced-couple exclusion — without it, two
+      // independently-present ex-partners (e.g. the root's divorced parents) would be
+      // grouped as one household and offered a single shared email invite.
+      if (c.status === 'divorced') continue;
       if (!personSet.has(c.partner_a) || !personSet.has(c.partner_b)) continue;
       if (!coupleMap.has(c.partner_a)) coupleMap.set(c.partner_a, []);
       if (!coupleMap.has(c.partner_b)) coupleMap.set(c.partner_b, []);
@@ -257,37 +261,41 @@
       for (const memberId of parentIds) {
         const children = childMap.get(memberId) || [];
         for (const childId of children) {
-          if (!assigned.has(childId)) {
-            unitPersonIds.push(childId);
-            assigned.add(childId);
-          }
+          if (assigned.has(childId)) continue;
+          // Only absorb a child into THIS unit if they don't head their own nuclear
+          // family — a child with a spouse or children of their own (also present in
+          // the result set) belongs in a SEPARATE unit for that family, not folded into
+          // their parent's. Without this check, a grandparent processed before their
+          // adult child (which findFamilyByDepth's insertion order makes common —
+          // ancestors are added first) would absorb that child here; the main loop
+          // would then find the child already `assigned` and skip it entirely,
+          // silently dropping the child's own spouse/kids instead of grouping them as
+          // their own unit. Confirmed as a real, reachable bug via Codex review.
+          const childHasOwnSpouse = (coupleMap.get(childId) || []).length > 0;
+          const childHasOwnChildren = (childMap.get(childId) || new Set()).size > 0;
+          if (childHasOwnSpouse || childHasOwnChildren) continue;
+          unitPersonIds.push(childId);
+          assigned.add(childId);
         }
       }
 
-      const unitPersons = unitPersonIds.map(id => personMap.get(id));
       const accountHolderIds = unitPersonIds.filter(id => personMap.get(id)?.linked_user);
       const accountlessIds = unitPersonIds.filter(id => !personMap.get(id)?.linked_user);
 
+      // Derive the label from the PARENT(s) only, not a majority vote across every
+      // member — a single parent (e.g. "Jones") whose kids happen to carry a different
+      // surname (e.g. "Smith," from an ex-partner) must not have the unit mislabeled
+      // "Smith Family" by outnumbering the one parent 2-to-1. The design's own spec
+      // calls for the couple/parent's surname specifically.
       let surnameLabel = 'Family';
-      const surnames = unitPersonIds
+      const parentSurnames = parentIds
         .map(id => {
           const p = personMap.get(id);
           return (p && (p.birth_surname || p.family_name || '')) || '';
         })
         .filter(Boolean);
-
-      if (surnames.length > 0) {
-        const counts = {};
-        let maxCount = 0;
-        let mostCommon = surnames[0];
-        for (const s of surnames) {
-          counts[s] = (counts[s] || 0) + 1;
-          if (counts[s] > maxCount) {
-            maxCount = counts[s];
-            mostCommon = s;
-          }
-        }
-        surnameLabel = mostCommon || 'Family';
+      if (parentSurnames.length > 0) {
+        surnameLabel = parentSurnames[0];
       }
 
       const hasAnyAccount = accountHolderIds.length > 0;
