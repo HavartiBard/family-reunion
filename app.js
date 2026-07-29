@@ -273,8 +273,16 @@ function _launchAppShell(){
     // a cold load or reload of a deep link like ?tab=events&event=<id>&edit=1 actually
     // lands on that screen — navigate() rebuilds the URL from scratch using only the
     // params it's given, so calling it with none (as navigate(currentTab()) alone
-    // does) silently drops everything but the tab itself.
-    else navigate(currentTab(), Object.fromEntries(new URLSearchParams(location.search)));
+    // does) silently drops everything but the tab itself. Exclude `tab` from the
+    // forwarded params — currentTab() already supplies it as navigate's first
+    // argument, and navigate() applies params AFTER its own admin-tab-redirect
+    // guard, so forwarding a raw `tab` here would silently overwrite that guard's
+    // sanitized value (e.g. a non-admin's ?tab=admin getting redirected to 'home'
+    // internally, then immediately overwritten back to 'admin' by this params loop).
+    else {
+      const { tab: _ignoredTab, ...deepLinkParams } = Object.fromEntries(new URLSearchParams(location.search));
+      navigate(currentTab(), deepLinkParams);
+    }
   });
 }
 
@@ -4293,6 +4301,17 @@ async function submitEventAnnouncement(eventId){
 }
 
 function renderEventEditPage(eventId){
+  // eventId comes straight from the URL's ?event= query param (attacker-controlled —
+  // anyone can craft a link) and is interpolated below into inline onclick="..." JS
+  // string-literal arguments (saveEvent/deleteEvent). A value like
+  // x');alert(document.domain);// would break out of that string and execute
+  // arbitrary script — the same class of bug already fixed multiple times elsewhere
+  // in this file (e.g. PR #130, the depth-suggest root search) by only ever using
+  // safe, validated values in this position. PocketBase's own record IDs are always
+  // exactly 15 lowercase alphanumeric characters; anything else can't be a real
+  // record id, so treat it as absent (falls through to "new event" below) rather
+  // than trusting it.
+  if (eventId && !/^[a-z0-9]{15}$/.test(eventId)) eventId = '';
   const isEdit = !!eventId;
   _eventFormPendingInvites = [];
   _eventFormRemovedInviteIds = [];
