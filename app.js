@@ -3269,6 +3269,7 @@ async function _eventFormLoadTrees(){
       _eventFormTrees = visibleTrees;
       primary.innerHTML = '<option value="">— Select primary tree —</option>' +
         visibleTrees.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
+      primary.onchange = _eventFormOnTreeChanged;
     }
   } catch { /* ignore */ }
 }
@@ -3323,6 +3324,15 @@ function _eventFormShowEmailInvite(){
   if (area) area.style.display = 'block';
 }
 
+function _eventFormOnTreeChanged(){
+  const resEl = document.getElementById('evf-invite-results');
+  if (resEl) resEl.innerHTML = '';
+  const depthResEl = document.getElementById('evf-depth-root-results');
+  if (depthResEl) depthResEl.innerHTML = '';
+  _eventFormUserSearchReqId++;
+  _eventFormDepthRootSearchReqId++;
+}
+
 function _eventFormClearExtraTrees(){
   const display = el('evf-extra-trees-display');
   const area = el('evf-extra-trees-area');
@@ -3339,6 +3349,8 @@ function _eventFormClearExtraTrees(){
 // for remaining references before this fix.
 let _eventFormUserSearchTimer = null;
 let _eventFormAllUsers = null;
+let _eventFormUsersCacheTreeId = null;
+let _eventFormUserSearchReqId = 0;
 let _eventFormDepthSuggestAreaVisible = false;
 let _eventFormDepthRootTimer = null;
 let _eventFormDepthRootResults = [];
@@ -3622,9 +3634,19 @@ async function _eventFormRunUserSearch(q){
     const query = q.trim();
     if (!query){ resEl.innerHTML = ''; return; }
 
-    if (!_eventFormAllUsers) {
-      const r = await apiFetch('/api/collections/users/records?filter=(approved=true)&perPage=500&sort=name&fields=id,name,email,phone');
+    const reqId = ++_eventFormUserSearchReqId;
+
+    const eventTreeId = el('evf-tree-primary')?.value;
+    if (!eventTreeId) {
+      resEl.innerHTML = '<p style="font-size:.82rem;color:var(--text-muted);padding:.5rem">Select a tree first to search its members.</p>';
+      return;
+    }
+
+    if (!_eventFormAllUsers || _eventFormUsersCacheTreeId !== eventTreeId) {
+      const r = await apiFetch(`/api/collections/users/records?filter=${encodeURIComponent(`(approved=true && home_tree="${eventTreeId}")`)}&perPage=500&sort=name&fields=id,name,email,phone`);
+      if (reqId !== _eventFormUserSearchReqId) return;
       _eventFormAllUsers = r.ok ? (await r.json()).items || [] : [];
+      _eventFormUsersCacheTreeId = eventTreeId;
     }
 
     const lower = query.toLowerCase();
@@ -3636,6 +3658,7 @@ async function _eventFormRunUserSearch(q){
     }).slice(0, 8);
 
     if (matches.length === 0) {
+      if (reqId !== _eventFormUserSearchReqId) return;
       resEl.innerHTML = '<p style="font-size:.82rem;color:var(--text-muted);padding:.5rem">No matching users found.</p>';
       return;
     }
@@ -3648,6 +3671,7 @@ async function _eventFormRunUserSearch(q){
         <div><div class="cr-name">${esc(name)}</div><div class="cr-sub">${esc(email)}</div></div>
       </div>`;
     }).join('');
+    if (reqId !== _eventFormUserSearchReqId) return;
     resEl.innerHTML = rows;
   }, 200);
 }
@@ -4323,6 +4347,7 @@ function renderEventEditPage(eventId){
   _eventFormTrees = [];
   _eventFormAllTrees = [];
   _eventFormShouldClearExtraTrees = false;
+  _eventFormUsersCacheTreeId = null;
   _eventFormDepthSuggestAreaVisible = false;
   _eventFormDepthRootTouched = false;
   _eventFormDepthPreviewResults = null;
@@ -4347,6 +4372,7 @@ function renderEventEditPage(eventId){
         </div>
         <div class="form-group"><label>Location</label><input id="evf-loc" /></div>
       </div>
+      <div id="evf-date-poll-note" class="alert alert-info" style="display:none">A date poll is open for this event — set the date range on the Polls tab instead.</div>
       <div class="row-2">
         <div class="form-group"><label>Start date/time</label><input id="evf-start" type="datetime-local" /></div>
         <div class="form-group"><label>End date/time</label><input id="evf-end" type="datetime-local" /></div>
@@ -4490,7 +4516,13 @@ function renderEventEditPage(eventId){
           opt.textContent = '[Tree unavailable]';
           pt.insertBefore(opt, pt.firstChild);
         }
+        // Setting .value programmatically does NOT fire the native 'change' event
+        // that _eventFormOnTreeChanged is wired to via onchange= — only genuine user
+        // interaction does. Call it explicitly here too, or an invite search started
+        // against whatever tree was selected before this async event-record fetch
+        // resolved would stay "current" even after the real tree loads underneath it.
         pt.value = e.tree;
+        _eventFormOnTreeChanged();
       }
       const etArea = el('evf-extra-trees-area');
       if (etArea) {
@@ -4545,8 +4577,10 @@ function _eventFormTogglePollMode(){
   const pollMode = el('evf-poll-mode')?.checked || false;
   const pollSettings = el('evf-poll-settings');
   const dateRow = document.querySelector('#evf-start,#evf-end')?.closest('.row-2');
+  const dateRowNote = el('evf-date-poll-note');
   if (pollSettings) pollSettings.style.display = pollMode ? 'block' : 'none';
   if (dateRow) dateRow.style.display = pollMode ? 'none' : '';
+  if (dateRowNote) dateRowNote.style.display = pollMode ? 'block' : 'none';
 }
 
 async function saveEvent(eventId){
