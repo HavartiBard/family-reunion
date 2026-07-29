@@ -4347,6 +4347,7 @@ function renderEventEditPage(eventId){
       <div class="form-group"><label>Cover photo</label><input id="evf-photo" type="file" accept="image/*" /></div>
     </div>
     <div id="evf-audience" class="evf-section" style="display:none">
+      ${!isEdit ? '<div class="alert alert-info">Save event details first to unlock this tab.</div>' : ''}
       <div class="form-group">
         <p style="margin:0 0 .35rem 0;font-size:.82rem;color:var(--text-muted)">Anyone in these trees (or linked to them by marriage) can see this event, even without a direct invite. Use Invite-only to restrict visibility to just the people you invite below.</p>
         <label>Tree</label>
@@ -4400,6 +4401,7 @@ function renderEventEditPage(eventId){
       </div>
     </div>
     <div id="evf-polls" class="evf-section" style="display:none">
+      ${!isEdit ? '<div class="alert alert-info">Save event details first to unlock this tab.</div>' : ''}
       <div class="form-group">
         <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
           <input type="checkbox" id="evf-poll-mode" onchange="_eventFormTogglePollMode()" />
@@ -4429,10 +4431,21 @@ function renderEventEditPage(eventId){
     </div>
     <div style="display:flex;gap:.6rem;margin-top:1.5rem">
       <button id="evf-save-btn" class="btn btn-primary" onclick="saveEvent('${eventId || ''}')">Save</button>
-      <button class="btn btn-outline" onclick="navigate('events')">Cancel</button>
+      <button class="btn btn-outline" onclick="navigate('events'${isEdit ? `, {event: '${eventId}'}` : ''})">Cancel</button>
       ${isEdit ? `<button class="btn btn-danger" style="margin-left:auto" onclick="deleteEvent('${eventId}')">Delete</button>` : ''}
     </div>
   </div>`);
+
+  // Audience & Invites and Polls need a real saved event to attach invites/poll
+  // settings to — disable every control in those two panels until this event exists.
+  // The page navigates to ?event=<newId>&edit=1 after the first save (see saveEvent),
+  // which re-renders this same function with isEdit=true and everything unlocked.
+  if (!isEdit) {
+    ['evf-audience', 'evf-polls'].forEach(panelId => {
+      const panel = el(panelId);
+      if (panel) panel.querySelectorAll('input, button, select, textarea').forEach(ctrl => { ctrl.disabled = true; });
+    });
+  }
 
   const treesLoaded = _eventFormLoadTrees();
 
@@ -4496,6 +4509,7 @@ function _eventFormTogglePollMode(){
 }
 
 async function saveEvent(eventId){
+  const wasNew = !eventId;
   const name = val('evf-name');
   const start = val('evf-start');
   const pollMode = el('evf-poll-mode')?.checked || false;
@@ -4671,7 +4685,12 @@ async function saveEvent(eventId){
       return;
     }
     closeModal();
-    navigate('events', { event: saved.id });
+    // A brand-new event's Audience & Invites / Polls tabs are disabled until the event
+    // exists — re-enter edit mode (not the detail page) so the organizer lands right
+    // back on this page with those tabs now unlocked, instead of having to navigate
+    // to the detail view and click "Edit event" again to keep going.
+    if (wasNew) navigate('events', { event: saved.id, edit: '1' });
+    else navigate('events', { event: saved.id });
   } catch (e) { formErr('evf-error', e.message); }
 }
 
