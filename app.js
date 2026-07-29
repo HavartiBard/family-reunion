@@ -3381,6 +3381,8 @@ async function _eventFormInitializeDepthRootSearch(){
   }
 }
 
+let _eventFormDepthRootSearchReqId = 0;
+
 function _eventFormRunDepthRootSearch(q){
   // Editing the search text invalidates whatever root was previously selected —
   // clear the hidden id now so a stale previous selection can't silently survive
@@ -3391,15 +3393,20 @@ function _eventFormRunDepthRootSearch(q){
   _eventFormInvalidateDepthPreview();
   clearTimeout(_eventFormDepthRootTimer);
   _eventFormDepthRootTimer = setTimeout(async ()=>{
+    // Two debounced searches can still have overlapping in-flight fetches if the
+    // organizer types again right as the first one's network request starts —
+    // tag this one and discard its result if a newer search has since begun.
+    const reqId = ++_eventFormDepthRootSearchReqId;
     const resEl = document.getElementById('evf-depth-root-results');
     if (!resEl) return;
     const query = q.trim();
     if (!query){ resEl.innerHTML=''; return; }
-    
+
     const r = await apiFetch('/api/collections/persons/records?perPage=6&filter='+encodeURIComponent(`display_name~"${query}"`));
+    if (reqId !== _eventFormDepthRootSearchReqId) return;
     const items = r.ok ? (await r.json()).items : [];
     _eventFormDepthRootResults = items;
-    
+
     resEl.innerHTML = items.map(p =>
       `<button class="row-card" onclick="_eventFormSetDepthRoot('${p.id}')">
         <div class="avatar" style="width:32px;height:32px;font-size:.75rem;background:${avatarTint(0)}">${personInitials(p)}</div>
@@ -4372,7 +4379,7 @@ function openEventForm(eventId){
           <button class="btn btn-outline btn-sm" onclick="_eventFormPreviewDepthInvites()">Preview</button>
         </div>
         <div id="evf-depth-suggest-results" style="margin-top:.5rem"></div>
-        <div id="evf-depth-suggest-actions" style="display:flex;gap:.5rem;margin-top:.5rem">
+        <div id="evf-depth-suggest-actions" style="display:none;gap:.5rem;margin-top:.5rem">
           <button class="btn btn-primary btn-sm" onclick="_eventFormConfirmDepthInvites()">Add selected</button>
           <button class="btn btn-outline btn-sm" onclick="_eventFormToggleDepthSuggest()">Cancel</button>
         </div>
