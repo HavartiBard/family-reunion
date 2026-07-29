@@ -817,9 +817,15 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
 .btn-ghost:hover{background:var(--bg-hover);color:var(--text-primary)}
 
 /* ── Event edit page tabs ──────────────────────────────────────────────── */
-.evf-tabs{display:flex;gap:.5rem;margin-bottom:1.25rem;border-bottom:2px solid var(--border-default)}
-.evf-tab{padding:.5rem .9rem;border-radius:8px 8px 0 0;font-size:.9rem;font-weight:500;
-  color:var(--text-muted);cursor:pointer;transition:all .15s ease}
+/* Classic "folder tab" construction: the active tab's own bottom border is painted
+   the same color as the card below it (erasing the seam at that spot) and nudged
+   down by its border width so it sits flush on top of the card's own border. */
+.evf-tabs{display:flex;gap:.25rem;margin-bottom:0;border-bottom:2px solid var(--border-default);padding:0 .25rem}
+.evf-tab{padding:.6rem 1.1rem;border-radius:8px 8px 0 0;font-size:.9rem;font-weight:500;
+  color:var(--text-muted);cursor:pointer;transition:all .15s ease;
+  border:2px solid transparent;border-bottom:none;position:relative;top:2px}
 .evf-tab:hover{color:var(--text-primary)}
-.evf-tab.active{background:var(--bg-card);color:var(--accent-gold);border:2px solid var(--border-default);
-  border-bottom-color:transparent;margin-bottom:-.25rem}
+.evf-tab.active{background:var(--bg-card);color:var(--accent-gold);
+  border:2px solid var(--border-default);border-bottom:2px solid var(--bg-card)}
+.evf-tab-content-card{background:var(--bg-card);border:1px solid var(--border-default);
+  border-radius:0 8px 8px 8px;padding:1.25rem;margin-bottom:1.25rem;box-shadow:0 1px 3px rgba(0,0,0,.06)}

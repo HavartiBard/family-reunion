@@ -3240,41 +3240,37 @@ async function runMerge(ids){
 const EVENT_TYPE_ICONS = { reunion:'🏕', birthday:'🎂', wedding:'💍', holiday:'🎉', other:'📅' };
 
 let _eventFormTrees = [];
+let _eventFormAllTrees = [];
 let _eventFormPendingInvites = [];
 let _eventFormRemovedInviteIds = [];
+let _eventFormShouldClearExtraTrees = false;
 
 async function _eventFormLoadTrees(){
   const primary = el('evf-tree-primary');
-  const extraContainer = document.getElementById('evf-extra-trees');
-  if (!primary && !extraContainer) return;
+  if (!primary) return;
   try {
     const res = await apiFetch('/api/collections/trees/records?perPage=200&sort=name');
     if (res.ok) {
       const trees = (await res.json()).items || [];
-      _eventFormTrees = trees;
-      if (primary) {
-        primary.innerHTML = '<option value="">— Select primary tree —</option>' +
-          trees.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
-      }
-      if (extraContainer) {
-        extraContainer.innerHTML = trees.map(t =>
-          `<label style="display:flex;align-items:center;gap:.4rem;margin:.25rem 0;font-size:.92rem">
-            <input type="checkbox" value="${t.id}" />
-            <span>${esc(t.name)}</span>
-          </label>`
-        ).join('');
-      }
+      _eventFormAllTrees = trees;
+      // Every approved user can technically fetch every tree in the system (this app's
+      // trees.listRule is intentionally broad), but the event-tree picker only makes
+      // sense scoped to trees the organizer actually belongs to — a full-admin
+      // sees everything (they legitimately need to assign events to any tree),
+      // a regular user/branch admin only their own home_tree + admin_trees (NOT
+      // linked_trees — marriage-linked trees are read-only visibility for a regular
+      // user in this app's model, not something they should assign event ownership
+      // to). Mirrors the same home_tree+admin_trees convention already used by
+      // _defaultTreeForNewRecord.
+      const isAdmin = !!(currentUser && currentUser.family_admin);
+      const adminTrees = (currentUser && currentUser.admin_trees) || [];
+      const visibleTrees = isAdmin ? trees : trees.filter(t =>
+        (currentUser && currentUser.home_tree === t.id) || adminTrees.includes(t.id));
+      _eventFormTrees = visibleTrees;
+      primary.innerHTML = '<option value="">— Select primary tree —</option>' +
+        visibleTrees.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
     }
   } catch { /* ignore */ }
-}
-
-function _eventFormBuildExtraTrees(selectedTreeIds){
-  const container = document.getElementById('evf-extra-trees');
-  if (!container) return;
-  const checkboxes = container.querySelectorAll('input[type="checkbox"]');
-  checkboxes.forEach(cb => {
-    cb.checked = selectedTreeIds.includes(cb.value);
-  });
 }
 
 async function _eventFormLoadExistingInvites(eventId){
@@ -3325,6 +3321,14 @@ function _eventFormRemoveInvite(index){
 function _eventFormShowEmailInvite(){
   const area = document.getElementById('evf-email-invite-area');
   if (area) area.style.display = 'block';
+}
+
+function _eventFormClearExtraTrees(){
+  const display = el('evf-extra-trees-display');
+  const area = el('evf-extra-trees-area');
+  if (display) display.innerHTML = '<p style="font-size:.82rem;color:var(--text-muted);margin:.25rem 0">None preserved.</p>';
+  if (area) area.style.display = 'none';
+  _eventFormShouldClearExtraTrees = true;
 }
 
 // These two are still used by the EXISTING _eventFormRunUserSearch below — an earlier
@@ -4317,6 +4321,8 @@ function renderEventEditPage(eventId){
   _eventFormPendingInvites = [];
   _eventFormRemovedInviteIds = [];
   _eventFormTrees = [];
+  _eventFormAllTrees = [];
+  _eventFormShouldClearExtraTrees = false;
   _eventFormDepthSuggestAreaVisible = false;
   _eventFormDepthRootTouched = false;
   _eventFormDepthPreviewResults = null;
@@ -4329,6 +4335,7 @@ function renderEventEditPage(eventId){
       <div class="evf-tab" onclick="_eventFormSwitchTab('audience')">Audience & Invites</div>
       <div class="evf-tab" onclick="_eventFormSwitchTab('polls')">Polls</div>
     </div>
+    <div class="evf-tab-content-card">
     <div id="evf-details" class="evf-section">
       <div class="form-group"><label>Name</label><input id="evf-name" /></div>
       <div class="row-2">
@@ -4354,9 +4361,10 @@ function renderEventEditPage(eventId){
         <label>Tree</label>
         <select id="evf-tree-primary" style="width:100%"></select>
       </div>
-      <div class="form-group">
-        <label>Extra trees</label>
-        <div id="evf-extra-trees" style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:.3rem;padding:.4rem"></div>
+      <div class="form-group" id="evf-extra-trees-area" style="display:none">
+        <label>Additional trees (read-only, preserved from previous save)</label>
+        <div id="evf-extra-trees-display" style="margin-top:.25rem"></div>
+        <button class="btn btn-outline btn-sm" onclick="_eventFormClearExtraTrees()" style="margin-top:.5rem">Clear preserved trees</button>
       </div>
       <div class="form-group">
         <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
@@ -4430,6 +4438,7 @@ function renderEventEditPage(eventId){
         </div>
       </div>
     </div>
+    </div>
     <div style="display:flex;gap:.6rem;margin-top:1.5rem">
       <button id="evf-save-btn" class="btn btn-primary" onclick="saveEvent('${eventId || ''}')">Save</button>
       <button class="btn btn-outline" onclick="navigate('events'${isEdit ? `, {event: '${eventId}'}` : ''})">Cancel</button>
@@ -4466,7 +4475,39 @@ function renderEventEditPage(eventId){
       // this raced and lost against _eventFormLoadTrees() in earlier testing.
       await treesLoaded;
       const pt = el('evf-tree-primary');
-      if (pt && e.tree) pt.value = e.tree;
+      if (pt && e.tree) {
+        // The event's already-assigned tree might not be in the organizer-scoped
+        // list _eventFormLoadTrees just populated (e.g. it was set by an admin to a
+        // tree this organizer isn't a member of, or their own tree membership
+        // changed since). Setting .value to something with no matching <option> is
+        // a silent no-op — the select would show the blank placeholder even though
+        // the event genuinely has a tree, and saving without noticing would clear it.
+        // Guard by injecting the event's tree as an extra option if it's missing.
+        const alreadyPresent = (_eventFormTrees || []).some(ft => ft.id === e.tree);
+        if (!alreadyPresent) {
+          const opt = document.createElement('option');
+          opt.value = e.tree;
+          opt.textContent = '[Tree unavailable]';
+          pt.insertBefore(opt, pt.firstChild);
+        }
+        pt.value = e.tree;
+      }
+      const etArea = el('evf-extra-trees-area');
+      if (etArea) {
+        const extraTrees = e.extra_trees || [];
+        const extraTreesDisplay = el('evf-extra-trees-display');
+        if (extraTreesDisplay) {
+          if (extraTrees.length === 0) {
+            extraTreesDisplay.innerHTML = '<p style="font-size:.82rem;color:var(--text-muted);margin:.25rem 0">None preserved.</p>';
+          } else {
+            extraTreesDisplay.innerHTML = extraTrees.map(tid => {
+              const treeName = (_eventFormAllTrees || []).find(t => t.id === tid)?.name || '[Tree unavailable]';
+              return `<div style="padding:.35rem .5rem;background:var(--bg-hover);border-radius:.25rem;margin:.25rem 0;font-size:.88rem">${esc(treeName)}</div>`;
+            }).join('');
+          }
+        }
+        etArea.style.display = extraTrees.length > 0 ? 'block' : 'none';
+      }
       const io = el('evf-invite-only');
       if (io) io.checked = !!e.invite_only;
       const pm = el('evf-poll-mode');
@@ -4482,7 +4523,6 @@ function renderEventEditPage(eventId){
       }
       const lpm = el('evf-location-poll-mode');
       if (lpm) lpm.checked = e.location_poll_status === 'open';
-      _eventFormBuildExtraTrees(e.extra_trees || []);
       await _eventFormLoadExistingInvites(eventId);
     });
   }
@@ -4569,20 +4609,26 @@ async function saveEvent(eventId){
   const desc = val('evf-desc'); if (desc) fd.append('description', desc);
   const photo = el('evf-photo').files[0]; if (photo) fd.append('cover_photo', photo);
   const primaryTree = el('evf-tree-primary')?.value;
-  const extraTrees = Array.from(document.querySelectorAll('#evf-extra-trees input[type="checkbox"]:checked')).map(cb => cb.value);
   const inviteOnly = el('evf-invite-only')?.checked || false;
   if (primaryTree) {
     fd.append('tree', primaryTree);
   } else if (eventId) {
-    // Editing: selecting the blank option must still clear an existing primary tree,
-    // same reasoning as extra_trees below — an omitted field leaves the old value in place.
+    // Editing: selecting the blank option must still clear an existing primary tree —
+    // an omitted field leaves the old value in place on PATCH, so an explicit empty
+    // value has to be sent to actually clear it.
     fd.append('tree', '');
   }
-  if (extraTrees.length > 0) {
-    extraTrees.forEach(tid => fd.append('extra_trees', tid));
-  } else if (eventId) {
-    // Editing: an empty selection must still be sent so unchecking every box
-    // actually clears the field, rather than PATCH leaving old values in place.
+  // extra_trees has no UI control anymore (removed — the picker only ever showed
+  // every tree in the system with no scoping, which wasn't useful in practice) —
+  // deliberately never appended during normal saves, so PATCH leaves any existing
+  // extra_trees value untouched. However, if the user explicitly clicked "Clear preserved
+  // trees" in the UI, send an explicit empty array to remove them.
+  if (_eventFormShouldClearExtraTrees) {
+    // An empty string (not '[]') is this codebase's established convention for
+    // clearing a multi-relation field via multipart FormData — matches the same
+    // pattern already used for the `tree` field's own blank-selection case above.
+    // A literal '[]' would be interpreted as a single relation id "[]" and fail
+    // PocketBase's id validation rather than clearing the field.
     fd.append('extra_trees', '');
   }
   fd.append('invite_only', String(inviteOnly));
@@ -4607,6 +4653,7 @@ async function saveEvent(eventId){
       : await apiFetch('/api/collections/events/records', { method:'POST', body: fd });
     if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Save failed'); }
     const saved = await res.json();
+    if (_eventFormShouldClearExtraTrees) _eventFormShouldClearExtraTrees = false;
     let saveError = null;
 
     // The event itself is now persisted regardless of what happens below. If this was a
