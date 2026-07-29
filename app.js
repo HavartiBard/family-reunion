@@ -3339,6 +3339,7 @@ function _eventFormClearExtraTrees(){
 // for remaining references before this fix.
 let _eventFormUserSearchTimer = null;
 let _eventFormAllUsers = null;
+let _eventFormUsersCacheTreeId = null;
 let _eventFormDepthSuggestAreaVisible = false;
 let _eventFormDepthRootTimer = null;
 let _eventFormDepthRootResults = [];
@@ -3622,9 +3623,16 @@ async function _eventFormRunUserSearch(q){
     const query = q.trim();
     if (!query){ resEl.innerHTML = ''; return; }
 
-    if (!_eventFormAllUsers) {
-      const r = await apiFetch('/api/collections/users/records?filter=(approved=true)&perPage=500&sort=name&fields=id,name,email,phone');
+    const eventTreeId = el('evf-tree-primary')?.value;
+    if (!eventTreeId) {
+      resEl.innerHTML = '<p style="font-size:.82rem;color:var(--text-muted);padding:.5rem">Select a tree first to search its members.</p>';
+      return;
+    }
+
+    if (!_eventFormAllUsers || _eventFormUsersCacheTreeId !== eventTreeId) {
+      const r = await apiFetch(`/api/collections/users/records?filter=${encodeURIComponent(`(approved=true && home_tree="${eventTreeId}")`)}&perPage=500&sort=name&fields=id,name,email,phone`);
       _eventFormAllUsers = r.ok ? (await r.json()).items || [] : [];
+      _eventFormUsersCacheTreeId = eventTreeId;
     }
 
     const lower = query.toLowerCase();
@@ -4323,6 +4331,7 @@ function renderEventEditPage(eventId){
   _eventFormTrees = [];
   _eventFormAllTrees = [];
   _eventFormShouldClearExtraTrees = false;
+  _eventFormUsersCacheTreeId = null;
   _eventFormDepthSuggestAreaVisible = false;
   _eventFormDepthRootTouched = false;
   _eventFormDepthPreviewResults = null;
@@ -4347,6 +4356,7 @@ function renderEventEditPage(eventId){
         </div>
         <div class="form-group"><label>Location</label><input id="evf-loc" /></div>
       </div>
+      <div id="evf-date-poll-note" class="alert alert-info" style="display:none">A date poll is open for this event — set the date range on the Polls tab instead.</div>
       <div class="row-2">
         <div class="form-group"><label>Start date/time</label><input id="evf-start" type="datetime-local" /></div>
         <div class="form-group"><label>End date/time</label><input id="evf-end" type="datetime-local" /></div>
@@ -4545,8 +4555,10 @@ function _eventFormTogglePollMode(){
   const pollMode = el('evf-poll-mode')?.checked || false;
   const pollSettings = el('evf-poll-settings');
   const dateRow = document.querySelector('#evf-start,#evf-end')?.closest('.row-2');
+  const dateRowNote = el('evf-date-poll-note');
   if (pollSettings) pollSettings.style.display = pollMode ? 'block' : 'none';
   if (dateRow) dateRow.style.display = pollMode ? 'none' : '';
+  if (dateRowNote) dateRowNote.style.display = pollMode ? 'block' : 'none';
 }
 
 async function saveEvent(eventId){
