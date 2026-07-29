@@ -3356,6 +3356,11 @@ async function _eventFormInitializeDepthRootSearch(){
 }
 
 function _eventFormRunDepthRootSearch(q){
+  // Editing the search text invalidates whatever root was previously selected —
+  // clear the hidden id now so a stale previous selection can't silently survive
+  // into Preview if the organizer types a new name but never clicks a result.
+  const idInput = document.getElementById('evf-depth-root-id');
+  if (idInput) idInput.value = '';
   clearTimeout(_eventFormDepthRootTimer);
   _eventFormDepthRootTimer = setTimeout(async ()=>{
     const resEl = document.getElementById('evf-depth-root-results');
@@ -3437,10 +3442,15 @@ async function _eventFormPreviewDepthInvites(){
       if (unit.hasAnyAccount){
         for (const accountId of unit.accountHolderIds){
           const p = persons.find(x => x.id === accountId);
-          if (!p) continue;
+          // accountHolderIds are PERSON ids; event_invites.user is a relation to the
+          // USERS collection (persons.linked_user), a different id entirely. Using the
+          // person id as `userId` would fail relation validation when the event saves —
+          // resolve the actual linked_user here and use IT consistently for both the
+          // duplicate check and (in the confirm handler below) the pushed invite.
+          if (!p || !p.linked_user) continue;
           const isMe = p.id === myPersonIdVal;
           if (isMe) continue;
-          const alreadyInList = _eventFormPendingInvites.some(i => i.inviteType === 'user' && i.userId === accountId);
+          const alreadyInList = _eventFormPendingInvites.some(i => i.inviteType === 'user' && i.userId === p.linked_user);
           html += `
             <div style="display:flex;align-items:center;gap:.5rem;padding:.4rem;background:var(--bg-hover);border-radius:.3rem;margin:.25rem 0">
               <input type="checkbox" id="evf-depth-suggest-${accountId}" value="${accountId}" ${alreadyInList ? 'disabled checked' : ''} />
@@ -3473,7 +3483,7 @@ async function _eventFormPreviewDepthInvites(){
           </div>
           ${noAccounts ? `
             <div style="display:flex;gap:.5rem;align-items:center;padding-left:2.5rem;margin-left:.5rem;border-left:1px solid var(--border)">
-              <input type="email" id="evf-depth-email-${unit.personIds[0]}" placeholder="Email for ${esc(unit.surnameLabel)} (optional)" style="flex:1" />
+              <input type="email" id="evf-depth-email-${unit.personIds[0]}" placeholder="Email for ${escAttr(unit.surnameLabel)} (optional)" style="flex:1" />
             </div>
           ` : ''}
         `;
@@ -3498,31 +3508,36 @@ function _eventFormConfirmDepthInvites(){
   for (const unit of units){
     if (unit.hasAnyAccount){
       for (const accountId of unit.accountHolderIds){
-        if (_eventFormPendingInvites.some(i => i.inviteType === 'user' && i.userId === accountId)) continue;
-        
+        const p = persons.find(x => x.id === accountId);
+        if (!p || !p.linked_user) continue;
+        if (_eventFormPendingInvites.some(i => i.inviteType === 'user' && i.userId === p.linked_user)) continue;
+
         const checkbox = document.getElementById(`evf-depth-suggest-${accountId}`);
         if (checkbox && checkbox.checked){
           _eventFormPendingInvites.push({
             id: null,
             inviteType: 'user',
-            userId: accountId
+            userId: p.linked_user
           });
         }
       }
     } else {
       const checkbox = document.getElementById(`evf-depth-suggest-unit-${unit.personIds[0]}`);
       const emailInput = document.getElementById(`evf-depth-email-${unit.personIds[0]}`);
-      
+
       if (checkbox && checkbox.checked){
         if (emailInput && emailInput.value.trim()){
-          _eventFormPendingInvites.push({
-            id: null,
-            inviteType: 'email',
-            email: emailInput.value.trim(),
-            guestName: unit.personIds.length === 1 
-              ? (persons.find(x => x.id === unit.personIds[0])?.display_name || unit.surnameLabel) 
-              : `The ${unit.surnameLabel} family`
-          });
+          const emailVal = emailInput.value.trim();
+          if (!_eventFormPendingInvites.some(i => i.inviteType === 'email' && i.email === emailVal)){
+            _eventFormPendingInvites.push({
+              id: null,
+              inviteType: 'email',
+              email: emailVal,
+              guestName: unit.personIds.length === 1
+                ? (persons.find(x => x.id === unit.personIds[0])?.display_name || unit.surnameLabel)
+                : `The ${unit.surnameLabel} family`
+            });
+          }
         }
       }
     }
