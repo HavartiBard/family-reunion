@@ -3269,6 +3269,7 @@ async function _eventFormLoadTrees(){
       _eventFormTrees = visibleTrees;
       primary.innerHTML = '<option value="">— Select primary tree —</option>' +
         visibleTrees.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
+      primary.onchange = _eventFormOnTreeChanged;
     }
   } catch { /* ignore */ }
 }
@@ -3323,6 +3324,15 @@ function _eventFormShowEmailInvite(){
   if (area) area.style.display = 'block';
 }
 
+function _eventFormOnTreeChanged(){
+  const resEl = document.getElementById('evf-invite-results');
+  if (resEl) resEl.innerHTML = '';
+  const depthResEl = document.getElementById('evf-depth-root-results');
+  if (depthResEl) depthResEl.innerHTML = '';
+  _eventFormUserSearchReqId++;
+  _eventFormDepthRootSearchReqId++;
+}
+
 function _eventFormClearExtraTrees(){
   const display = el('evf-extra-trees-display');
   const area = el('evf-extra-trees-area');
@@ -3340,6 +3350,7 @@ function _eventFormClearExtraTrees(){
 let _eventFormUserSearchTimer = null;
 let _eventFormAllUsers = null;
 let _eventFormUsersCacheTreeId = null;
+let _eventFormUserSearchReqId = 0;
 let _eventFormDepthSuggestAreaVisible = false;
 let _eventFormDepthRootTimer = null;
 let _eventFormDepthRootResults = [];
@@ -3623,6 +3634,8 @@ async function _eventFormRunUserSearch(q){
     const query = q.trim();
     if (!query){ resEl.innerHTML = ''; return; }
 
+    const reqId = ++_eventFormUserSearchReqId;
+
     const eventTreeId = el('evf-tree-primary')?.value;
     if (!eventTreeId) {
       resEl.innerHTML = '<p style="font-size:.82rem;color:var(--text-muted);padding:.5rem">Select a tree first to search its members.</p>';
@@ -3631,6 +3644,7 @@ async function _eventFormRunUserSearch(q){
 
     if (!_eventFormAllUsers || _eventFormUsersCacheTreeId !== eventTreeId) {
       const r = await apiFetch(`/api/collections/users/records?filter=${encodeURIComponent(`(approved=true && home_tree="${eventTreeId}")`)}&perPage=500&sort=name&fields=id,name,email,phone`);
+      if (reqId !== _eventFormUserSearchReqId) return;
       _eventFormAllUsers = r.ok ? (await r.json()).items || [] : [];
       _eventFormUsersCacheTreeId = eventTreeId;
     }
@@ -3644,6 +3658,7 @@ async function _eventFormRunUserSearch(q){
     }).slice(0, 8);
 
     if (matches.length === 0) {
+      if (reqId !== _eventFormUserSearchReqId) return;
       resEl.innerHTML = '<p style="font-size:.82rem;color:var(--text-muted);padding:.5rem">No matching users found.</p>';
       return;
     }
@@ -3656,6 +3671,7 @@ async function _eventFormRunUserSearch(q){
         <div><div class="cr-name">${esc(name)}</div><div class="cr-sub">${esc(email)}</div></div>
       </div>`;
     }).join('');
+    if (reqId !== _eventFormUserSearchReqId) return;
     resEl.innerHTML = rows;
   }, 200);
 }
