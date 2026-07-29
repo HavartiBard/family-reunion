@@ -415,6 +415,13 @@ onRecordAfterCreateRequest((e) => {
     }
 
     const audienceUserIds = new Set();
+    // Track whether either audience source failed (transient DAO/SQLite error, not a
+    // "no matching rows" empty result) — if so, leave `sent` false rather than marking
+    // this announcement sent. Otherwise a transient failure here would silently drop
+    // that half of the audience AND permanently prevent the cron job from retrying
+    // (it only ever picks up `sent = false` rows), since the record would already be
+    // marked sent despite never actually reaching those recipients.
+    let audienceLookupFailed = false;
 
     try {
       const rsvps = userDao.findRecordsByFilter(
@@ -430,6 +437,7 @@ onRecordAfterCreateRequest((e) => {
         }
       });
     } catch (lookupErr) {
+      audienceLookupFailed = true;
     }
 
     try {
@@ -446,6 +454,11 @@ onRecordAfterCreateRequest((e) => {
         }
       });
     } catch (lookupErr) {
+      audienceLookupFailed = true;
+    }
+
+    if (audienceLookupFailed) {
+      return;
     }
 
     const announcementTitle = e.record.get('title') || '';
