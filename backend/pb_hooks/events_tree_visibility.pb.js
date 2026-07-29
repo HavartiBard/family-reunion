@@ -312,10 +312,53 @@ onRecordBeforeUpdateRequest((e) => {
   const userDao = $app.dao();
   const persistedRecord = userDao.findRecordById('events', e.record.id);
 
+  // Tree-permission check MUST run and (for non-admins) potentially reject the update
+  // BEFORE any notification fan-out below. Originally the fan-out ran first — if a
+  // non-admin's tree access no longer covered this event, the notifications had
+  // already been created by the time the tree check rejected the update, and since the
+  // persisted state never actually changed, the requester could resubmit the same
+  // rejected request repeatedly, spamming every RSVP'd/invited recipient with
+  // notifications for a transition that never took effect. Confirmed via Codex review;
+  // fixed by moving this check first. family_admin still bypasses it entirely.
+  if (!isFamilyAdmin) {
+    const userHomeTreeId = authRecord.get('home_tree');
+    const writableTreeSet = new Set();
+
+    if (userHomeTreeId && userHomeTreeId !== '') {
+      writableTreeSet.add(userHomeTreeId);
+    }
+
+    const userAdminTrees = authRecord.get('admin_trees') || [];
+    userAdminTrees.forEach((tid) => writableTreeSet.add(tid));
+
+    const existingRecordTreeId = persistedRecord ? persistedRecord.get('tree') : '';
+    if (existingRecordTreeId && existingRecordTreeId !== '') {
+      const extraTrees = persistedRecord.get('extra_trees') || [];
+      const audienceTreeSet = new Set();
+      audienceTreeSet.add(existingRecordTreeId);
+      extraTrees.forEach((tid) => audienceTreeSet.add(tid));
+
+      let hasAccess = false;
+      for (const treeId of audienceTreeSet) {
+        if (writableTreeSet.has(treeId)) {
+          hasAccess = true;
+          break;
+        }
+      }
+
+      if (!hasAccess) {
+        throw new ForbiddenError('You do not have permission to update events for this tree.');
+      }
+    }
+  }
+
   if (persistedRecord && e.record.id) {
     try {
       const notificationsCollection = userDao.findCollectionByNameOrId('notifications');
-      const eventName = persistedRecord.get('name') || '';
+      // Use the incoming (new) name, not the persisted one — if the same edit both
+      // renames the event and opens/closes a poll, notifications should reference what
+      // the event is now called, not its about-to-be-overwritten former name.
+      const eventName = e.record.get('name') || persistedRecord.get('name') || '';
 
       const oldDatePollStatus = persistedRecord.get('date_poll_status') || '';
       const newDatePollStatus = e.record.get('date_poll_status') || '';
@@ -541,40 +584,6 @@ onRecordBeforeUpdateRequest((e) => {
       }
     } catch (err) {
       // Fail open on notification logic errors
-    }
-  }
-
-  if (isFamilyAdmin) {
-    return;
-  }
-
-  const userHomeTreeId = authRecord.get('home_tree');
-  const writableTreeSet = new Set();
-
-  if (userHomeTreeId && userHomeTreeId !== '') {
-    writableTreeSet.add(userHomeTreeId);
-  }
-
-  const userAdminTrees = authRecord.get('admin_trees') || [];
-  userAdminTrees.forEach((tid) => writableTreeSet.add(tid));
-
-  const existingRecordTreeId = persistedRecord ? persistedRecord.get('tree') : '';
-  if (existingRecordTreeId && existingRecordTreeId !== '') {
-    const extraTrees = persistedRecord.get('extra_trees') || [];
-    const audienceTreeSet = new Set();
-    audienceTreeSet.add(existingRecordTreeId);
-    extraTrees.forEach((tid) => audienceTreeSet.add(tid));
-
-    let hasAccess = false;
-    for (const treeId of audienceTreeSet) {
-      if (writableTreeSet.has(treeId)) {
-        hasAccess = true;
-        break;
-      }
-    }
-
-    if (!hasAccess) {
-      throw new ForbiddenError('You do not have permission to update events for this tree.');
     }
   }
 }, 'events');
