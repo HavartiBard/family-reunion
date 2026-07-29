@@ -3240,6 +3240,7 @@ async function runMerge(ids){
 const EVENT_TYPE_ICONS = { reunion:'🏕', birthday:'🎂', wedding:'💍', holiday:'🎉', other:'📅' };
 
 let _eventFormTrees = [];
+let _eventFormAllTrees = [];
 let _eventFormPendingInvites = [];
 let _eventFormRemovedInviteIds = [];
 let _eventFormShouldClearExtraTrees = false;
@@ -3251,6 +3252,7 @@ async function _eventFormLoadTrees(){
     const res = await apiFetch('/api/collections/trees/records?perPage=200&sort=name');
     if (res.ok) {
       const trees = (await res.json()).items || [];
+      _eventFormAllTrees = trees;
       // Every approved user can technically fetch every tree in the system (this app's
       // trees.listRule is intentionally broad), but the event-tree picker only makes
       // sense scoped to trees the organizer actually belongs to — a full-admin
@@ -4319,6 +4321,7 @@ function renderEventEditPage(eventId){
   _eventFormPendingInvites = [];
   _eventFormRemovedInviteIds = [];
   _eventFormTrees = [];
+  _eventFormAllTrees = [];
   _eventFormShouldClearExtraTrees = false;
   _eventFormDepthSuggestAreaVisible = false;
   _eventFormDepthRootTouched = false;
@@ -4498,7 +4501,7 @@ function renderEventEditPage(eventId){
             extraTreesDisplay.innerHTML = '<p style="font-size:.82rem;color:var(--text-muted);margin:.25rem 0">None preserved.</p>';
           } else {
             extraTreesDisplay.innerHTML = extraTrees.map(tid => {
-              const treeName = (_eventFormTrees || []).find(t => t.id === tid)?.name || '[Tree unavailable]';
+              const treeName = (_eventFormAllTrees || []).find(t => t.id === tid)?.name || '[Tree unavailable]';
               return `<div style="padding:.35rem .5rem;background:var(--bg-hover);border-radius:.25rem;margin:.25rem 0;font-size:.88rem">${esc(treeName)}</div>`;
             }).join('');
           }
@@ -4627,7 +4630,6 @@ async function saveEvent(eventId){
     // A literal '[]' would be interpreted as a single relation id "[]" and fail
     // PocketBase's id validation rather than clearing the field.
     fd.append('extra_trees', '');
-    _eventFormShouldClearExtraTrees = false;
   }
   fd.append('invite_only', String(inviteOnly));
   // Independent of date_poll_status/pollMode above — an event can have neither, either,
@@ -4651,6 +4653,7 @@ async function saveEvent(eventId){
       : await apiFetch('/api/collections/events/records', { method:'POST', body: fd });
     if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Save failed'); }
     const saved = await res.json();
+    if (_eventFormShouldClearExtraTrees) _eventFormShouldClearExtraTrees = false;
     let saveError = null;
 
     // The event itself is now persisted regardless of what happens below. If this was a
