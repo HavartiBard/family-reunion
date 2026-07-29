@@ -5353,10 +5353,22 @@ async function deleteComment(commentId, relatedId, relatedType, containerId){
 // this). Also uses apiFetch (which attaches the Authorization header), not a raw fetch()
 // call, which would otherwise submit this PATCH unauthenticated and have it silently
 // rejected by the notifications collection's own-records-only rule.
-function markNotifRead(id){
-  apiFetch(`/api/collections/notifications/records/${id}`, {
-    method:'PATCH', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ read: true })
-  });
+async function markNotifRead(id, wasUnread){
+  try {
+    const res = await apiFetch(`/api/collections/notifications/records/${id}`, {
+      method:'PATCH', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ read: true })
+    });
+    // navigate() (called just before this in noteRow's onclick) already rendered the
+    // sidebar for the destination screen by the time this PATCH resolves, and nothing
+    // else re-renders it afterward — without this, a clicked notification's read state
+    // updates in the database but the sidebar's unread badge count never reflects it for
+    // the rest of the session (matches the pattern markAllRead already uses: decrement
+    // the in-memory count directly rather than re-fetching, then re-render the sidebar).
+    if (res.ok && wasUnread && unreadCount > 0) {
+      unreadCount -= 1;
+      renderSidebar();
+    }
+  } catch { /* ignore */ }
 }
 
 SCREENS.notifications = async function(){
@@ -5392,7 +5404,7 @@ SCREENS.notifications = async function(){
       'photo': '📷'
     }[n.type] || '';
     const isEvent = n.related_type === 'events' && n.related_id;
-    return `<div class="notif-row${n.read ? '' : ' unread'}"${isEvent ? ' onclick="navigate(\'events\',{event:\'' + n.related_id + '\'});markNotifRead(\'' + n.id + '\')"' : ''}>
+    return `<div class="notif-row${n.read ? '' : ' unread'}"${isEvent ? ' onclick="navigate(\'events\',{event:\'' + n.related_id + '\'});markNotifRead(\'' + n.id + '\',' + (!n.read) + ')"' : ''}>
       ${typeIcon ? `<div class="notif-icon">${typeIcon}</div>` : ''}
       <div class="notif-dot${read}"></div>
       <div class="notif-body"${isEvent ? ' style="cursor:pointer"' : ''}>
