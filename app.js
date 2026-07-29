@@ -3314,8 +3314,287 @@ function _eventFormShowEmailInvite(){
   if (area) area.style.display = 'block';
 }
 
+// These two are still used by the EXISTING _eventFormRunUserSearch below — an earlier
+// draft deleted their declarations while adding the depth-suggest feature's own state,
+// which would have thrown "_eventFormAllUsers is not defined" on the very first call to
+// the manual user-search (reading an undeclared identifier always throws, regardless of
+// strict mode — only assigning to one creates an implicit global). Confirmed by grepping
+// for remaining references before this fix.
 let _eventFormUserSearchTimer = null;
 let _eventFormAllUsers = null;
+let _eventFormDepthSuggestAreaVisible = false;
+let _eventFormDepthRootTimer = null;
+let _eventFormDepthRootResults = [];
+// Set true the moment the organizer types or picks a root themselves, so the
+// async default-root initialization below knows not to clobber it if its
+// response arrives late (e.g. slow connection).
+let _eventFormDepthRootTouched = false;
+// Bumped every time the root/depth inputs change (or a default root is applied),
+// so an in-flight preview request whose inputs are now stale can detect that its
+// result is no longer current and discard itself instead of overwriting a newer
+// invalidation with old data.
+let _eventFormDepthRequestGen = 0;
+
+function _eventFormToggleDepthSuggest(){
+  const area = document.getElementById('evf-depth-suggest-area');
+  if (!area) return;
+  if (_eventFormDepthSuggestAreaVisible){
+    area.style.display = 'none';
+    _eventFormDepthSuggestAreaVisible = false;
+  } else {
+    area.style.display = 'block';
+    _eventFormDepthSuggestAreaVisible = true;
+    _eventFormDepthRootTouched = false;
+    _eventFormInitializeDepthRootSearch();
+  }
+}
+
+function _eventFormInvalidateDepthPreview(){
+  _eventFormDepthRequestGen++;
+  _eventFormDepthPreviewResults = null;
+  const resultsEl = document.getElementById('evf-depth-suggest-results');
+  const actionsEl = document.getElementById('evf-depth-suggest-actions');
+  if (resultsEl) resultsEl.innerHTML = '';
+  if (actionsEl) actionsEl.style.display = 'none';
+}
+
+async function _eventFormInitializeDepthRootSearch(){
+  const searchInput = document.getElementById('evf-depth-root-search');
+  const idInput = document.getElementById('evf-depth-root-id');
+  if (!searchInput || !idInput) return;
+
+  const myPersonIdVal = await myPersonId();
+  if (_eventFormDepthRootTouched) return;
+  if (myPersonIdVal){
+    const r = await apiFetch(`/api/collections/persons/records/${myPersonIdVal}`);
+    if (_eventFormDepthRootTouched) return;
+    if (r.ok){
+      const p = await r.json();
+      if (_eventFormDepthRootTouched) return;
+      // Restoring the default root changes what "the current root" means, so any
+      // preview computed against whatever was there before (including a fresh
+      // reopen after the panel was previously used) is no longer valid.
+      _eventFormInvalidateDepthPreview();
+      searchInput.value = p.display_name || '';
+      idInput.value = p.id;
+    }
+  }
+}
+
+let _eventFormDepthRootSearchReqId = 0;
+
+function _eventFormRunDepthRootSearch(q){
+  // Editing the search text invalidates whatever root was previously selected —
+  // clear the hidden id now so a stale previous selection can't silently survive
+  // into Preview if the organizer types a new name but never clicks a result.
+  _eventFormDepthRootTouched = true;
+  const idInput = document.getElementById('evf-depth-root-id');
+  if (idInput) idInput.value = '';
+  _eventFormInvalidateDepthPreview();
+  // Bump the token the instant the input changes, not just when the debounced
+  // callback fires below — an already-in-flight fetch from a still-earlier
+  // keystroke could otherwise outlive this call and still pass the check.
+  const reqId = ++_eventFormDepthRootSearchReqId;
+  clearTimeout(_eventFormDepthRootTimer);
+  _eventFormDepthRootTimer = setTimeout(async ()=>{
+    const resEl = document.getElementById('evf-depth-root-results');
+    if (!resEl) return;
+    const query = q.trim();
+    if (!query){ resEl.innerHTML=''; return; }
+
+    const r = await apiFetch('/api/collections/persons/records?perPage=500&filter='+encodeURIComponent(`display_name~"${query}"`));
+    if (reqId !== _eventFormDepthRootSearchReqId) return;
+    const items = r.ok ? (await r.json()).items : [];
+    if (reqId !== _eventFormDepthRootSearchReqId) return;
+    _eventFormDepthRootResults = items;
+
+    resEl.innerHTML = items.map(p =>
+      `<button class="row-card" onclick="_eventFormSetDepthRoot('${p.id}')">
+        <div class="avatar" style="width:32px;height:32px;font-size:.75rem;background:${avatarTint(0)}">${personInitials(p)}</div>
+        <div><div class="rc-name">${esc(p.display_name)}</div><div class="rc-sub">${personYears(p)}</div></div></button>`
+    ).join('');
+  }, 250);
+}
+
+function _eventFormSetDepthRoot(id){
+  // Look up the display name from the cached search results by (safe, opaque) id rather
+  // than embedding a person's editable display_name into the onclick attribute's JS
+  // string-literal argument above — esc() only HTML-escapes, not JS-string-escapes, so a
+  // name containing a quote (e.g. "O'Brien") would break out of the string and could
+  // execute arbitrary script. Same class of bug already fixed once this session for the
+  // manual user-invite search's onclick (PR #130) — reintroduced here for the root-person
+  // search, now fixed the same way: pass only the id, resolve the name from already-
+  // fetched JS state instead of round-tripping it through an HTML attribute string.
+  _eventFormDepthRootTouched = true;
+  const match = _eventFormDepthRootResults.find(p => p.id === id);
+  const name = match ? match.display_name : '';
+  const ri = document.getElementById('evf-depth-root-id');
+  const rs = document.getElementById('evf-depth-root-search');
+  const rr = document.getElementById('evf-depth-root-results');
+  if (ri) ri.value = id;
+  if (rs) rs.value = name;
+  if (rr) rr.innerHTML = '';
+  _eventFormInvalidateDepthPreview();
+}
+
+let _eventFormDepthPreviewResults = null;
+
+async function _eventFormPreviewDepthInvites(){
+  const rootId = document.getElementById('evf-depth-root-id')?.value;
+  const depth = Number(document.getElementById('evf-depth')?.value);
+  const resultsEl = document.getElementById('evf-depth-suggest-results');
+  const actionsEl = document.getElementById('evf-depth-suggest-actions');
+  if (!rootId || !resultsEl || !depth) return;
+  
+  if (depth < 1 || depth > 5){
+    resultsEl.innerHTML = '<p style="font-size:.82rem;color:var(--text-muted);padding:.5rem">Depth must be between 1 and 5.</p>';
+    return;
+  }
+
+  // Captured before any await — if the root/depth inputs change (or a default
+  // root gets restored) while this request is in flight, _eventFormDepthRequestGen
+  // is bumped and this invocation's result is stale and must be discarded rather
+  // than overwriting whatever the organizer is looking at now.
+  const gen = _eventFormDepthRequestGen;
+
+  try {
+    const personsRes = await apiFetch('/api/collections/persons/records?perPage=500&sort=family_name');
+    const couplesRes = await apiFetch('/api/collections/couples/records?perPage=500');
+    if (gen !== _eventFormDepthRequestGen) return;
+    if (!personsRes.ok || !couplesRes.ok){
+      resultsEl.innerHTML = '<p style="font-size:.82rem;color:var(--text-muted);padding:.5rem">Failed to load data.</p>';
+      return;
+    }
+
+    const persons = (await personsRes.json()).items || [];
+    const couples = (await couplesRes.json()).items || [];
+    if (gen !== _eventFormDepthRequestGen) return;
+
+    const { personIds } = findFamilyByDepth(rootId, depth, persons, couples);
+    const personIdsArray = Array.from(personIds);
+    const myPersonIdVal = await myPersonId();
+    if (gen !== _eventFormDepthRequestGen) return;
+    const filteredIds = personIdsArray.filter(id => id !== myPersonIdVal);
+
+    const units = groupIntoFamilyUnits(filteredIds, persons, couples);
+    if (gen !== _eventFormDepthRequestGen) return;
+    _eventFormDepthPreviewResults = { units, persons };
+
+    if (units.length === 0){
+      resultsEl.innerHTML = '<p style="font-size:.82rem;color:var(--text-muted);padding:.5rem">No family members found at this depth.</p>';
+      return;
+    }
+    
+    let html = '';
+    for (const unit of units){
+      if (unit.hasAnyAccount){
+        for (const accountId of unit.accountHolderIds){
+          const p = persons.find(x => x.id === accountId);
+          // accountHolderIds are PERSON ids; event_invites.user is a relation to the
+          // USERS collection (persons.linked_user), a different id entirely. Using the
+          // person id as `userId` would fail relation validation when the event saves —
+          // resolve the actual linked_user here and use IT consistently for both the
+          // duplicate check and (in the confirm handler below) the pushed invite.
+          if (!p || !p.linked_user) continue;
+          const isMe = p.id === myPersonIdVal;
+          if (isMe) continue;
+          const alreadyInList = _eventFormPendingInvites.some(i => i.inviteType === 'user' && i.userId === p.linked_user);
+          html += `
+            <div style="display:flex;align-items:center;gap:.5rem;padding:.4rem;background:var(--bg-hover);border-radius:.3rem;margin:.25rem 0">
+              <input type="checkbox" id="evf-depth-suggest-${accountId}" value="${accountId}" ${alreadyInList ? 'disabled checked' : ''} />
+              <label for="evf-depth-suggest-${accountId}" style="flex:1;cursor:pointer">${esc(p.display_name)}</label>
+            </div>
+          `;
+        }
+        if (unit.accountlessIds.length > 0){
+          const accountlessNames = unit.accountlessIds.map(id => {
+            const p = persons.find(x => x.id === id);
+            return p ? esc(p.display_name) : '?';
+          }).join(', ');
+          html += `
+            <div style="font-size:.82rem;color:var(--text-muted);padding-left:1.5rem;margin-left:.5rem;border-left:1px solid var(--border)">
+              Also in this family: ${accountlessNames} (no account yet)
+            </div>
+          `;
+        }
+      } else {
+        const p = persons.find(x => x.id === unit.personIds[0]);
+        const name = unit.personIds.length === 1 && p ? esc(p.display_name) : esc(unit.surnameLabel);
+        const memberCount = unit.personIds.length;
+        const label = unit.personIds.length === 1 ? name : `The ${name} family — ${memberCount} members`;
+        const noAccounts = unit.personIds.every(id => !persons.find(x => x.id === id)?.linked_user);
+        
+        html += `
+          <div style="display:flex;align-items:center;gap:.5rem;padding:.4rem;background:var(--bg-hover);border-radius:.3rem;margin:.25rem 0">
+            <input type="checkbox" id="evf-depth-suggest-unit-${unit.personIds[0]}" value="${unit.personIds[0]}" />
+            <label for="evf-depth-suggest-unit-${unit.personIds[0]}" style="flex:1;cursor:pointer">${label}</label>
+          </div>
+          ${noAccounts ? `
+            <div style="display:flex;gap:.5rem;align-items:center;padding-left:2.5rem;margin-left:.5rem;border-left:1px solid var(--border)">
+              <input type="email" id="evf-depth-email-${unit.personIds[0]}" placeholder="Email for ${escAttr(unit.surnameLabel)} (optional)" style="flex:1" />
+            </div>
+          ` : ''}
+        `;
+      }
+    }
+    
+    resultsEl.innerHTML = html;
+    actionsEl.style.display = 'flex';
+  } catch (e){
+    if (gen !== _eventFormDepthRequestGen) return;
+    resultsEl.innerHTML = `<p style="font-size:.82rem;color:var(--text-muted);padding:.5rem">Error: ${esc(e.message)}</p>`;
+  }
+}
+
+function _eventFormConfirmDepthInvites(){
+  const resultsEl = document.getElementById('evf-depth-suggest-results');
+  if (!_eventFormDepthPreviewResults || !resultsEl) return;
+  
+  const { units, persons } = _eventFormDepthPreviewResults;
+  // (self-exclusion already happened during preview — nothing here needs the current
+  // user's own person id again)
+
+  for (const unit of units){
+    if (unit.hasAnyAccount){
+      for (const accountId of unit.accountHolderIds){
+        const p = persons.find(x => x.id === accountId);
+        if (!p || !p.linked_user) continue;
+        if (_eventFormPendingInvites.some(i => i.inviteType === 'user' && i.userId === p.linked_user)) continue;
+
+        const checkbox = document.getElementById(`evf-depth-suggest-${accountId}`);
+        if (checkbox && checkbox.checked && !checkbox.disabled){
+          _eventFormPendingInvites.push({
+            id: null,
+            inviteType: 'user',
+            userId: p.linked_user
+          });
+        }
+      }
+    } else {
+      const checkbox = document.getElementById(`evf-depth-suggest-unit-${unit.personIds[0]}`);
+      const emailInput = document.getElementById(`evf-depth-email-${unit.personIds[0]}`);
+
+      if (checkbox && checkbox.checked){
+        if (emailInput && emailInput.value.trim()){
+          const emailVal = emailInput.value.trim();
+          if (!_eventFormPendingInvites.some(i => i.inviteType === 'email' && i.email === emailVal)){
+            _eventFormPendingInvites.push({
+              id: null,
+              inviteType: 'email',
+              email: emailVal,
+              guestName: unit.personIds.length === 1
+                ? (persons.find(x => x.id === unit.personIds[0])?.display_name || unit.surnameLabel)
+                : `The ${unit.surnameLabel} family`
+            });
+          }
+        }
+      }
+    }
+  }
+  
+  _eventFormRenderPendingInvites();
+  _eventFormToggleDepthSuggest();
+}
 
 async function _eventFormRunUserSearch(q){
   clearTimeout(_eventFormUserSearchTimer);
@@ -4012,6 +4291,9 @@ function openEventForm(eventId){
   _eventFormPendingInvites = [];
   _eventFormRemovedInviteIds = [];
   _eventFormTrees = [];
+  _eventFormDepthSuggestAreaVisible = false;
+  _eventFormDepthRootTouched = false;
+  _eventFormDepthPreviewResults = null;
   openModal(`<h2 class="card-title">${isEdit ? 'Edit event' : 'New event'}</h2>
     <div id="evf-error" class="alert alert-error" style="display:none"></div>
     <div class="form-group"><label>Name</label><input id="evf-name" /></div>
@@ -4075,6 +4357,7 @@ function openEventForm(eventId){
       <div style="display:flex;gap:.5rem;align-items:center;margin-bottom:.5rem">
         <input id="evf-invite-search" placeholder="Search users by name or email..." style="flex:1" oninput="_eventFormRunUserSearch(this.value)" autocomplete="off" />
         <button class="btn btn-outline btn-sm" onclick="_eventFormShowEmailInvite()">+ Email</button>
+        <button class="btn btn-outline btn-sm" onclick="_eventFormToggleDepthSuggest()">+ Suggest by depth</button>
       </div>
       <div id="evf-invite-results" class="wiz-results"></div>
       <div id="evf-email-invite-area" style="display:none;margin-top:.5rem">
@@ -4082,6 +4365,25 @@ function openEventForm(eventId){
           <input id="evf-email" placeholder="Email address" style="flex:1" />
           <input id="evf-guest-name" placeholder="Display name (optional)" style="flex:1" />
           <button class="btn btn-outline btn-sm" onclick="_eventFormAddEmailInvite()">Add</button>
+        </div>
+      </div>
+      <div id="evf-depth-suggest-area" style="display:none;margin-top:.5rem">
+        <div style="display:flex;gap:.5rem;align-items:center">
+          <input id="evf-depth-root-search" placeholder="Search root person..." style="flex:1" oninput="_eventFormRunDepthRootSearch(this.value)" autocomplete="off" />
+          <input type="hidden" id="evf-depth-root-id" />
+          <div id="evf-depth-root-results" class="wiz-results" style="position:absolute;z-index:100"></div>
+        </div>
+        <div style="display:flex;gap:.5rem;align-items:center;margin-top:.5rem">
+          <label style="display:flex;align-items:center;gap:.4rem;font-size:.92rem">
+            Generations deep:
+            <input type="number" id="evf-depth" min="1" max="5" value="2" style="width:3rem" oninput="_eventFormInvalidateDepthPreview()" />
+          </label>
+          <button class="btn btn-outline btn-sm" onclick="_eventFormPreviewDepthInvites()">Preview</button>
+        </div>
+        <div id="evf-depth-suggest-results" style="margin-top:.5rem"></div>
+        <div id="evf-depth-suggest-actions" style="display:none;gap:.5rem;margin-top:.5rem">
+          <button class="btn btn-primary btn-sm" onclick="_eventFormConfirmDepthInvites()">Add selected</button>
+          <button class="btn btn-outline btn-sm" onclick="_eventFormToggleDepthSuggest()">Cancel</button>
         </div>
       </div>
       <div id="evf-pending-invites" style="margin-top:.5rem"></div>
