@@ -3452,14 +3452,13 @@ async function renderEventDetail(eventId){
   let locationSuggestions = [], locationVoteCounts = {}, myLocationVotes = {};
   let announcements = [];
   try {
-    const [eRes, rRes, cRes, iRes, avRes, allAvRes, annRes] = await Promise.all([
+    const [eRes, rRes, cRes, iRes, avRes, allAvRes] = await Promise.all([
       apiFetch(`/api/collections/events/records/${eventId}?expand=organizers`),
       apiFetch(`/api/collections/event_rsvps/records?filter=${encodeURIComponent(`(event="${eventId}" && user="${userId}")`)}` + `&perPage=1`),
       apiFetch(`/api/collections/event_rsvps/records?filter=${encodeURIComponent(`(event="${eventId}")`)}` + `&perPage=200`),
       apiFetch(`/api/collections/event_invites/records?filter=${encodeURIComponent(`(event="${eventId}")`)}` + `&expand=user&perPage=200`),
       apiFetch(`/api/collections/event_availability/records?filter=${encodeURIComponent(`(event="${eventId}" && user="${userId}")`)}&perPage=1`),
-      apiFetch(`/api/collections/event_availability/records?filter=${encodeURIComponent(`(event="${eventId}")`)}&perPage=200`),
-      apiFetch(`/api/collections/event_announcements/records?filter=${encodeURIComponent(`(event="${eventId}")`)}&sort=-created&expand=created_by`)
+      apiFetch(`/api/collections/event_availability/records?filter=${encodeURIComponent(`(event="${eventId}")`)}&perPage=200`)
     ]);
     if (eRes.ok) event = await eRes.json();
     if (rRes.ok) { const d = await rRes.json(); myRsvp = d.items && d.items[0]; }
@@ -3487,7 +3486,23 @@ async function renderEventDetail(eventId){
     }
     if (avRes.ok) { const d = await avRes.json(); myAvailability = d.items && d.items[0]; }
     if (allAvRes.ok) { const d = await allAvRes.json(); allAvailability = d.items || []; }
-    if (annRes.ok) { const d = await annRes.json(); announcements = d.items || []; }
+
+    // Paginate through every page rather than assuming one is enough — the backend hook
+    // filters pending rows out of the response for non-organizers AFTER the DB page is
+    // already selected, so if enough pending announcements happen to fill page 1, visible
+    // sent announcements on a later page would never be fetched at all, showing an empty
+    // card even though sent announcements actually exist. Same pattern already used
+    // elsewhere in this file for votes/RSVPs past their own single-page assumptions.
+    let annPage = 1;
+    let annTotalPages = 1;
+    do {
+      const annRes = await apiFetch(`/api/collections/event_announcements/records?filter=${encodeURIComponent(`(event="${eventId}")`)}&sort=-created&expand=created_by&perPage=200&page=${annPage}`);
+      if (!annRes.ok) break;
+      const d = await annRes.json();
+      annTotalPages = d.totalPages || 1;
+      announcements = announcements.concat(d.items || []);
+      annPage++;
+    } while (annPage <= annTotalPages);
 
     // Location suggestions/votes only matter while the poll is open, and fetching votes
     // needs the suggestion ids first — fetched sequentially after `event` resolves rather
@@ -3737,7 +3752,7 @@ async function renderEventDetail(eventId){
           return `<div style="padding:.6rem;background:var(--bg-hover);border-radius:.3rem;margin:.25rem 0">
             <div style="font-size:.85rem;color:var(--text-muted);margin-bottom:.25rem">Sent on ${esc(fmtEventDate(a.send_at, { withTime: true }))} by ${senderName}</div>
             <div style="font-weight:600;margin-bottom:.25rem">${esc(a.title)}</div>
-            <div style="line-height:1.5">${esc(a.body)}</div>
+            <div style="line-height:1.5;white-space:pre-wrap">${esc(a.body)}</div>
           </div>`;
         }).join('');
         
@@ -3750,7 +3765,7 @@ async function renderEventDetail(eventId){
             return `<div style="padding:.6rem;background:var(--bg-hover);border-radius:.3rem;margin:.25rem 0;display:flex;align-items:center;justify-content:space-between">
               <div>
                 <div style="font-weight:600;margin-bottom:.15rem">${esc(a.title)}</div>
-                <div style="font-size:.85rem;color:var(--text-muted);margin-bottom:.25rem">${esc(a.body)}</div>
+                <div style="font-size:.85rem;color:var(--text-muted);margin-bottom:.25rem;white-space:pre-wrap">${esc(a.body)}</div>
                 <div style="font-size:.78rem;color:var(--text-muted)">Scheduled for ${esc(fmtEventDate(a.send_at, { withTime: true }))}</div>
               </div>
               ${cancelBtn(a.id)}
