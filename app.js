@@ -3329,6 +3329,11 @@ let _eventFormDepthRootResults = [];
 // async default-root initialization below knows not to clobber it if its
 // response arrives late (e.g. slow connection).
 let _eventFormDepthRootTouched = false;
+// Bumped every time the root/depth inputs change (or a default root is applied),
+// so an in-flight preview request whose inputs are now stale can detect that its
+// result is no longer current and discard itself instead of overwriting a newer
+// invalidation with old data.
+let _eventFormDepthRequestGen = 0;
 
 function _eventFormToggleDepthSuggest(){
   const area = document.getElementById('evf-depth-suggest-area');
@@ -3345,6 +3350,7 @@ function _eventFormToggleDepthSuggest(){
 }
 
 function _eventFormInvalidateDepthPreview(){
+  _eventFormDepthRequestGen++;
   _eventFormDepthPreviewResults = null;
   const resultsEl = document.getElementById('evf-depth-suggest-results');
   const actionsEl = document.getElementById('evf-depth-suggest-actions');
@@ -3365,6 +3371,10 @@ async function _eventFormInitializeDepthRootSearch(){
     if (r.ok){
       const p = await r.json();
       if (_eventFormDepthRootTouched) return;
+      // Restoring the default root changes what "the current root" means, so any
+      // preview computed against whatever was there before (including a fresh
+      // reopen after the panel was previously used) is no longer valid.
+      _eventFormInvalidateDepthPreview();
       searchInput.value = p.display_name || '';
       idInput.value = p.id;
     }
@@ -3432,26 +3442,36 @@ async function _eventFormPreviewDepthInvites(){
     resultsEl.innerHTML = '<p style="font-size:.82rem;color:var(--text-muted);padding:.5rem">Depth must be between 1 and 5.</p>';
     return;
   }
-  
+
+  // Captured before any await — if the root/depth inputs change (or a default
+  // root gets restored) while this request is in flight, _eventFormDepthRequestGen
+  // is bumped and this invocation's result is stale and must be discarded rather
+  // than overwriting whatever the organizer is looking at now.
+  const gen = _eventFormDepthRequestGen;
+
   try {
     const personsRes = await apiFetch('/api/collections/persons/records?perPage=500&sort=family_name');
     const couplesRes = await apiFetch('/api/collections/couples/records?perPage=500');
+    if (gen !== _eventFormDepthRequestGen) return;
     if (!personsRes.ok || !couplesRes.ok){
       resultsEl.innerHTML = '<p style="font-size:.82rem;color:var(--text-muted);padding:.5rem">Failed to load data.</p>';
       return;
     }
-    
+
     const persons = (await personsRes.json()).items || [];
     const couples = (await couplesRes.json()).items || [];
-    
+    if (gen !== _eventFormDepthRequestGen) return;
+
     const { personIds } = findFamilyByDepth(rootId, depth, persons, couples);
     const personIdsArray = Array.from(personIds);
     const myPersonIdVal = await myPersonId();
+    if (gen !== _eventFormDepthRequestGen) return;
     const filteredIds = personIdsArray.filter(id => id !== myPersonIdVal);
-    
+
     const units = groupIntoFamilyUnits(filteredIds, persons, couples);
+    if (gen !== _eventFormDepthRequestGen) return;
     _eventFormDepthPreviewResults = { units, persons };
-    
+
     if (units.length === 0){
       resultsEl.innerHTML = '<p style="font-size:.82rem;color:var(--text-muted);padding:.5rem">No family members found at this depth.</p>';
       return;
