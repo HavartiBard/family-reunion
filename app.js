@@ -3450,6 +3450,7 @@ async function renderEventDetail(eventId){
   let event = null, myRsvp = null, goingCount = 0, maybeCount = 0;
   let invites = [], myAvailability = null, allAvailability = [], rsvpsByUser = {};
   let locationSuggestions = [], locationVoteCounts = {}, myLocationVotes = {};
+  let announcements = [];
   try {
     const [eRes, rRes, cRes, iRes, avRes, allAvRes] = await Promise.all([
       apiFetch(`/api/collections/events/records/${eventId}?expand=organizers`),
@@ -3485,6 +3486,23 @@ async function renderEventDetail(eventId){
     }
     if (avRes.ok) { const d = await avRes.json(); myAvailability = d.items && d.items[0]; }
     if (allAvRes.ok) { const d = await allAvRes.json(); allAvailability = d.items || []; }
+
+    // Paginate through every page rather than assuming one is enough — the backend hook
+    // filters pending rows out of the response for non-organizers AFTER the DB page is
+    // already selected, so if enough pending announcements happen to fill page 1, visible
+    // sent announcements on a later page would never be fetched at all, showing an empty
+    // card even though sent announcements actually exist. Same pattern already used
+    // elsewhere in this file for votes/RSVPs past their own single-page assumptions.
+    let annPage = 1;
+    let annTotalPages = 1;
+    do {
+      const annRes = await apiFetch(`/api/collections/event_announcements/records?filter=${encodeURIComponent(`(event="${eventId}")`)}&sort=-created&expand=created_by&perPage=200&page=${annPage}`);
+      if (!annRes.ok) break;
+      const d = await annRes.json();
+      annTotalPages = d.totalPages || 1;
+      announcements = announcements.concat(d.items || []);
+      annPage++;
+    } while (annPage <= annTotalPages);
 
     // Location suggestions/votes only matter while the poll is open, and fetching votes
     // needs the suggestion ids first — fetched sequentially after `event` resolves rather
@@ -3717,6 +3735,76 @@ async function renderEventDetail(eventId){
         ${rows}
       </div>`;
     })() : ''}
+    <div class="card" style="margin-top:1.25rem">
+      <div class="section-label" style="margin-bottom:1rem">Announcements</div>
+      ${(() => {
+        const sentAnnouncements = announcements.filter(a => a.sent === true);
+        const pendingAnnouncements = announcements.filter(a => a.sent === false);
+        
+        if (sentAnnouncements.length === 0 && !isOrganizer) {
+          return '';
+        }
+        
+        const sentRows = sentAnnouncements.map(a => {
+          const senderName = a.expand && a.expand.created_by 
+            ? esc(a.expand.created_by.name || a.expand.created_by.email || 'Someone')
+            : 'Someone';
+          return `<div style="padding:.6rem;background:var(--bg-hover);border-radius:.3rem;margin:.25rem 0">
+            <div style="font-size:.85rem;color:var(--text-muted);margin-bottom:.25rem">Sent on ${esc(fmtEventDate(a.send_at, { withTime: true }))} by ${senderName}</div>
+            <div style="font-weight:600;margin-bottom:.25rem">${esc(a.title)}</div>
+            <div style="line-height:1.5;white-space:pre-wrap">${esc(a.body)}</div>
+          </div>`;
+        }).join('');
+        
+        let html = `<div class="section-label" style="margin-bottom:.75rem">Sent</div>${sentRows || '<p style="font-size:.82rem;color:var(--text-muted);margin:0">No announcements sent yet.</p>'}`;
+        
+        if (isOrganizer && pendingAnnouncements.length > 0) {
+          html += `<div class="section-label" style="margin-top:1rem;margin-bottom:.75rem">Pending</div>`;
+          const cancelBtn = (id) => `<button class="btn btn-outline btn-sm" onclick="cancelEventAnnouncement('${eventId}', '${id}')">Cancel</button>`;
+          const pendingRows = pendingAnnouncements.map(a => {
+            return `<div style="padding:.6rem;background:var(--bg-hover);border-radius:.3rem;margin:.25rem 0;display:flex;align-items:center;justify-content:space-between">
+              <div>
+                <div style="font-weight:600;margin-bottom:.15rem">${esc(a.title)}</div>
+                <div style="font-size:.85rem;color:var(--text-muted);margin-bottom:.25rem;white-space:pre-wrap">${esc(a.body)}</div>
+                <div style="font-size:.78rem;color:var(--text-muted)">Scheduled for ${esc(fmtEventDate(a.send_at, { withTime: true }))}</div>
+              </div>
+              ${cancelBtn(a.id)}
+            </div>`;
+          }).join('');
+          html += pendingRows;
+        }
+        
+        return html;
+      })()}
+    </div>
+    ${isOrganizer ? (() => {
+      const defaultSchedule = (() => {
+        const d = new Date();
+        d.setDate(d.getDate() + 1);
+        d.setHours(9, 0, 0, 0);
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const hour = String(d.getHours()).padStart(2, '0');
+        const minute = String(d.getMinutes()).padStart(2, '0');
+        return `${year}-${month}-${day}T${hour}:${minute}`;
+      })();
+      
+      return `<div class="card" style="margin-top:1.25rem">
+        <div class="section-label" style="margin-bottom:1rem">Compose announcement</div>
+        <div id="event-ann-form-error" class="alert alert-error" style="display:none"></div>
+        <div class="form-group"><label>Title</label><input id="ann-title" placeholder="Announcement title" /></div>
+        <div class="form-group"><label>Body</label><textarea id="ann-body" rows="3" placeholder="Announcement content..."></textarea></div>
+        <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:1rem">
+          <input type="checkbox" id="ann-schedule-toggle" />
+          <label for="ann-schedule-toggle" style="cursor:pointer">Schedule for later</label>
+        </div>
+        <div id="ann-schedule-field" style="display:none;margin-bottom:1rem">
+          <div class="form-group"><label>Send at</label><input type="datetime-local" id="ann-send-at" value="${defaultSchedule}" /></div>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="submitEventAnnouncement('${eventId}')">Send announcement</button>
+      </div>`;
+    })() : ''}
   </div>`);
 
   // Comment threads render into placeholder containers synchronously created above —
@@ -3726,6 +3814,13 @@ async function renderEventDetail(eventId){
     for (const s of locationSuggestions) {
       loadComments(s.id, 'event_location_suggestion', `loc-cmt-list-${s.id}`);
     }
+  }
+  
+  const scheduleToggle = document.getElementById('ann-schedule-toggle');
+  if (scheduleToggle) {
+    scheduleToggle.addEventListener('change', (e) => {
+      document.getElementById('ann-schedule-field').style.display = e.target.checked ? 'block' : 'none';
+    });
   }
 }
 
@@ -3865,6 +3960,49 @@ async function finalizeLocationSuggestion(eventId, suggestionId){
       body: JSON.stringify({ location: suggestion.address || suggestion.name, location_poll_status: 'closed' }) });
     if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not finalize event'); }
     toast('Event location finalized.', 'success');
+    await renderEventDetail(eventId);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function cancelEventAnnouncement(eventId, annId){
+  try {
+    const res = await apiFetch(`/api/collections/event_announcements/records/${annId}`, { method:'DELETE' });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not cancel announcement'); }
+    toast('Announcement cancelled.', 'success');
+    await renderEventDetail(eventId);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function submitEventAnnouncement(eventId){
+  const title = val('ann-title');
+  const body = val('ann-body');
+  if (!title) return toast('Title is required.', 'error');
+  if (!body) return toast('Body is required.', 'error');
+  
+  try {
+    const scheduleToggle = document.getElementById('ann-schedule-toggle');
+    // A datetime-local input's raw value ("2026-07-30T09:00", no timezone) is a LOCAL
+    // wall-clock string with no offset info — sending it to the backend as-is would have
+    // PocketBase parse it as a bare (effectively UTC) timestamp, silently shifting the
+    // scheduled time by the user's UTC offset instead of respecting what they actually
+    // picked. Convert through new Date(...).toISOString() first, same as every other
+    // datetime-local -> API submission in this file (e.g. saveEvent's start_date).
+    const sendAt = scheduleToggle && scheduleToggle.checked
+      ? new Date(document.getElementById('ann-send-at').value).toISOString()
+      : new Date().toISOString();
+    
+    const res = await apiFetch('/api/collections/event_announcements/records', {
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ event: eventId, created_by: userId, title, body, send_at: sendAt }) });
+    
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not submit announcement'); }
+    toast('Announcement sent.', 'success');
+    
+    document.getElementById('ann-title').value = '';
+    document.getElementById('ann-body').value = '';
+    document.getElementById('ann-schedule-toggle').checked = false;
+    document.getElementById('ann-schedule-field').style.display = 'none';
+    
     await renderEventDetail(eventId);
   } catch (e) { toast(e.message, 'error'); }
 }
