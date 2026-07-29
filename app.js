@@ -269,7 +269,20 @@ function _launchAppShell(){
     renderSidebar();
     const dl = new URLSearchParams(location.search).get('person');
     if (dl) navigate('tree', { person: dl });
-    else navigate(currentTab());
+    // Pass through every param from the initial URL (not just a hardcoded subset) so
+    // a cold load or reload of a deep link like ?tab=events&event=<id>&edit=1 actually
+    // lands on that screen — navigate() rebuilds the URL from scratch using only the
+    // params it's given, so calling it with none (as navigate(currentTab()) alone
+    // does) silently drops everything but the tab itself. Exclude `tab` from the
+    // forwarded params — currentTab() already supplies it as navigate's first
+    // argument, and navigate() applies params AFTER its own admin-tab-redirect
+    // guard, so forwarding a raw `tab` here would silently overwrite that guard's
+    // sanitized value (e.g. a non-admin's ?tab=admin getting redirected to 'home'
+    // internally, then immediately overwritten back to 'admin' by this params loop).
+    else {
+      const { tab: _ignoredTab, ...deepLinkParams } = Object.fromEntries(new URLSearchParams(location.search));
+      navigate(currentTab(), deepLinkParams);
+    }
   });
 }
 
@@ -3676,6 +3689,7 @@ function _eventFormAddEmailInvite(){
 }
 
 SCREENS.events = async function(params){
+  if (params && params.edit === '1') { await renderEventEditPage(params.event); return; }
   if (params && params.event) { await renderEventDetail(params.event); return; }
   await renderEventsList();
 };
@@ -3711,7 +3725,7 @@ async function renderEventsList(){
   mountMain(`<div class="screen-pad" style="max-width:1100px">
     <div class="events-header">
       <h1 class="card-title" style="margin:0">Events</h1>
-      <button class="btn btn-primary btn-sm" onclick="openEventForm()">+ Add event</button>
+      <button class="btn btn-primary btn-sm" onclick="navigate('events',{edit:'1'})">+ Add event</button>
     </div>
     ${upcoming.length
       ? `<div class="events-section-label">Upcoming</div><div class="events-grid">${upcoming.map(eventCard).join('')}</div>`
@@ -3840,7 +3854,7 @@ async function renderEventDetail(eventId){
         <span class="pill" style="margin-top:.35rem">${esc(event.type || 'event')}</span>
         ${organizers.length ? `<div style="font-size:.82rem;color:var(--text-muted);margin-top:.4rem">Organised by ${organizers.map(o => esc(o.name || o.email)).join(', ')}</div>` : ''}
       </div>
-      ${isOrganizer ? `<button class="btn btn-outline btn-sm" onclick="openEventForm('${event.id}')">Edit event</button>` : ''}
+      ${isOrganizer ? `<button class="btn btn-outline btn-sm" onclick="navigate('events',{event:'${event.id}',edit:'1'})">Edit event</button>` : ''}
     </div>
     ${event.description ? `<div class="card" style="margin-top:1.25rem"><p style="line-height:1.6">${esc(event.description)}</p></div>` : ''}
     <div class="card" style="margin-top:1.25rem">
@@ -4282,11 +4296,22 @@ async function submitEventAnnouncement(eventId){
     document.getElementById('ann-schedule-toggle').checked = false;
     document.getElementById('ann-schedule-field').style.display = 'none';
     
-    await renderEventDetail(eventId);
-  } catch (e) { toast(e.message, 'error'); }
+  await renderEventDetail(eventId);
+} catch (e) { toast(e.message, 'error'); }
 }
 
-function openEventForm(eventId){
+function renderEventEditPage(eventId){
+  // eventId comes straight from the URL's ?event= query param (attacker-controlled —
+  // anyone can craft a link) and is interpolated below into inline onclick="..." JS
+  // string-literal arguments (saveEvent/deleteEvent). A value like
+  // x');alert(document.domain);// would break out of that string and execute
+  // arbitrary script — the same class of bug already fixed multiple times elsewhere
+  // in this file (e.g. PR #130, the depth-suggest root search) by only ever using
+  // safe, validated values in this position. PocketBase's own record IDs are always
+  // exactly 15 lowercase alphanumeric characters; anything else can't be a real
+  // record id, so treat it as absent (falls through to "new event" below) rather
+  // than trusting it.
+  if (eventId && !/^[a-z0-9]{15}$/.test(eventId)) eventId = '';
   const isEdit = !!eventId;
   _eventFormPendingInvites = [];
   _eventFormRemovedInviteIds = [];
@@ -4294,106 +4319,136 @@ function openEventForm(eventId){
   _eventFormDepthSuggestAreaVisible = false;
   _eventFormDepthRootTouched = false;
   _eventFormDepthPreviewResults = null;
-  openModal(`<h2 class="card-title">${isEdit ? 'Edit event' : 'New event'}</h2>
+
+  mountMain(`<div class="screen-pad">
+    <h1 class="card-title">${isEdit ? 'Edit event' : 'New event'}</h1>
     <div id="evf-error" class="alert alert-error" style="display:none"></div>
-    <div class="form-group"><label>Name</label><input id="evf-name" /></div>
-    <div class="row-2">
-      <div class="form-group"><label>Type</label>
-        <select id="evf-type">
-          ${['reunion','birthday','wedding','holiday','other'].map(t =>
-            `<option value="${t}">${t[0].toUpperCase()+t.slice(1)}</option>`).join('')}
-        </select>
-      </div>
-      <div class="form-group"><label>Location</label><input id="evf-loc" /></div>
+    <div id="evf-tabs" class="evf-tabs">
+      <div class="evf-tab active" onclick="_eventFormSwitchTab('details')">Details</div>
+      <div class="evf-tab" onclick="_eventFormSwitchTab('audience')">Audience & Invites</div>
+      <div class="evf-tab" onclick="_eventFormSwitchTab('polls')">Polls</div>
     </div>
-    <div class="row-2">
-      <div class="form-group"><label>Start date/time</label><input id="evf-start" type="datetime-local" /></div>
-      <div class="form-group"><label>End date/time</label><input id="evf-end" type="datetime-local" /></div>
-    </div>
-    <div class="form-group"><label>Description</label><textarea id="evf-desc"></textarea></div>
-    <div class="form-group"><label>Cover photo</label><input id="evf-photo" type="file" accept="image/*" /></div>
-    <div class="form-group">
-      <label>Tree</label>
-      <select id="evf-tree-primary" style="width:100%"></select>
-    </div>
-    <div class="form-group">
-      <label>Extra trees</label>
-      <div id="evf-extra-trees" style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:.3rem;padding:.4rem"></div>
-    </div>
-    <div class="form-group">
-      <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
-        <input type="checkbox" id="evf-invite-only" />
-        <span>Invite only (hide tree picker)</span>
-      </label>
-    </div>
-    <div class="form-group">
-      <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
-        <input type="checkbox" id="evf-poll-mode" onchange="_eventFormTogglePollMode()" />
-        <span>Open a date poll</span>
-      </label>
-    </div>
-    <div class="form-group">
-      <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
-        <input type="checkbox" id="evf-location-poll-mode" />
-        <span>Open a location poll</span>
-      </label>
-    </div>
-    <div id="evf-poll-settings" style="display:none;margin-bottom:.75rem">
+    <div id="evf-details" class="evf-section">
+      <div class="form-group"><label>Name</label><input id="evf-name" /></div>
       <div class="row-2">
-        <div class="form-group"><label>Poll range start</label><input type="date" id="evf-poll-range-start" /></div>
-        <div class="form-group"><label>Poll range end</label><input type="date" id="evf-poll-range-end" /></div>
+        <div class="form-group"><label>Type</label>
+          <select id="evf-type">
+            ${['reunion','birthday','wedding','holiday','other'].map(t =>
+              `<option value="${t}">${t[0].toUpperCase()+t.slice(1)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group"><label>Location</label><input id="evf-loc" /></div>
       </div>
       <div class="row-2">
-        <div class="form-group"><label>Daily window start (hour)</label><input type="number" id="evf-poll-day-start-hour" min="0" max="24" value="9" /></div>
-        <div class="form-group"><label>Daily window end (hour)</label><input type="number" id="evf-poll-day-end-hour" min="0" max="24" value="21" /></div>
+        <div class="form-group"><label>Start date/time</label><input id="evf-start" type="datetime-local" /></div>
+        <div class="form-group"><label>End date/time</label><input id="evf-end" type="datetime-local" /></div>
+      </div>
+      <div class="form-group"><label>Description</label><textarea id="evf-desc"></textarea></div>
+      <div class="form-group"><label>Cover photo</label><input id="evf-photo" type="file" accept="image/*" /></div>
+    </div>
+    <div id="evf-audience" class="evf-section" style="display:none">
+      ${!isEdit ? '<div class="alert alert-info">Save event details first to unlock this tab.</div>' : ''}
+      <div class="form-group">
+        <p style="margin:0 0 .35rem 0;font-size:.82rem;color:var(--text-muted)">Anyone in these trees (or linked to them by marriage) can see this event, even without a direct invite. Use Invite-only to restrict visibility to just the people you invite below.</p>
+        <label>Tree</label>
+        <select id="evf-tree-primary" style="width:100%"></select>
       </div>
       <div class="form-group">
-        <label>Slot size (minutes)</label>
-        <input type="number" id="evf-poll-slot-minutes" min="5" max="180" step="5" value="30" />
+        <label>Extra trees</label>
+        <div id="evf-extra-trees" style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:.3rem;padding:.4rem"></div>
+      </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+          <input type="checkbox" id="evf-invite-only" />
+          <span>Invite only (hide tree picker)</span>
+        </label>
+      </div>
+      <div class="form-group">
+        <label>Invite people</label>
+        <div style="display:flex;gap:.5rem;align-items:center;margin-bottom:.5rem">
+          <input id="evf-invite-search" placeholder="Search users by name or email..." style="flex:1" oninput="_eventFormRunUserSearch(this.value)" autocomplete="off" />
+          <button class="btn btn-outline btn-sm" onclick="_eventFormShowEmailInvite()">+ Email</button>
+          <button class="btn btn-outline btn-sm" onclick="_eventFormToggleDepthSuggest()">+ Suggest by depth</button>
+        </div>
+        <div id="evf-invite-results" class="wiz-results"></div>
+        <div id="evf-email-invite-area" style="display:none;margin-top:.5rem">
+          <div style="display:flex;gap:.5rem;align-items:center">
+            <input id="evf-email" placeholder="Email address" style="flex:1" />
+            <input id="evf-guest-name" placeholder="Display name (optional)" style="flex:1" />
+            <button class="btn btn-outline btn-sm" onclick="_eventFormAddEmailInvite()">Add</button>
+          </div>
+        </div>
+        <div id="evf-depth-suggest-area" style="display:none;margin-top:.5rem">
+          <div style="display:flex;gap:.5rem;align-items:center">
+            <input id="evf-depth-root-search" placeholder="Search root person..." style="flex:1" oninput="_eventFormRunDepthRootSearch(this.value)" autocomplete="off" />
+            <input type="hidden" id="evf-depth-root-id" />
+            <div id="evf-depth-root-results" class="wiz-results" style="position:absolute;z-index:100"></div>
+          </div>
+          <div style="display:flex;gap:.5rem;align-items:center;margin-top:.5rem">
+            <label style="display:flex;align-items:center;gap:.4rem;font-size:.92rem">
+              Generations deep:
+              <input type="number" id="evf-depth" min="1" max="5" value="2" style="width:3rem" oninput="_eventFormInvalidateDepthPreview()" />
+            </label>
+            <button class="btn btn-outline btn-sm" onclick="_eventFormPreviewDepthInvites()">Preview</button>
+          </div>
+          <div id="evf-depth-suggest-results" style="margin-top:.5rem"></div>
+          <div id="evf-depth-suggest-actions" style="display:none;gap:.5rem;margin-top:.5rem">
+            <button class="btn btn-primary btn-sm" onclick="_eventFormConfirmDepthInvites()">Add selected</button>
+            <button class="btn btn-outline btn-sm" onclick="_eventFormToggleDepthSuggest()">Cancel</button>
+          </div>
+        </div>
+        <div id="evf-pending-invites" style="margin-top:.5rem"></div>
       </div>
     </div>
-    <div class="form-group">
-      <label>Invite people</label>
-      <div style="display:flex;gap:.5rem;align-items:center;margin-bottom:.5rem">
-        <input id="evf-invite-search" placeholder="Search users by name or email..." style="flex:1" oninput="_eventFormRunUserSearch(this.value)" autocomplete="off" />
-        <button class="btn btn-outline btn-sm" onclick="_eventFormShowEmailInvite()">+ Email</button>
-        <button class="btn btn-outline btn-sm" onclick="_eventFormToggleDepthSuggest()">+ Suggest by depth</button>
+    <div id="evf-polls" class="evf-section" style="display:none">
+      ${!isEdit ? '<div class="alert alert-info">Save event details first to unlock this tab.</div>' : ''}
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+          <input type="checkbox" id="evf-poll-mode" onchange="_eventFormTogglePollMode()" />
+          <span>Open a date poll</span>
+        </label>
       </div>
-      <div id="evf-invite-results" class="wiz-results"></div>
-      <div id="evf-email-invite-area" style="display:none;margin-top:.5rem">
-        <div style="display:flex;gap:.5rem;align-items:center">
-          <input id="evf-email" placeholder="Email address" style="flex:1" />
-          <input id="evf-guest-name" placeholder="Display name (optional)" style="flex:1" />
-          <button class="btn btn-outline btn-sm" onclick="_eventFormAddEmailInvite()">Add</button>
-        </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+          <input type="checkbox" id="evf-location-poll-mode" />
+          <span>Open a location poll</span>
+        </label>
       </div>
-      <div id="evf-depth-suggest-area" style="display:none;margin-top:.5rem">
-        <div style="display:flex;gap:.5rem;align-items:center">
-          <input id="evf-depth-root-search" placeholder="Search root person..." style="flex:1" oninput="_eventFormRunDepthRootSearch(this.value)" autocomplete="off" />
-          <input type="hidden" id="evf-depth-root-id" />
-          <div id="evf-depth-root-results" class="wiz-results" style="position:absolute;z-index:100"></div>
+      <div id="evf-poll-settings" style="display:none;margin-bottom:.75rem">
+        <div class="row-2">
+          <div class="form-group"><label>Poll range start</label><input type="date" id="evf-poll-range-start" /></div>
+          <div class="form-group"><label>Poll range end</label><input type="date" id="evf-poll-range-end" /></div>
         </div>
-        <div style="display:flex;gap:.5rem;align-items:center;margin-top:.5rem">
-          <label style="display:flex;align-items:center;gap:.4rem;font-size:.92rem">
-            Generations deep:
-            <input type="number" id="evf-depth" min="1" max="5" value="2" style="width:3rem" oninput="_eventFormInvalidateDepthPreview()" />
-          </label>
-          <button class="btn btn-outline btn-sm" onclick="_eventFormPreviewDepthInvites()">Preview</button>
+        <div class="row-2">
+          <div class="form-group"><label>Daily window start (hour)</label><input type="number" id="evf-poll-day-start-hour" min="0" max="24" value="9" /></div>
+          <div class="form-group"><label>Daily window end (hour)</label><input type="number" id="evf-poll-day-end-hour" min="0" max="24" value="21" /></div>
         </div>
-        <div id="evf-depth-suggest-results" style="margin-top:.5rem"></div>
-        <div id="evf-depth-suggest-actions" style="display:none;gap:.5rem;margin-top:.5rem">
-          <button class="btn btn-primary btn-sm" onclick="_eventFormConfirmDepthInvites()">Add selected</button>
-          <button class="btn btn-outline btn-sm" onclick="_eventFormToggleDepthSuggest()">Cancel</button>
+        <div class="form-group">
+          <label>Slot size (minutes)</label>
+          <input type="number" id="evf-poll-slot-minutes" min="5" max="180" step="5" value="30" />
         </div>
       </div>
-      <div id="evf-pending-invites" style="margin-top:.5rem"></div>
     </div>
-    <div style="display:flex;gap:.6rem;margin-top:.75rem">
+    <div style="display:flex;gap:.6rem;margin-top:1.5rem">
       <button id="evf-save-btn" class="btn btn-primary" onclick="saveEvent('${eventId || ''}')">Save</button>
-      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-outline" onclick="navigate('events'${isEdit ? `, {event: '${eventId}'}` : ''})">Cancel</button>
       ${isEdit ? `<button class="btn btn-danger" style="margin-left:auto" onclick="deleteEvent('${eventId}')">Delete</button>` : ''}
-    </div>`);
+    </div>
+  </div>`);
+
+  // Audience & Invites and Polls need a real saved event to attach invites/poll
+  // settings to — disable every control in those two panels until this event exists.
+  // The page navigates to ?event=<newId>&edit=1 after the first save (see saveEvent),
+  // which re-renders this same function with isEdit=true and everything unlocked.
+  if (!isEdit) {
+    ['evf-audience', 'evf-polls'].forEach(panelId => {
+      const panel = el(panelId);
+      if (panel) panel.querySelectorAll('input, button, select, textarea').forEach(ctrl => { ctrl.disabled = true; });
+    });
+  }
+
   const treesLoaded = _eventFormLoadTrees();
+
   if (isEdit) {
     apiFetch(`/api/collections/events/records/${eventId}`).then(async r => {
       if (!r.ok) return;
@@ -4419,10 +4474,6 @@ function openEventForm(eventId){
         _eventFormTogglePollMode();
         const prs = el('evf-poll-range-start'); if (prs) prs.value = e.date_poll_range_start || '';
         const pre = el('evf-poll-range-end');   if (pre) pre.value = e.date_poll_range_end || '';
-        // Use an explicit null/undefined check rather than `||` — PocketBase returns a
-        // real numeric 0 for a poll window that legitimately starts at midnight, and
-        // `0 || '9'` would silently discard that in favor of the fallback, both on
-        // display and (if the user then saved without touching this field) for real.
         const withFallback = (v, fallback) => (v === null || v === undefined ? fallback : v);
         const pds = el('evf-poll-day-start-hour'); if (pds) pds.value = withFallback(e.date_poll_day_start_hour, '9');
         const pde = el('evf-poll-day-end-hour');   if (pde) pde.value = withFallback(e.date_poll_day_end_hour, '21');
@@ -4436,6 +4487,19 @@ function openEventForm(eventId){
   }
 }
 
+function _eventFormSwitchTab(tabName){
+  const tabs = document.querySelectorAll('#evf-tabs .evf-tab');
+  tabs.forEach(t => t.classList.remove('active'));
+  const activeTab = document.querySelector(`#evf-tabs .evf-tab[onclick*="\'${tabName}\'"]`);
+  if (activeTab) activeTab.classList.add('active');
+
+  const sections = ['details', 'audience', 'polls'];
+  sections.forEach(sec => {
+    const el = document.getElementById('evf-' + sec);
+    if (el) el.style.display = (sec === tabName) ? 'block' : 'none';
+  });
+}
+
 function _eventFormTogglePollMode(){
   const pollMode = el('evf-poll-mode')?.checked || false;
   const pollSettings = el('evf-poll-settings');
@@ -4445,6 +4509,7 @@ function _eventFormTogglePollMode(){
 }
 
 async function saveEvent(eventId){
+  const wasNew = !eventId;
   const name = val('evf-name');
   const start = val('evf-start');
   const pollMode = el('evf-poll-mode')?.checked || false;
@@ -4620,7 +4685,12 @@ async function saveEvent(eventId){
       return;
     }
     closeModal();
-    navigate('events', { event: saved.id });
+    // A brand-new event's Audience & Invites / Polls tabs are disabled until the event
+    // exists — re-enter edit mode (not the detail page) so the organizer lands right
+    // back on this page with those tabs now unlocked, instead of having to navigate
+    // to the detail view and click "Edit event" again to keep going.
+    if (wasNew) navigate('events', { event: saved.id, edit: '1' });
+    else navigate('events', { event: saved.id });
   } catch (e) { formErr('evf-error', e.message); }
 }
 
