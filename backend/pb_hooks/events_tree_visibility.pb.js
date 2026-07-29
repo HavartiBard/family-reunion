@@ -308,38 +308,282 @@ onRecordBeforeUpdateRequest((e) => {
   }
 
   const isFamilyAdmin = authRecord.get('family_admin') === true;
-  if (isFamilyAdmin) {
-    return;
-  }
 
-  const userHomeTreeId = authRecord.get('home_tree');
-  const writableTreeSet = new Set();
+  const userDao = $app.dao();
+  const persistedRecord = userDao.findRecordById('events', e.record.id);
 
-  if (userHomeTreeId && userHomeTreeId !== '') {
-    writableTreeSet.add(userHomeTreeId);
-  }
+  // Tree-permission check MUST run and (for non-admins) potentially reject the update
+  // BEFORE any notification fan-out below. Originally the fan-out ran first — if a
+  // non-admin's tree access no longer covered this event, the notifications had
+  // already been created by the time the tree check rejected the update, and since the
+  // persisted state never actually changed, the requester could resubmit the same
+  // rejected request repeatedly, spamming every RSVP'd/invited recipient with
+  // notifications for a transition that never took effect. Confirmed via Codex review;
+  // fixed by moving this check first. family_admin still bypasses it entirely.
+  if (!isFamilyAdmin) {
+    const userHomeTreeId = authRecord.get('home_tree');
+    const writableTreeSet = new Set();
 
-  const userAdminTrees = authRecord.get('admin_trees') || [];
-  userAdminTrees.forEach((tid) => writableTreeSet.add(tid));
-
-  const persistedRecord = $app.dao().findRecordById('events', e.record.id);
-  const existingRecordTreeId = persistedRecord ? persistedRecord.get('tree') : '';
-  if (existingRecordTreeId && existingRecordTreeId !== '') {
-    const extraTrees = persistedRecord.get('extra_trees') || [];
-    const audienceTreeSet = new Set();
-    audienceTreeSet.add(existingRecordTreeId);
-    extraTrees.forEach((tid) => audienceTreeSet.add(tid));
-
-    let hasAccess = false;
-    for (const treeId of audienceTreeSet) {
-      if (writableTreeSet.has(treeId)) {
-        hasAccess = true;
-        break;
-      }
+    if (userHomeTreeId && userHomeTreeId !== '') {
+      writableTreeSet.add(userHomeTreeId);
     }
 
-    if (!hasAccess) {
-      throw new ForbiddenError('You do not have permission to update events for this tree.');
+    const userAdminTrees = authRecord.get('admin_trees') || [];
+    userAdminTrees.forEach((tid) => writableTreeSet.add(tid));
+
+    const existingRecordTreeId = persistedRecord ? persistedRecord.get('tree') : '';
+    if (existingRecordTreeId && existingRecordTreeId !== '') {
+      const extraTrees = persistedRecord.get('extra_trees') || [];
+      const audienceTreeSet = new Set();
+      audienceTreeSet.add(existingRecordTreeId);
+      extraTrees.forEach((tid) => audienceTreeSet.add(tid));
+
+      let hasAccess = false;
+      for (const treeId of audienceTreeSet) {
+        if (writableTreeSet.has(treeId)) {
+          hasAccess = true;
+          break;
+        }
+      }
+
+      if (!hasAccess) {
+        throw new ForbiddenError('You do not have permission to update events for this tree.');
+      }
+    }
+  }
+
+  if (persistedRecord && e.record.id) {
+    try {
+      const notificationsCollection = userDao.findCollectionByNameOrId('notifications');
+      // Use the incoming (new) name, not the persisted one — if the same edit both
+      // renames the event and opens/closes a poll, notifications should reference what
+      // the event is now called, not its about-to-be-overwritten former name.
+      const eventName = e.record.get('name') || persistedRecord.get('name') || '';
+
+      const oldDatePollStatus = persistedRecord.get('date_poll_status') || '';
+      const newDatePollStatus = e.record.get('date_poll_status') || '';
+      const oldLocationPollStatus = persistedRecord.get('location_poll_status') || '';
+      const newLocationPollStatus = e.record.get('location_poll_status') || '';
+
+      if (oldDatePollStatus !== 'open' && newDatePollStatus === 'open') {
+        const audience = new Set();
+
+        try {
+          const rsvps = userDao.findRecordsByFilter(
+            'event_rsvps',
+            'event = {:eventId} && (status = "going" || status = "maybe")',
+            '', 0, 0,
+            { eventId: e.record.id }
+          );
+          rsvps.forEach((rsvp) => {
+            const userId = rsvp.get('user');
+            if (userId && userId !== '') {
+              audience.add(userId);
+            }
+          });
+        } catch (lookupErr) {
+          // Fail open on data inconsistency
+        }
+
+        try {
+          const invites = userDao.findRecordsByFilter(
+            'event_invites',
+            'event = {:eventId} && invite_type = "user"',
+            '', 0, 0,
+            { eventId: e.record.id }
+          );
+          invites.forEach((invite) => {
+            const userId = invite.get('user');
+            if (userId && userId !== '') {
+              audience.add(userId);
+            }
+          });
+        } catch (lookupErr) {
+          // Fail open on data inconsistency
+        }
+
+        audience.forEach((userId) => {
+          try {
+            const notificationRecord = new Record(notificationsCollection);
+            notificationRecord.set('user', userId);
+            notificationRecord.set('type', 'event_poll');
+            notificationRecord.set('title', 'A date poll opened');
+            notificationRecord.set('body', `A date poll opened for "${eventName}".`);
+            notificationRecord.set('read', false);
+            notificationRecord.set('related_id', e.record.id);
+            notificationRecord.set('related_type', 'events');
+            userDao.saveRecord(notificationRecord);
+          } catch (notifyErr) {
+            // Fail open on notification creation
+          }
+        });
+      }
+
+      if (oldDatePollStatus !== 'closed' && newDatePollStatus === 'closed') {
+        const audience = new Set();
+
+        try {
+          const rsvps = userDao.findRecordsByFilter(
+            'event_rsvps',
+            'event = {:eventId} && (status = "going" || status = "maybe")',
+            '', 0, 0,
+            { eventId: e.record.id }
+          );
+          rsvps.forEach((rsvp) => {
+            const userId = rsvp.get('user');
+            if (userId && userId !== '') {
+              audience.add(userId);
+            }
+          });
+        } catch (lookupErr) {
+          // Fail open on data inconsistency
+        }
+
+        try {
+          const invites = userDao.findRecordsByFilter(
+            'event_invites',
+            'event = {:eventId} && invite_type = "user"',
+            '', 0, 0,
+            { eventId: e.record.id }
+          );
+          invites.forEach((invite) => {
+            const userId = invite.get('user');
+            if (userId && userId !== '') {
+              audience.add(userId);
+            }
+          });
+        } catch (lookupErr) {
+          // Fail open on data inconsistency
+        }
+
+        const finalizedDate = e.record.get('start_date') || '';
+        audience.forEach((userId) => {
+          try {
+            const notificationRecord = new Record(notificationsCollection);
+            notificationRecord.set('user', userId);
+            notificationRecord.set('type', 'event_poll');
+            notificationRecord.set('title', 'Date finalized');
+            notificationRecord.set('body', `${eventName}'s date has been finalized: ${finalizedDate}.`);
+            notificationRecord.set('read', false);
+            notificationRecord.set('related_id', e.record.id);
+            notificationRecord.set('related_type', 'events');
+            userDao.saveRecord(notificationRecord);
+          } catch (notifyErr) {
+            // Fail open on notification creation
+          }
+        });
+      }
+
+      if (oldLocationPollStatus !== 'open' && newLocationPollStatus === 'open') {
+        const audience = new Set();
+
+        try {
+          const rsvps = userDao.findRecordsByFilter(
+            'event_rsvps',
+            'event = {:eventId} && (status = "going" || status = "maybe")',
+            '', 0, 0,
+            { eventId: e.record.id }
+          );
+          rsvps.forEach((rsvp) => {
+            const userId = rsvp.get('user');
+            if (userId && userId !== '') {
+              audience.add(userId);
+            }
+          });
+        } catch (lookupErr) {
+          // Fail open on data inconsistency
+        }
+
+        try {
+          const invites = userDao.findRecordsByFilter(
+            'event_invites',
+            'event = {:eventId} && invite_type = "user"',
+            '', 0, 0,
+            { eventId: e.record.id }
+          );
+          invites.forEach((invite) => {
+            const userId = invite.get('user');
+            if (userId && userId !== '') {
+              audience.add(userId);
+            }
+          });
+        } catch (lookupErr) {
+          // Fail open on data inconsistency
+        }
+
+        audience.forEach((userId) => {
+          try {
+            const notificationRecord = new Record(notificationsCollection);
+            notificationRecord.set('user', userId);
+            notificationRecord.set('type', 'event_poll');
+            notificationRecord.set('title', 'A location poll opened');
+            notificationRecord.set('body', `A location poll opened for "${eventName}".`);
+            notificationRecord.set('read', false);
+            notificationRecord.set('related_id', e.record.id);
+            notificationRecord.set('related_type', 'events');
+            userDao.saveRecord(notificationRecord);
+          } catch (notifyErr) {
+            // Fail open on notification creation
+          }
+        });
+      }
+
+      if (oldLocationPollStatus !== 'closed' && newLocationPollStatus === 'closed') {
+        const audience = new Set();
+
+        try {
+          const rsvps = userDao.findRecordsByFilter(
+            'event_rsvps',
+            'event = {:eventId} && (status = "going" || status = "maybe")',
+            '', 0, 0,
+            { eventId: e.record.id }
+          );
+          rsvps.forEach((rsvp) => {
+            const userId = rsvp.get('user');
+            if (userId && userId !== '') {
+              audience.add(userId);
+            }
+          });
+        } catch (lookupErr) {
+          // Fail open on data inconsistency
+        }
+
+        try {
+          const invites = userDao.findRecordsByFilter(
+            'event_invites',
+            'event = {:eventId} && invite_type = "user"',
+            '', 0, 0,
+            { eventId: e.record.id }
+          );
+          invites.forEach((invite) => {
+            const userId = invite.get('user');
+            if (userId && userId !== '') {
+              audience.add(userId);
+            }
+          });
+        } catch (lookupErr) {
+          // Fail open on data inconsistency
+        }
+
+        const location = e.record.get('location') || '';
+        audience.forEach((userId) => {
+          try {
+            const notificationRecord = new Record(notificationsCollection);
+            notificationRecord.set('user', userId);
+            notificationRecord.set('type', 'event_poll');
+            notificationRecord.set('title', 'Location finalized');
+            notificationRecord.set('body', `${eventName}'s location has been finalized: ${location}.`);
+            notificationRecord.set('read', false);
+            notificationRecord.set('related_id', e.record.id);
+            notificationRecord.set('related_type', 'events');
+            userDao.saveRecord(notificationRecord);
+          } catch (notifyErr) {
+            // Fail open on notification creation
+          }
+        });
+      }
+    } catch (err) {
+      // Fail open on notification logic errors
     }
   }
 }, 'events');
@@ -359,7 +603,9 @@ onRecordBeforeDeleteRequest((e) => {
   const userAdminTrees = authRecord.get('admin_trees') || [];
   const recordTreeId = e.record.get('tree');
 
-  if (!userAdminTrees.includes(recordTreeId)) {
-    throw new ForbiddenError('You do not have permission to delete events for this tree.');
+  if (recordTreeId && recordTreeId !== '') {
+    if (!userAdminTrees.includes(recordTreeId)) {
+      throw new ForbiddenError('You do not have permission to delete events for this tree.');
+    }
   }
 }, 'events');
