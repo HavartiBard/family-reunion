@@ -64,6 +64,19 @@ test('fmtEventDate formats short (default) and long-with-time variants', () => {
   assert.strictEqual(h.fmtEventDate(null), '');
 });
 
+test('fmtEventDate allDay option forces UTC timezone for all-day events', () => {
+  // All-day events stored as midnight UTC should display the same date regardless of
+  // the host's local timezone. This test runs in a fixed timezone to get deterministic output.
+  // The ISO string '2026-08-01T00:00:00.000Z' is all-day (date_poll_slot_minutes === 1440).
+  const iso = '2026-08-01T00:00:00.000Z';
+  // allDay=true with withTime=false uses short weekday/month names
+  const expectedShort = 'Sat, Aug 1, 2026';
+  assert.strictEqual(h.fmtEventDate(iso, { allDay: true }), expectedShort);
+  // allDay=true with withTime=true uses long weekday/month names (but still no time shown)
+  const expectedLong = 'Saturday, August 1, 2026';
+  assert.strictEqual(h.fmtEventDate(iso, { allDay: true, withTime: true }), expectedLong);
+});
+
 test('filterPeople matches name, bio, and birth year', () => {
   const people = [
     { display_name: 'Walter Bender', given_name: 'Walter', family_name: 'Bender', bio: 'founder', birth_date: '1947' },

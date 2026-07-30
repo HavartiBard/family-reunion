@@ -3748,7 +3748,7 @@ async function renderEventsList(){
       </div>
       <div class="ec-meta">
         <div class="ec-name">${esc(e.name)}</div>
-        <div class="ec-date">${esc(fmtEventDate(e.start_date))}</div>
+        <div class="ec-date">${esc(fmtEventDate(e.start_date, { allDay: e.date_poll_slot_minutes === 1440 }))}</div>
         ${e.location ? `<div class="ec-loc">📍 ${esc(e.location)}</div>` : ''}
       </div>
     </div>`;
@@ -3876,7 +3876,7 @@ async function renderEventDetail(eventId){
       ${thumb ? `<img src="${esc(thumb)}" alt="">` : `<div class="event-detail-hero-placeholder">${icon}</div>`}
     </div>
     <div class="event-info-bar">
-      <div><div class="eib-label">When</div><div class="eib-val">${esc(fmtEventDate(event.start_date, { withTime: true }))}</div></div>
+      <div><div class="eib-label">When</div><div class="eib-val">${esc(fmtEventDate(event.start_date, { withTime: true, allDay: event.date_poll_slot_minutes === 1440 }))}</div></div>
       ${event.location ? `<div><div class="eib-label">Where</div><div class="eib-val">${esc(event.location)}</div></div>` : ''}
       <div><div class="eib-label">Headcount</div><div class="eib-val">${goingCount} going · ${maybeCount} maybe</div></div>
     </div>
@@ -6984,7 +6984,7 @@ async function showGuestRsvpPage(guestToken){
       ${thumb ? `<img src="${esc(thumb)}" alt="">` : `<div class="event-detail-hero-placeholder">${icon}</div>`}
     </div>
     <div class="event-info-bar">
-      <div><div class="eib-label">When</div><div class="eib-val">${esc(fmtEventDate(event.start_date, { withTime: true }))}</div></div>
+      <div><div class="eib-label">When</div><div class="eib-val">${esc(fmtEventDate(event.start_date, { withTime: true, allDay: event.date_poll_slot_minutes === 1440 }))}</div></div>
       ${event.location ? `<div><div class="eib-label">Where</div><div class="eib-val">${esc(event.location)}</div></div>` : ''}
     </div>
     <h1 style="font-family:var(--font-display);font-size:2rem;font-weight:500;margin-top:1.5rem">${esc(event.name)}</h1>
