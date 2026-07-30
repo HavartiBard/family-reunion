@@ -3244,6 +3244,7 @@ let _eventFormAllTrees = [];
 let _eventFormPendingInvites = [];
 let _eventFormRemovedInviteIds = [];
 let _eventFormShouldClearExtraTrees = false;
+let _eventFormShouldClearInviteOnly = false;
 
 async function _eventFormLoadTrees(){
   const primary = el('evf-tree-primary');
@@ -3255,16 +3256,12 @@ async function _eventFormLoadTrees(){
       _eventFormAllTrees = trees;
       // Every approved user can technically fetch every tree in the system (this app's
       // trees.listRule is intentionally broad), but the event-tree picker only makes
-      // sense scoped to trees the organizer actually belongs to — a full-admin
-      // sees everything (they legitimately need to assign events to any tree),
-      // a regular user/branch admin only their own home_tree + admin_trees (NOT
-      // linked_trees — marriage-linked trees are read-only visibility for a regular
-      // user in this app's model, not something they should assign event ownership
-      // to). Mirrors the same home_tree+admin_trees convention already used by
-      // _defaultTreeForNewRecord.
-      const isAdmin = !!(currentUser && currentUser.family_admin);
+      // sense scoped to trees the organizer actually belongs to. Per product decision
+      // from live-testing feedback, family_admin's usual "sees everything" bypass
+      // elsewhere in this app doesn't apply here — every user is scoped to home_tree
+      // + admin_trees for this specific picker.
       const adminTrees = (currentUser && currentUser.admin_trees) || [];
-      const visibleTrees = isAdmin ? trees : trees.filter(t =>
+      const visibleTrees = trees.filter(t =>
         (currentUser && currentUser.home_tree === t.id) || adminTrees.includes(t.id));
       _eventFormTrees = visibleTrees;
       primary.innerHTML = '<option value="">— Select primary tree —</option>' +
@@ -3339,6 +3336,12 @@ function _eventFormClearExtraTrees(){
   if (display) display.innerHTML = '<p style="font-size:.82rem;color:var(--text-muted);margin:.25rem 0">None preserved.</p>';
   if (area) area.style.display = 'none';
   _eventFormShouldClearExtraTrees = true;
+}
+
+function _eventFormClearInviteOnly(){
+  const warning = el('evf-invite-only-warning');
+  if (warning) warning.style.display = 'none';
+  _eventFormShouldClearInviteOnly = true;
 }
 
 // These two are still used by the EXISTING _eventFormRunUserSearch below — an earlier
@@ -4347,6 +4350,7 @@ function renderEventEditPage(eventId){
   _eventFormTrees = [];
   _eventFormAllTrees = [];
   _eventFormShouldClearExtraTrees = false;
+  _eventFormShouldClearInviteOnly = false;
   _eventFormUsersCacheTreeId = null;
   _eventFormDepthSuggestAreaVisible = false;
   _eventFormDepthRootTouched = false;
@@ -4383,7 +4387,7 @@ function renderEventEditPage(eventId){
     <div id="evf-audience" class="evf-section" style="display:none">
       ${!isEdit ? '<div class="alert alert-info">Save event details first to unlock this tab.</div>' : ''}
       <div class="form-group">
-        <p style="margin:0 0 .35rem 0;font-size:.82rem;color:var(--text-muted)">Anyone in these trees (or linked to them by marriage) can see this event, even without a direct invite. Use Invite-only to restrict visibility to just the people you invite below.</p>
+        <p style="margin:0 0 .35rem 0;font-size:.82rem;color:var(--text-muted)">Anyone in these trees (or linked to them by marriage) can see this event, even without a direct invite.</p>
         <label>Tree</label>
         <select id="evf-tree-primary" style="width:100%"></select>
       </div>
@@ -4392,11 +4396,11 @@ function renderEventEditPage(eventId){
         <div id="evf-extra-trees-display" style="margin-top:.25rem"></div>
         <button class="btn btn-outline btn-sm" onclick="_eventFormClearExtraTrees()" style="margin-top:.5rem">Clear preserved trees</button>
       </div>
-      <div class="form-group">
-        <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
-          <input type="checkbox" id="evf-invite-only" />
-          <span>Invite only (hide tree picker)</span>
-        </label>
+      <div class="form-group" id="evf-invite-only-warning" style="display:none">
+        <div class="alert alert-info" style="margin:0 0 .5rem 0;padding:.6rem">
+          <strong>Legacy invite-only event:</strong> This event was created before the tree-based access control change. The "Anyone in these trees (or linked to them by marriage) can see this event" message above does not apply — this event remains invite-only and is only visible to explicitly invited people.
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="_eventFormClearInviteOnly()">Convert to tree-based access</button>
       </div>
       <div class="form-group">
         <label>Invite people</label>
@@ -4540,8 +4544,10 @@ function renderEventEditPage(eventId){
         }
         etArea.style.display = extraTrees.length > 0 ? 'block' : 'none';
       }
-      const io = el('evf-invite-only');
-      if (io) io.checked = !!e.invite_only;
+      const ioWarning = el('evf-invite-only-warning');
+      if (ioWarning) {
+        ioWarning.style.display = e.invite_only ? 'block' : 'none';
+      }
       const pm = el('evf-poll-mode');
       if (pm && e.date_poll_status === 'open') {
         pm.checked = true;
@@ -4643,7 +4649,6 @@ async function saveEvent(eventId){
   const desc = val('evf-desc'); if (desc) fd.append('description', desc);
   const photo = el('evf-photo').files[0]; if (photo) fd.append('cover_photo', photo);
   const primaryTree = el('evf-tree-primary')?.value;
-  const inviteOnly = el('evf-invite-only')?.checked || false;
   if (primaryTree) {
     fd.append('tree', primaryTree);
   } else if (eventId) {
@@ -4651,6 +4656,12 @@ async function saveEvent(eventId){
     // an omitted field leaves the old value in place on PATCH, so an explicit empty
     // value has to be sent to actually clear it.
     fd.append('tree', '');
+  }
+  if (!eventId && !primaryTree && !_defaultTreeForNewRecord()) {
+    return formErr('evf-error', 'Select a tree before creating this event — otherwise it would be visible to every approved user.');
+  }
+  if (_eventFormShouldClearInviteOnly && !primaryTree) {
+    return formErr('evf-error', 'Select a tree before converting this event to tree-based access — otherwise it would become visible to every approved user.');
   }
   // extra_trees has no UI control anymore (removed — the picker only ever showed
   // every tree in the system with no scoping, which wasn't useful in practice) —
@@ -4665,7 +4676,16 @@ async function saveEvent(eventId){
     // PocketBase's id validation rather than clearing the field.
     fd.append('extra_trees', '');
   }
-  fd.append('invite_only', String(inviteOnly));
+  if (_eventFormShouldClearInviteOnly) {
+    // Literal "false" string, matching this codebase's established boolean-field
+    // convention for multipart FormData (the field's original, pre-removal code
+    // sent String(inviteOnly) — i.e. "true"/"false", never an empty string).
+    fd.append('invite_only', 'false');
+  }
+  // invite_only has no UI control anymore (removed per product decision — the
+  // "Invite only" toggle was deemed unnecessary now that the tree picker is
+  // properly scoped) — deliberately never appended, same "leave untouched on
+  // PATCH" precedent as extra_trees above.
   // Independent of date_poll_status/pollMode above — an event can have neither, either,
   // or both polls open at once. Mirrors date_poll_status's own unconditional every-save
   // write (checked -> 'open', unchecked -> 'none'), same pattern, same tradeoff (editing
@@ -4688,6 +4708,7 @@ async function saveEvent(eventId){
     if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Save failed'); }
     const saved = await res.json();
     if (_eventFormShouldClearExtraTrees) _eventFormShouldClearExtraTrees = false;
+    if (_eventFormShouldClearInviteOnly) _eventFormShouldClearInviteOnly = false;
     let saveError = null;
 
     // The event itself is now persisted regardless of what happens below. If this was a
