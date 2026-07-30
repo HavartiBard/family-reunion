@@ -3244,6 +3244,7 @@ let _eventFormAllTrees = [];
 let _eventFormPendingInvites = [];
 let _eventFormRemovedInviteIds = [];
 let _eventFormShouldClearExtraTrees = false;
+let _eventFormDayModeWasChecked = false;
 let _eventFormShouldClearInviteOnly = false;
 
 async function _eventFormLoadTrees(){
@@ -3735,8 +3736,17 @@ async function renderEventsList(){
   } catch { /* ignore */ }
 
   const now = new Date();
-  const upcoming = events.filter(e => e.start_date && new Date(e.start_date) >= now);
-  const past     = events.filter(e => e.start_date && new Date(e.start_date) <  now);
+  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const isUpcoming = (e) => {
+    if (!e.start_date) return false;
+    const d = new Date(e.start_date);
+    if (e.date_poll_slot_minutes === 1440) {
+      return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) >= todayUtc;
+    }
+    return d >= now;
+  };
+  const upcoming = events.filter(isUpcoming);
+  const past     = events.filter(e => e.start_date && !isUpcoming(e));
 
   function eventCard(e){
     const thumb = fileUrl('events', e, 'cover_photo');
@@ -3748,7 +3758,7 @@ async function renderEventsList(){
       </div>
       <div class="ec-meta">
         <div class="ec-name">${esc(e.name)}</div>
-        <div class="ec-date">${esc(fmtEventDate(e.start_date))}</div>
+        <div class="ec-date">${esc(fmtEventDate(e.start_date, { allDay: e.date_poll_slot_minutes === 1440 }))}</div>
         ${e.location ? `<div class="ec-loc">📍 ${esc(e.location)}</div>` : ''}
       </div>
     </div>`;
@@ -3876,7 +3886,7 @@ async function renderEventDetail(eventId){
       ${thumb ? `<img src="${esc(thumb)}" alt="">` : `<div class="event-detail-hero-placeholder">${icon}</div>`}
     </div>
     <div class="event-info-bar">
-      <div><div class="eib-label">When</div><div class="eib-val">${esc(fmtEventDate(event.start_date, { withTime: true }))}</div></div>
+      <div><div class="eib-label">When</div><div class="eib-val">${esc(fmtEventDate(event.start_date, { withTime: true, allDay: event.date_poll_slot_minutes === 1440 }))}</div></div>
       ${event.location ? `<div><div class="eib-label">Where</div><div class="eib-val">${esc(event.location)}</div></div>` : ''}
       <div><div class="eib-label">Headcount</div><div class="eib-val">${goingCount} going · ${maybeCount} maybe</div></div>
     </div>
@@ -3916,16 +3926,11 @@ async function renderEventDetail(eventId){
       }
       
       let rowsHtml = '';
-      for (let h = event.date_poll_day_start_hour; h < event.date_poll_day_end_hour; h += event.date_poll_slot_minutes / 60) {
-        const hourInt = Math.floor(h);
-        const minute = Math.round((h - hourInt) * 60);
-        const timeLabel = new Date(`2000-01-01T${String(hourInt).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00Z`)
-          .toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit', timeZone:'UTC' });
-        rowsHtml += `<tr class="avail-time-row"><td class="avail-time-label">${esc(timeLabel)}</td>`;
+      const isWholeDayMode = event.date_poll_slot_minutes === 1440;
+      if (isWholeDayMode) {
+        rowsHtml += `<tr class="avail-time-row"><td class="avail-time-label">All day</td>`;
         for (const day of days) {
-          const slotIso = new Date(day + 'T00:00:00Z');
-          slotIso.setUTCHours(hourInt, minute, 0, 0);
-          const slotIsoStr = slotIso.toISOString();
+          const slotIsoStr = new Date(day + 'T00:00:00Z').toISOString();
           const isSelected = myAvailability && myAvailability.slots && myAvailability.slots.includes(slotIsoStr);
           const overlapCount = slotCounts[slotIsoStr] || 0;
           let cellClass = 'avail-cell';
@@ -3938,6 +3943,30 @@ async function renderEventDetail(eventId){
           rowsHtml += `<td class="${cellClass}" data-slot="${esc(slotIsoStr)}" onmousedown="event.stopPropagation(); _availabilityCellDown(this, '${slotIsoStr}')" onmouseenter="_availabilityCellEnter(this, '${slotIsoStr}')" ontouchstart="event.stopPropagation(); _availabilityCellTouchStart(event, this, '${slotIsoStr}')" ontouchmove="_availabilityCellTouchMove(event)">${finalizeBtn}</td>`;
         }
         rowsHtml += '</tr>';
+      } else {
+        for (let h = event.date_poll_day_start_hour; h < event.date_poll_day_end_hour; h += event.date_poll_slot_minutes / 60) {
+          const hourInt = Math.floor(h);
+          const minute = Math.round((h - hourInt) * 60);
+          const timeLabel = new Date(`2000-01-01T${String(hourInt).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00Z`)
+            .toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit', timeZone:'UTC' });
+          rowsHtml += `<tr class="avail-time-row"><td class="avail-time-label">${esc(timeLabel)}</td>`;
+          for (const day of days) {
+            const slotIso = new Date(day + 'T00:00:00Z');
+            slotIso.setUTCHours(hourInt, minute, 0, 0);
+            const slotIsoStr = slotIso.toISOString();
+            const isSelected = myAvailability && myAvailability.slots && myAvailability.slots.includes(slotIsoStr);
+            const overlapCount = slotCounts[slotIsoStr] || 0;
+            let cellClass = 'avail-cell';
+            if (overlapCount > 0) {
+              if (overlapCount >= 3) cellClass += ' overlap-3plus';
+              else cellClass += ' overlap-' + overlapCount;
+            }
+            if (isSelected) cellClass += ' active';
+            const finalizeBtn = isOrganizer ? `<button class="avail-finalize" data-slot="${esc(slotIsoStr)}" onmousedown="event.stopPropagation()" ontouchstart="event.stopPropagation()" onclick="event.stopPropagation(); finalizePollSlot('${eventId}', '${slotIsoStr}')">Pick</button>` : '';
+            rowsHtml += `<td class="${cellClass}" data-slot="${esc(slotIsoStr)}" onmousedown="event.stopPropagation(); _availabilityCellDown(this, '${slotIsoStr}')" onmouseenter="_availabilityCellEnter(this, '${slotIsoStr}')" ontouchstart="event.stopPropagation(); _availabilityCellTouchStart(event, this, '${slotIsoStr}')" ontouchmove="_availabilityCellTouchMove(event)">${finalizeBtn}</td>`;
+          }
+          rowsHtml += '</tr>';
+        }
       }
       const finalizeSection = isOrganizer ? `
         <div style="margin-bottom:.75rem">
@@ -3950,7 +3979,7 @@ async function renderEventDetail(eventId){
         <div class="section-label" style="margin-bottom:1rem">Available slots</div>
         <div style="overflow-x:auto">
           <table class="avail-grid">
-            <thead><tr><th></th>${dayHeaders}</tr></thead>
+            <thead><tr><th class="avail-time-header"></th>${dayHeaders}</tr></thead>
             <tbody>${rowsHtml}</tbody>
           </table>
         </div>
@@ -4523,7 +4552,13 @@ function renderEventEditPage(eventId){
         </div>
         <div class="form-group">
           <label>Slot size (minutes)</label>
-          <input type="number" id="evf-poll-slot-minutes" min="5" max="180" step="5" value="30" />
+          <input type="number" id="evf-poll-slot-minutes" min="5" max="1440" step="5" value="30" />
+        </div>
+        <div class="form-group">
+          <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+            <input type="checkbox" id="evf-poll-day-mode" onchange="_eventFormTogglePollMode()" />
+            <span>All day</span>
+          </label>
         </div>
       </div>
     </div>
@@ -4628,6 +4663,8 @@ function renderEventEditPage(eventId){
         const pds = el('evf-poll-day-start-hour'); if (pds) pds.value = withFallback(e.date_poll_day_start_hour, '9');
         const pde = el('evf-poll-day-end-hour');   if (pde) pde.value = withFallback(e.date_poll_day_end_hour, '21');
         const psm = el('evf-poll-slot-minutes');   if (psm) psm.value = withFallback(e.date_poll_slot_minutes, '30');
+        const pdm = el('evf-poll-day-mode');       if (pdm) pdm.checked = (e.date_poll_slot_minutes === 1440);
+        _eventFormTogglePollMode();
       }
       const lpm = el('evf-location-poll-mode');
       if (lpm) {
@@ -4672,6 +4709,32 @@ function _eventFormTogglePollMode(){
       rangeStart.value = dateStr;
       rangeEnd.value = dateStr;
     }
+    const dayMode = el('evf-poll-day-mode')?.checked || false;
+    const slotInput = el('evf-poll-slot-minutes');
+    const dayStartInput = el('evf-poll-day-start-hour');
+    const dayEndInput = el('evf-poll-day-end-hour');
+    if (slotInput) {
+      if (dayMode) {
+        slotInput.value = '1440';
+        slotInput.disabled = true;
+        if (dayStartInput) { dayStartInput.value = '0'; dayStartInput.disabled = true; }
+        if (dayEndInput) { dayEndInput.value = '24'; dayEndInput.disabled = true; }
+      } else {
+        slotInput.disabled = false;
+        if (!slotInput.value || slotInput.value === '1440') slotInput.value = '30';
+        if (dayStartInput) dayStartInput.disabled = false;
+        if (dayEndInput) dayEndInput.disabled = false;
+        // Only clobber the window fields back to 9/21 when we're actually leaving
+        // all-day mode (they were force-set to 0/24 above on the way in) — a
+        // legitimate manually-entered 0-24 window with the "All day" box unchecked
+        // must survive an unrelated re-sync call untouched.
+        if (_eventFormDayModeWasChecked) {
+          if (dayStartInput) dayStartInput.value = '9';
+          if (dayEndInput) dayEndInput.value = '21';
+        }
+      }
+    }
+    _eventFormDayModeWasChecked = dayMode;
   }
 }
 
@@ -4709,14 +4772,14 @@ async function saveEvent(eventId){
       return formErr('evf-error', 'Daily window end hour must be greater than the start hour (both between 0 and 24).');
     }
     // `> 0` alone isn't enough — the Save button bypasses the input's own min="5"/
-    // max="180" constraints, so a value like 0.000001 would pass a bare positivity
+    // max="1440" constraints, so a value like 0.000001 would pass a bare positivity
     // check, get persisted, and then renderEventDetail's grid loop
     // (`h += slotMinutes / 60`) would advance by a near-zero amount, producing
     // hundreds of millions of iterations for a normal daily window and hanging any
-    // browser that opens the event. Enforce the same 5-180 bounds the input declares.
+    // browser that opens the event. Enforce the same 5-1440 bounds the input declares.
     const sm = Number(slotMinutes);
-    if (slotMinutes === '' || !Number.isFinite(sm) || sm < 5 || sm > 180) {
-      return formErr('evf-error', 'Slot size must be between 5 and 180 minutes.');
+    if (slotMinutes === '' || !Number.isFinite(sm) || sm < 5 || sm > 1440) {
+      return formErr('evf-error', 'Slot size must be between 5 and 1440 minutes.');
     }
   } else {
     if (!start) return formErr('evf-error', 'Start date and time are both required — if you see a date but no time picked in that field, add a time too.');
@@ -4736,6 +4799,7 @@ async function saveEvent(eventId){
     fd.append('start_date', new Date(start).toISOString());
     const end = val('evf-end'); if (end) fd.append('end_date', new Date(end).toISOString());
     fd.append('date_poll_status', 'none');
+    fd.append('date_poll_slot_minutes', '30');
   }
   const loc = val('evf-loc'); if (loc) fd.append('location', loc);
   const desc = val('evf-desc'); if (desc) fd.append('description', desc);
@@ -6940,7 +7004,7 @@ async function showGuestRsvpPage(guestToken){
       ${thumb ? `<img src="${esc(thumb)}" alt="">` : `<div class="event-detail-hero-placeholder">${icon}</div>`}
     </div>
     <div class="event-info-bar">
-      <div><div class="eib-label">When</div><div class="eib-val">${esc(fmtEventDate(event.start_date, { withTime: true }))}</div></div>
+      <div><div class="eib-label">When</div><div class="eib-val">${esc(fmtEventDate(event.start_date, { withTime: true, allDay: event.date_poll_slot_minutes === 1440 }))}</div></div>
       ${event.location ? `<div><div class="eib-label">Where</div><div class="eib-val">${esc(event.location)}</div></div>` : ''}
     </div>
     <h1 style="font-family:var(--font-display);font-size:2rem;font-weight:500;margin-top:1.5rem">${esc(event.name)}</h1>

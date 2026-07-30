@@ -91,9 +91,11 @@
   function fmtEventDate(iso, opts) {
     if (!iso) return '';
     const withTime = opts && opts.withTime;
-    const style = withTime
+    const allDay = opts && opts.allDay;
+    const style = (withTime && !allDay)
       ? { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }
-      : { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' };
+      : { weekday: withTime ? 'long' : 'short', month: withTime ? 'long' : 'short', day: 'numeric', year: 'numeric' };
+    if (allDay) style.timeZone = 'UTC';
     return new Date(iso).toLocaleDateString('en-US', style);
   }
 
