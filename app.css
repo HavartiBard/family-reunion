@@ -762,6 +762,12 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
 /* ── Event detail two-column layout ──────────────────────────────────────── */
 .edc-wrap{max-width:960px;margin:0 auto}
 .event-detail-columns{display:grid;grid-template-columns:65fr 35fr;gap:1.25rem;align-items:start}
+/* Grid items default to min-width:auto, which floors their width at their content's
+   min-content size (e.g. a long unbroken URL in a location suggestion) — without this,
+   wide content can force a track past its fr-share and blow the whole grid out past
+   .edc-wrap's 960px cap. #main has overflow-x:hidden (no scrollbar), so an overflow here
+   silently clips the right column entirely rather than scrolling. */
+.edc-left,.edc-right{min-width:0}
 /* Collapses well above the generic 767px content breakpoint: at 767-1023px the
    #sidebar (248px) is still visible (it only hides below 767px), which leaves too
    little room for a usable 35% sidebar column — e.g. at 768px the sidebar column

@@ -4107,8 +4107,8 @@ async function renderEventDetail(eventId){
                   <div style="font-weight:600">${esc(s.name)}</div>
                   ${s.address ? `<div style="font-size:.85rem;color:var(--text-muted);margin-top:.15rem">${esc(s.address)}</div>` : ''}
                   ${s.url ? (safeUrl
-                    ? `<div style="margin-top:.25rem"><a href="${escAttr(safeUrl)}" target="_blank" rel="noopener" class="link" style="font-size:.85rem">${esc(s.url)}</a></div>`
-                    : `<div style="margin-top:.25rem;font-size:.85rem">${esc(s.url)}</div>`) : ''}
+                    ? `<div style="margin-top:.25rem;overflow-wrap:anywhere"><a href="${escAttr(safeUrl)}" target="_blank" rel="noopener" class="link" style="font-size:.85rem">${esc(s.url)}</a></div>`
+                    : `<div style="margin-top:.25rem;font-size:.85rem;overflow-wrap:anywhere">${esc(s.url)}</div>`) : ''}
                   ${s.notes ? `<div style="font-size:.85rem;margin-top:.35rem">${esc(s.notes)}</div>` : ''}
                   ${s.capacity ? `<div style="font-size:.78rem;color:var(--text-muted);margin-top:.35rem">Capacity: ${esc(String(s.capacity))}</div>` : ''}
                 </div>
