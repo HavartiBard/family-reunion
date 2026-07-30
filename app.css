@@ -759,6 +759,9 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
 /* ── Settings ────────────────────────────────────────────────────────────── */
 .settings-layout{display:grid;grid-template-columns:200px 1fr;gap:1.5rem;align-items:start}
 @media (max-width:767px){.settings-layout{grid-template-columns:1fr}}
+/* ── Event detail two-column layout ──────────────────────────────────────── */
+.event-detail-columns{display:grid;grid-template-columns:65fr 35fr;gap:1.25rem;align-items:start}
+@media (max-width:767px){.event-detail-columns{grid-template-columns:1fr}}
 .settings-nav{display:flex;flex-direction:column;gap:.15rem;position:sticky;top:1rem}
 .sn-item{background:none;border:none;text-align:left;padding:.5rem .75rem;border-radius:8px;
   cursor:pointer;font-family:var(--font-ui);font-size:.88rem;color:var(--text-secondary);width:100%}
