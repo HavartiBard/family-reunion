@@ -3934,12 +3934,8 @@ async function renderEventDetail(eventId){
             else cellClass += ' overlap-' + overlapCount;
           }
           if (isSelected) cellClass += ' active';
-          // stopPropagation is required — this button is nested inside the cell's own
-          // onclick="toggleAvailabilitySlot(...)", so without it, clicking "Pick" also
-          // toggled the organizer's own availability for that slot (even when they then
-          // cancelled the finalize confirmation dialog).
-          const finalizeBtn = isOrganizer ? `<button class="avail-finalize" data-slot="${esc(slotIsoStr)}" onclick="event.stopPropagation(); finalizePollSlot('${eventId}', '${slotIsoStr}')">Pick</button>` : '';
-          rowsHtml += `<td class="${cellClass}" data-slot="${esc(slotIsoStr)}" onclick="toggleAvailabilitySlot('${eventId}', '${slotIsoStr}')">${finalizeBtn}</td>`;
+          const finalizeBtn = isOrganizer ? `<button class="avail-finalize" data-slot="${esc(slotIsoStr)}" onmousedown="event.stopPropagation()" onclick="event.stopPropagation(); finalizePollSlot('${eventId}', '${slotIsoStr}')">Pick</button>` : '';
+          rowsHtml += `<td class="${cellClass}" data-slot="${esc(slotIsoStr)}" onmousedown="event.stopPropagation(); _availabilityCellDown(this, '${slotIsoStr}')" onmouseenter="_availabilityCellEnter(this, '${slotIsoStr}')" ontouchstart="event.stopPropagation(); _availabilityCellTouchStart(event, this, '${slotIsoStr}')" ontouchmove="_availabilityCellTouchMove(event)">${finalizeBtn}</td>`;
         }
         rowsHtml += '</tr>';
       }
@@ -3948,6 +3944,7 @@ async function renderEventDetail(eventId){
           <button class="btn btn-outline btn-sm" onclick="document.querySelectorAll('.avail-finalize').forEach(b => b.classList.toggle('visible'))">Finalize a time</button>
           <span style="font-size:.78rem;color:var(--text-muted);margin-left:.5rem">Click "Pick" on any cell to finalize the event</span>
         </div>` : '';
+      const submitBtn = `<div style="margin-top:1rem"><button class="btn btn-primary btn-sm" onclick="submitAvailability('${eventId}')">Submit availability</button></div>`;
       return `<div class="card" style="margin-top:1.25rem">
         ${finalizeSection}
         <div class="section-label" style="margin-bottom:1rem">Available slots</div>
@@ -3957,6 +3954,7 @@ async function renderEventDetail(eventId){
             <tbody>${rowsHtml}</tbody>
           </table>
         </div>
+        ${submitBtn}
       </div>`;
     })() : ''}
     ${event.location_poll_status === 'open' ? (() => {
@@ -4149,60 +4147,6 @@ async function renderEventDetail(eventId){
   }
 }
 
-// Rapid clicks on the availability grid must not race: each click's fetch-then-write
-// cycle (GET current slots, then PATCH/POST the toggled result) needs to see the
-// PREVIOUS click's write, not the state from before it started. Without this, two fast
-// clicks each fetch "no record yet"/the same pre-click slots and race to write —
-// losing one click's selection, and (before the (event,user) unique index existed)
-// racing to create two rows for the same pair. Chaining every call onto a single
-// promise serializes the whole GET+write cycle per click, not just the writes.
-let _availabilityToggleQueue = Promise.resolve();
-
-function toggleAvailabilitySlot(eventId, slotIso){
-  // Capture the initiating session's user id at click time, not at execution time — if
-  // several toggles are queued and the user signs out (then someone else signs in) on
-  // the same page before the queue drains, a queued callback reading the live `userId`
-  // global at execution time would save/attribute the click to whichever account is
-  // current by then, not who actually clicked.
-  const initiatingUserId = userId;
-  const run = _availabilityToggleQueue.then(() => {
-    if (userId !== initiatingUserId) return; // session changed under this queued click — drop it
-    return _doToggleAvailabilitySlot(eventId, slotIso, initiatingUserId);
-  });
-  // Keep the queue moving even if this click's request failed — a failed toggle must
-  // not permanently block every later click on the grid.
-  _availabilityToggleQueue = run.catch(() => {});
-  return run;
-}
-
-async function _doToggleAvailabilitySlot(eventId, slotIso, forUserId){
-  try {
-    const chkRes = await apiFetch(`/api/collections/event_availability/records?filter=${encodeURIComponent(`(event="${eventId}" && user="${forUserId}")`)}&perPage=1`);
-    const existing = chkRes.ok ? ((await chkRes.json()).items || [])[0] : null;
-    let res;
-    if (existing) {
-      const currentSlots = existing.slots || [];
-      const newSlots = currentSlots.includes(slotIso)
-        ? currentSlots.filter(s => s !== slotIso)
-        : [...currentSlots, slotIso];
-      res = await apiFetch(`/api/collections/event_availability/records/${existing.id}`, {
-        method:'PATCH', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ slots: newSlots }) });
-    } else {
-      res = await apiFetch('/api/collections/event_availability/records', {
-        method:'POST', headers:{ 'Content-Type':'application/json' },
-        body: JSON.stringify({ event: eventId, user: forUserId, slots: [slotIso] }) });
-    }
-    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not save availability'); }
-    // Only re-render if we're still looking at the session that initiated this toggle —
-    // a queued render after a session change would redraw the event page with the new
-    // user's identity mid-navigation.
-    if (userId === forUserId) {
-      toast('Availability saved.', 'success');
-      await renderEventDetail(eventId);
-    }
-  } catch (e) { toast(e.message, 'error'); }
-}
-
 async function finalizePollSlot(eventId, slotIso){
   const label = new Date(slotIso).toLocaleString('en-US', { weekday:'long', month:'long', day:'numeric', hour:'numeric', minute:'2-digit', timeZone:'UTC' });
   if (!confirm(`Finalize this event for ${label}? This closes the poll.`)) return;
@@ -4212,6 +4156,98 @@ async function finalizePollSlot(eventId, slotIso){
       body: JSON.stringify({ start_date: slotIso, date_poll_status: 'closed' }) });
     if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not finalize event'); }
     toast('Event date finalized.', 'success');
+    await renderEventDetail(eventId);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// ── Drag-paint availability selection ─────────────────────────────────────────
+let _availabilityPendingSlots = new Set();
+let _availabilityIsDragging = false;
+let _availabilityLastSlot = null;
+let _availabilityDragMode = null;
+let _availabilityGlobalListenersAttached = false;
+
+function _availabilityAttachGlobalListeners(){
+  if (_availabilityGlobalListenersAttached) return;
+  _availabilityGlobalListenersAttached = true;
+  document.addEventListener('mouseup', _availabilityEndDrag);
+  document.addEventListener('touchend', _availabilityEndDrag);
+  document.addEventListener('mouseleave', _availabilityEndDrag);
+}
+
+function _availabilityCellDown(cell, slotIsoStr){
+  if (cell.classList.contains('avail-finalize')) return;
+  _availabilityIsDragging = true;
+  _availabilityDragMode = _availabilityPendingSlots.has(slotIsoStr) ? 'deselect' : 'select';
+  _availabilityLastSlot = slotIsoStr;
+  _availabilityAttachGlobalListeners();
+  _availabilityApplySlot(slotIsoStr);
+}
+
+function _availabilityCellEnter(cell, slotIsoStr){
+  if (!_availabilityIsDragging || cell.classList.contains('avail-finalize')) return;
+  _availabilityLastSlot = slotIsoStr;
+  _availabilityApplySlot(slotIsoStr);
+}
+
+function _availabilityCellTouchStart(e, cell, slotIsoStr){
+  if (cell.classList.contains('avail-finalize')) return;
+  e.preventDefault();
+  _availabilityIsDragging = true;
+  _availabilityDragMode = _availabilityPendingSlots.has(slotIsoStr) ? 'deselect' : 'select';
+  _availabilityLastSlot = slotIsoStr;
+  _availabilityAttachGlobalListeners();
+  _availabilityApplySlot(slotIsoStr);
+}
+
+function _availabilityCellTouchMove(e){
+  e.preventDefault();
+  const touch = e.touches[0];
+  const el = document.elementFromPoint(touch.clientX, touch.clientY);
+  if (!el) return;
+  const cell = el.closest('.avail-cell');
+  if (!cell) return;
+  const slotIsoStr = cell.dataset.slot;
+  if (!slotIsoStr || slotIsoStr === _availabilityLastSlot) return;
+  _availabilityLastSlot = slotIsoStr;
+  _availabilityApplySlot(slotIsoStr);
+}
+
+function _availabilityEndDrag(){
+  _availabilityIsDragging = false;
+  _availabilityLastSlot = null;
+  _availabilityDragMode = null;
+}
+
+function _availabilityApplySlot(slotIsoStr){
+  const cell = document.querySelector(`.avail-cell[data-slot="${escAttr(slotIsoStr)}"]`);
+  if (_availabilityDragMode === 'select') {
+    _availabilityPendingSlots.add(slotIsoStr);
+    if (cell) cell.classList.add('active');
+  } else if (_availabilityDragMode === 'deselect') {
+    _availabilityPendingSlots.delete(slotIsoStr);
+    if (cell) cell.classList.remove('active');
+  }
+}
+
+async function submitAvailability(eventId){
+  if (_availabilityPendingSlots.size === 0) return toast('No changes to save.', 'info');
+  try {
+    const chkRes = await apiFetch(`/api/collections/event_availability/records?filter=${encodeURIComponent(`(event="${eventId}" && user="${userId}")`)}&perPage=1`);
+    const existing = chkRes.ok ? ((await chkRes.json()).items || [])[0] : null;
+    const slotsArray = Array.from(_availabilityPendingSlots);
+    let res;
+    if (existing) {
+      res = await apiFetch(`/api/collections/event_availability/records/${existing.id}`, {
+        method:'PATCH', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ slots: slotsArray }) });
+    } else {
+      res = await apiFetch('/api/collections/event_availability/records', {
+        method:'POST', headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ event: eventId, user: userId, slots: slotsArray }) });
+    }
+    if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not save availability'); }
+    _availabilityPendingSlots.clear();
+    toast('Availability saved.', 'success');
     await renderEventDetail(eventId);
   } catch (e) { toast(e.message, 'error'); }
 }
@@ -4604,6 +4640,19 @@ function _eventFormTogglePollMode(){
   if (pollSettings) pollSettings.style.display = pollMode ? 'block' : 'none';
   if (dateRow) dateRow.style.display = pollMode ? 'none' : '';
   if (dateRowNote) dateRowNote.style.display = pollMode ? 'block' : 'none';
+
+  if (pollMode) {
+    const rangeStart = el('evf-poll-range-start');
+    const rangeEnd = el('evf-poll-range-end');
+    if (rangeStart && rangeEnd && !rangeStart.value && !rangeEnd.value) {
+      const d = new Date();
+      d.setDate(d.getDate() + 1);
+      const pad = (n) => String(n).padStart(2, '0');
+      const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      rangeStart.value = dateStr;
+      rangeEnd.value = dateStr;
+    }
+  }
 }
 
 function _eventFormToggleLocationPollMode(){
