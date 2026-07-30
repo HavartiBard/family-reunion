@@ -860,7 +860,9 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
    this rule would override .dsc-checkbox's width:1px/height:1px accessible-hide
    sizing and un-hide the depth-suggest chips' underlying checkboxes. */
 input[type="checkbox"]:not(.dsc-checkbox){
+  appearance:auto;-webkit-appearance:auto;
   width:20px;height:20px;
+  padding:0;border:none;border-radius:0;background:none;
   accent-color:var(--accent-gold);
   cursor:pointer;
 }
