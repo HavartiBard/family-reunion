@@ -3781,7 +3781,7 @@ async function renderEventsList(){
 }
 
 async function renderEventDetail(eventId){
-  mountMain('<div class="screen-pad" style="max-width:860px"><div class="spinner"></div></div>');
+  mountMain('<div class="screen-pad" style="max-width:1200px"><div class="spinner"></div></div>');
   let event = null, myRsvp = null, goingCount = 0, maybeCount = 0;
   let invites = [], myAvailability = null, allAvailability = [], rsvpsByUser = {};
   let locationSuggestions = [], locationVoteCounts = {}, myLocationVotes = {};
@@ -3880,7 +3880,7 @@ async function renderEventDetail(eventId){
   const curStatus = myRsvp ? myRsvp.status : '';
   const rsvpOpt = (key, label) => `<button class="ev-rsvp-opt${curStatus === key ? ' active' : ''}" onclick="setEventRsvp('${eventId}','${key}')">${label}</button>`;
 
-  mountMain(`<div class="screen-pad" style="max-width:860px">
+  mountMain(`<div class="screen-pad" style="max-width:1200px">
     <div class="breadcrumb"><span class="link" onclick="navigate('events')">Events</span> › ${esc(event.name)}</div>
     <div class="event-detail-hero" style="margin-top:.75rem">
       ${thumb ? `<img src="${esc(thumb)}" alt="">` : `<div class="event-detail-hero-placeholder">${icon}</div>`}
@@ -3899,12 +3899,6 @@ async function renderEventDetail(eventId){
       ${isOrganizer ? `<button class="btn btn-outline btn-sm" onclick="navigate('events',{event:'${event.id}',edit:'1'})">Edit event</button>` : ''}
     </div>
     ${event.description ? `<div class="card" style="margin-top:1.25rem"><p style="line-height:1.6">${esc(event.description)}</p></div>` : ''}
-    <div class="card" style="margin-top:1.25rem">
-      <div class="section-label" style="margin-bottom:1rem">Will you be there?</div>
-      <div class="ev-rsvp-row">
-        ${rsvpOpt('going', "I'm going")}${rsvpOpt('maybe', 'Maybe')}${rsvpOpt('no', "Can't make it")}
-      </div>
-    </div>
     ${event.date_poll_status === 'open' ? (() => {
       const days = [];
       const start = new Date(event.date_poll_range_start + 'T00:00:00Z');
@@ -4050,113 +4044,125 @@ async function renderEventDetail(eventId){
         </div>
       </div>`;
     })() : ''}
-    ${isOrganizer ? (() => {
-      if (invites.length === 0) {
-        return `<div class="card" style="margin-top:1.25rem">
-          <div class="section-label" style="margin-bottom:1rem">Invited</div>
-          <p style="font-size:.82rem;color:var(--text-muted);margin:0">No one has been invited yet.</p>
-        </div>`;
-      }
-      const statusBadge = (s) => {
-        if (s === 'pending') return '<span class="pill" style="background:var(--bg-hover);color:var(--text-muted)">Invited</span>';
-        if (s === 'going') return '<span class="pill" style="background:var(--accent-green);color:var(--text-sidebar-active)">Going</span>';
-        if (s === 'maybe') return '<span class="pill" style="background:var(--accent-gold);color:var(--accent-fg)">Maybe</span>';
-        if (s === 'no') return '<span class="pill" style="background:var(--danger-bg);color:var(--danger)">No</span>';
-        return `<span class="pill" style="background:var(--bg-hover);color:var(--text-muted)">${esc(s)}</span>`;
-      };
-      const rows = invites.map(inv => {
-        const inviteType = inv.invite_type || 'user';
-        const expandedUser = inv.expand && inv.expand.user;
-        const name = inviteType === 'user'
-          ? (expandedUser ? esc(expandedUser.name || expandedUser.email || 'Invited user') : 'Invited user')
-          : esc(inv.guest_name || inv.email || 'Guest');
-        // For user-type invites, the invitee's real RSVP lives in event_rsvps (set via
-        // setEventRsvp on the event screen) — event_invites.status for a "user" invite only
-        // ever reflects invite acknowledgment, never gets updated when they actually RSVP.
-        // Fall back to inv.status (effectively always "pending") if they haven't RSVP'd yet.
-        const displayStatus = inviteType === 'user'
-          ? (rsvpsByUser[inv.user] || inv.status || 'pending')
-          : (inv.status || 'pending');
-        return `<div style="display:flex;align-items:center;justify-content:space-between;padding:.6rem;background:var(--bg-hover);border-radius:.3rem;margin:.25rem 0">
-          <span style="font-size:.95rem">${name}</span>
-          ${statusBadge(displayStatus)}
-        </div>`;
-      }).join('');
-      return `<div class="card" style="margin-top:1.25rem">
-        <div class="section-label" style="margin-bottom:1rem">Invited</div>
-        ${rows}
-      </div>`;
-    })() : ''}
-    <div class="card" style="margin-top:1.25rem">
-      <div class="section-label" style="margin-bottom:1rem">Announcements</div>
-      ${(() => {
-        const sentAnnouncements = announcements.filter(a => a.sent === true);
-        const pendingAnnouncements = announcements.filter(a => a.sent === false);
-        
-        if (sentAnnouncements.length === 0 && !isOrganizer) {
-          return '';
-        }
-        
-        const sentRows = sentAnnouncements.map(a => {
-          const senderName = a.expand && a.expand.created_by 
-            ? esc(a.expand.created_by.name || a.expand.created_by.email || 'Someone')
-            : 'Someone';
-          return `<div style="padding:.6rem;background:var(--bg-hover);border-radius:.3rem;margin:.25rem 0">
-            <div style="font-size:.85rem;color:var(--text-muted);margin-bottom:.25rem">Sent on ${esc(fmtEventDate(a.send_at, { withTime: true }))} by ${senderName}</div>
-            <div style="font-weight:600;margin-bottom:.25rem">${esc(a.title)}</div>
-            <div style="line-height:1.5;white-space:pre-wrap">${esc(a.body)}</div>
-          </div>`;
-        }).join('');
-        
-        let html = `<div class="section-label" style="margin-bottom:.75rem">Sent</div>${sentRows || '<p style="font-size:.82rem;color:var(--text-muted);margin:0">No announcements sent yet.</p>'}`;
-        
-        if (isOrganizer && pendingAnnouncements.length > 0) {
-          html += `<div class="section-label" style="margin-top:1rem;margin-bottom:.75rem">Pending</div>`;
-          const cancelBtn = (id) => `<button class="btn btn-outline btn-sm" onclick="cancelEventAnnouncement('${eventId}', '${id}')">Cancel</button>`;
-          const pendingRows = pendingAnnouncements.map(a => {
-            return `<div style="padding:.6rem;background:var(--bg-hover);border-radius:.3rem;margin:.25rem 0;display:flex;align-items:center;justify-content:space-between">
-              <div>
-                <div style="font-weight:600;margin-bottom:.15rem">${esc(a.title)}</div>
-                <div style="font-size:.85rem;color:var(--text-muted);margin-bottom:.25rem;white-space:pre-wrap">${esc(a.body)}</div>
-                <div style="font-size:.78rem;color:var(--text-muted)">Scheduled for ${esc(fmtEventDate(a.send_at, { withTime: true }))}</div>
-              </div>
-              ${cancelBtn(a.id)}
+    <div class="event-detail-columns" style="margin-top:1.25rem">
+      <div class="edc-primary">
+        <div class="card">
+          <div class="section-label" style="margin-bottom:1rem">Will you be there?</div>
+          <div class="ev-rsvp-row">
+            ${rsvpOpt('going', "I'm going")}${rsvpOpt('maybe', 'Maybe')}${rsvpOpt('no', "Can't make it")}
+          </div>
+        </div>
+        ${isOrganizer ? (() => {
+          if (invites.length === 0) {
+            return `<div class="card" style="margin-top:1.25rem">
+              <div class="section-label" style="margin-bottom:1rem">Invited</div>
+              <p style="font-size:.82rem;color:var(--text-muted);margin:0">No one has been invited yet.</p>
+            </div>`;
+          }
+          const statusBadge = (s) => {
+            if (s === 'pending') return '<span class="pill" style="background:var(--bg-hover);color:var(--text-muted)">Invited</span>';
+            if (s === 'going') return '<span class="pill" style="background:var(--accent-green);color:var(--text-sidebar-active)">Going</span>';
+            if (s === 'maybe') return '<span class="pill" style="background:var(--accent-gold);color:var(--accent-fg)">Maybe</span>';
+            if (s === 'no') return '<span class="pill" style="background:var(--danger-bg);color:var(--danger)">No</span>';
+            return `<span class="pill" style="background:var(--bg-hover);color:var(--text-muted)">${esc(s)}</span>`;
+          };
+          const rows = invites.map(inv => {
+            const inviteType = inv.invite_type || 'user';
+            const expandedUser = inv.expand && inv.expand.user;
+            const name = inviteType === 'user'
+              ? (expandedUser ? esc(expandedUser.name || expandedUser.email || 'Invited user') : 'Invited user')
+              : esc(inv.guest_name || inv.email || 'Guest');
+            // For user-type invites, the invitee's real RSVP lives in event_rsvps (set via
+            // setEventRsvp on the event screen) — event_invites.status for a "user" invite only
+            // ever reflects invite acknowledgment, never gets updated when they actually RSVP.
+            // Fall back to inv.status (effectively always "pending") if they haven't RSVP'd yet.
+            const displayStatus = inviteType === 'user'
+              ? (rsvpsByUser[inv.user] || inv.status || 'pending')
+              : (inv.status || 'pending');
+            return `<div style="display:flex;align-items:center;justify-content:space-between;padding:.6rem;background:var(--bg-hover);border-radius:.3rem;margin:.25rem 0">
+              <span style="font-size:.95rem">${name}</span>
+              ${statusBadge(displayStatus)}
             </div>`;
           }).join('');
-          html += pendingRows;
-        }
-        
-        return html;
-      })()}
+          return `<div class="card" style="margin-top:1.25rem">
+            <div class="section-label" style="margin-bottom:1rem">Invited</div>
+            ${rows}
+          </div>`;
+        })() : ''}
+      </div>
+      <div class="edc-sidebar">
+        <div class="card">
+          <div class="section-label" style="margin-bottom:1rem">Announcements</div>
+          ${(() => {
+            const sentAnnouncements = announcements.filter(a => a.sent === true);
+            const pendingAnnouncements = announcements.filter(a => a.sent === false);
+
+            if (sentAnnouncements.length === 0 && !isOrganizer) {
+              return '';
+            }
+
+            const sentRows = sentAnnouncements.map(a => {
+              const senderName = a.expand && a.expand.created_by
+                ? esc(a.expand.created_by.name || a.expand.created_by.email || 'Someone')
+                : 'Someone';
+              return `<div style="padding:.6rem;background:var(--bg-hover);border-radius:.3rem;margin:.25rem 0">
+                <div style="font-size:.85rem;color:var(--text-muted);margin-bottom:.25rem">Sent on ${esc(fmtEventDate(a.send_at, { withTime: true }))} by ${senderName}</div>
+                <div style="font-weight:600;margin-bottom:.25rem">${esc(a.title)}</div>
+                <div style="line-height:1.5;white-space:pre-wrap">${esc(a.body)}</div>
+              </div>`;
+            }).join('');
+
+            let html = `<div class="section-label" style="margin-bottom:.75rem">Sent</div>${sentRows || '<p style="font-size:.82rem;color:var(--text-muted);margin:0">No announcements sent yet.</p>'}`;
+
+            if (isOrganizer && pendingAnnouncements.length > 0) {
+              html += `<div class="section-label" style="margin-top:1rem;margin-bottom:.75rem">Pending</div>`;
+              const cancelBtn = (id) => `<button class="btn btn-outline btn-sm" onclick="cancelEventAnnouncement('${eventId}', '${id}')">Cancel</button>`;
+              const pendingRows = pendingAnnouncements.map(a => {
+                return `<div style="padding:.6rem;background:var(--bg-hover);border-radius:.3rem;margin:.25rem 0;display:flex;align-items:center;justify-content:space-between">
+                  <div>
+                    <div style="font-weight:600;margin-bottom:.15rem">${esc(a.title)}</div>
+                    <div style="font-size:.85rem;color:var(--text-muted);margin-bottom:.25rem;white-space:pre-wrap">${esc(a.body)}</div>
+                    <div style="font-size:.78rem;color:var(--text-muted)">Scheduled for ${esc(fmtEventDate(a.send_at, { withTime: true }))}</div>
+                  </div>
+                  ${cancelBtn(a.id)}
+                </div>`;
+              }).join('');
+              html += pendingRows;
+            }
+
+            return html;
+          })()}
+        </div>
+        ${isOrganizer ? (() => {
+          const defaultSchedule = (() => {
+            const d = new Date();
+            d.setDate(d.getDate() + 1);
+            d.setHours(9, 0, 0, 0);
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            const hour = String(d.getHours()).padStart(2, '0');
+            const minute = String(d.getMinutes()).padStart(2, '0');
+            return `${year}-${month}-${day}T${hour}:${minute}`;
+          })();
+
+          return `<div class="card" style="margin-top:1.25rem">
+            <div class="section-label" style="margin-bottom:1rem">Compose announcement</div>
+            <div id="event-ann-form-error" class="alert alert-error" style="display:none"></div>
+            <div class="form-group"><label>Title</label><input id="ann-title" placeholder="Announcement title" /></div>
+            <div class="form-group"><label>Body</label><textarea id="ann-body" rows="3" placeholder="Announcement content..."></textarea></div>
+            <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:1rem">
+              <input type="checkbox" id="ann-schedule-toggle" />
+              <label for="ann-schedule-toggle" style="cursor:pointer">Schedule for later</label>
+            </div>
+            <div id="ann-schedule-field" style="display:none;margin-bottom:1rem">
+              <div class="form-group"><label>Send at</label><input type="datetime-local" id="ann-send-at" value="${defaultSchedule}" /></div>
+            </div>
+            <button class="btn btn-outline btn-sm" onclick="submitEventAnnouncement('${eventId}')">Send announcement</button>
+          </div>`;
+        })() : ''}
+      </div>
     </div>
-    ${isOrganizer ? (() => {
-      const defaultSchedule = (() => {
-        const d = new Date();
-        d.setDate(d.getDate() + 1);
-        d.setHours(9, 0, 0, 0);
-        const year = d.getFullYear();
-        const month = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        const hour = String(d.getHours()).padStart(2, '0');
-        const minute = String(d.getMinutes()).padStart(2, '0');
-        return `${year}-${month}-${day}T${hour}:${minute}`;
-      })();
-      
-      return `<div class="card" style="margin-top:1.25rem">
-        <div class="section-label" style="margin-bottom:1rem">Compose announcement</div>
-        <div id="event-ann-form-error" class="alert alert-error" style="display:none"></div>
-        <div class="form-group"><label>Title</label><input id="ann-title" placeholder="Announcement title" /></div>
-        <div class="form-group"><label>Body</label><textarea id="ann-body" rows="3" placeholder="Announcement content..."></textarea></div>
-        <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:1rem">
-          <input type="checkbox" id="ann-schedule-toggle" />
-          <label for="ann-schedule-toggle" style="cursor:pointer">Schedule for later</label>
-        </div>
-        <div id="ann-schedule-field" style="display:none;margin-bottom:1rem">
-          <div class="form-group"><label>Send at</label><input type="datetime-local" id="ann-send-at" value="${defaultSchedule}" /></div>
-        </div>
-        <button class="btn btn-outline btn-sm" onclick="submitEventAnnouncement('${eventId}')">Send announcement</button>
-      </div>`;
-    })() : ''}
   </div>`);
 
   // Comment threads render into placeholder containers synchronously created above —
