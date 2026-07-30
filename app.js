@@ -4657,6 +4657,9 @@ async function saveEvent(eventId){
     // value has to be sent to actually clear it.
     fd.append('tree', '');
   }
+  if (!eventId && !primaryTree && !_defaultTreeForNewRecord()) {
+    return formErr('evf-error', 'Select a tree before creating this event — otherwise it would be visible to every approved user.');
+  }
   if (_eventFormShouldClearInviteOnly && !primaryTree) {
     return formErr('evf-error', 'Select a tree before converting this event to tree-based access — otherwise it would become visible to every approved user.');
   }
