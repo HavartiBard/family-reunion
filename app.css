@@ -840,6 +840,7 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
 .dsc-checkbox:checked + .dsc-chip{background:var(--accent-gold);color:var(--accent-fg);border-color:var(--accent-gold)}
 .dsc-checkbox:checked + .dsc-chip::after{content:" ✉️";margin-left:.3rem}
 .dsc-checkbox:disabled + .dsc-chip{opacity:.65;cursor:not-allowed}
+.dsc-checkbox:focus-visible + .dsc-chip{outline:none;border-color:var(--border-focus);box-shadow:0 0 0 3px var(--focus-shadow)}
 .dsc-email-row{display:none;flex:1;min-width:220px}
 .dsc-checkbox:checked ~ .dsc-email-row{display:flex}
 .dsc-email-row input{width:100%;padding:.4rem .6rem;border:1px solid var(--border-input);border-radius:.3rem;font-size:.88rem}
