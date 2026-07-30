@@ -829,3 +829,17 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
   border:2px solid var(--border-default);border-bottom:2px solid var(--bg-card)}
 .evf-tab-content-card{background:var(--bg-card);border:1px solid var(--border-default);
   border-radius:0 8px 8px 8px;padding:1.25rem;margin-bottom:1.25rem;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+
+/* Depth suggestions chips */
+.dsc-unit{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;margin:.3rem 0}
+.dsc-checkbox{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.dsc-chip{display:inline-flex;align-items:center;padding:.4rem .9rem;border-radius:999px;
+  border:1.5px solid var(--border-default);background:var(--bg-hover);color:var(--text-muted);
+  cursor:pointer;font-size:.86rem;font-weight:500;transition:background .15s ease,color .15s ease,border-color .15s ease}
+.dsc-chip:hover{border-color:var(--accent-gold)}
+.dsc-checkbox:checked + .dsc-chip{background:var(--accent-gold);color:var(--accent-fg);border-color:var(--accent-gold)}
+.dsc-checkbox:checked + .dsc-chip::after{content:" ✉️";margin-left:.3rem}
+.dsc-checkbox:disabled + .dsc-chip{opacity:.65;cursor:not-allowed}
+.dsc-email-row{display:none;flex:1;min-width:220px}
+.dsc-checkbox:checked ~ .dsc-email-row{display:flex}
+.dsc-email-row input{width:100%;padding:.4rem .6rem;border:1px solid var(--border-input);border-radius:.3rem;font-size:.88rem}
