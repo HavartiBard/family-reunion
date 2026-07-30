@@ -3532,9 +3532,9 @@ async function _eventFormPreviewDepthInvites(){
           if (isMe) continue;
           const alreadyInList = _eventFormPendingInvites.some(i => i.inviteType === 'user' && i.userId === p.linked_user);
           html += `
-            <div style="display:flex;align-items:center;gap:.5rem;padding:.4rem;background:var(--bg-hover);border-radius:.3rem;margin:.25rem 0">
-              <input type="checkbox" id="evf-depth-suggest-${accountId}" value="${accountId}" ${alreadyInList ? 'disabled checked' : ''} />
-              <label for="evf-depth-suggest-${accountId}" style="flex:1;cursor:pointer">${esc(p.display_name)}</label>
+            <div class="dsc-unit">
+              <input type="checkbox" class="dsc-checkbox" id="evf-depth-suggest-${accountId}" value="${accountId}" ${alreadyInList ? 'disabled checked' : ''} />
+              <label for="evf-depth-suggest-${accountId}" class="dsc-chip">${esc(p.display_name)}</label>
             </div>
           `;
         }
@@ -3558,15 +3558,15 @@ async function _eventFormPreviewDepthInvites(){
         const noAccounts = unit.personIds.every(id => !persons.find(x => x.id === id)?.linked_user);
         
         html += `
-          <div style="display:flex;align-items:center;gap:.5rem;padding:.4rem;background:var(--bg-hover);border-radius:.3rem;margin:.25rem 0">
-            <input type="checkbox" id="evf-depth-suggest-unit-${unit.personIds[0]}" value="${unit.personIds[0]}" />
-            <label for="evf-depth-suggest-unit-${unit.personIds[0]}" style="flex:1;cursor:pointer">${label}</label>
+          <div class="dsc-unit">
+            <input type="checkbox" class="dsc-checkbox" id="evf-depth-suggest-unit-${unit.personIds[0]}" value="${unit.personIds[0]}" />
+            <label for="evf-depth-suggest-unit-${unit.personIds[0]}" class="dsc-chip">${label}</label>
+            ${noAccounts ? `
+              <div class="dsc-email-row">
+                <input type="email" id="evf-depth-email-${unit.personIds[0]}" placeholder="Email for ${escAttr(placeholderName)} (optional)" />
+              </div>
+            ` : ''}
           </div>
-          ${noAccounts ? `
-            <div style="display:flex;gap:.5rem;align-items:center;padding-left:2.5rem;margin-left:.5rem;border-left:1px solid var(--border)">
-              <input type="email" id="evf-depth-email-${unit.personIds[0]}" placeholder="Email for ${escAttr(placeholderName)} (optional)" style="flex:1" />
-            </div>
-          ` : ''}
         `;
       }
     }
@@ -4426,7 +4426,7 @@ function renderEventEditPage(eventId){
           <div style="display:flex;gap:.5rem;align-items:center;margin-top:.5rem">
             <label style="display:flex;align-items:center;gap:.4rem;font-size:.92rem">
               Generations deep:
-              <input type="number" id="evf-depth" min="1" max="5" value="2" style="width:3rem" oninput="_eventFormInvalidateDepthPreview()" />
+              <input type="number" id="evf-depth" min="1" max="5" value="2" style="width:3.5rem" oninput="_eventFormInvalidateDepthPreview()" />
             </label>
             <button class="btn btn-outline btn-sm" onclick="_eventFormPreviewDepthInvites()">Preview</button>
           </div>
