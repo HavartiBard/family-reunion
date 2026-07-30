@@ -4043,7 +4043,7 @@ async function renderEventDetail(eventId){
           // Organizers always see the full grid (they need it to compare everyone's
           // overlap and finalize a slot) — only a non-organizer who has already
           // submitted gets the collapsed-by-default summary view.
-          const hasAnswered = !isOrganizer && !!(myAvailability && myAvailability.slots && myAvailability.slots.length > 0);
+          const hasAnswered = !isOrganizer && !!myAvailability;
           const responseCount = allAvailability.length;
           return `<div class="card" style="margin-top:1.25rem">
             <div class="section-label" style="margin-bottom:1rem">Available slots</div>
