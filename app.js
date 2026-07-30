@@ -3787,13 +3787,12 @@ async function renderEventDetail(eventId){
   let locationSuggestions = [], locationVoteCounts = {}, myLocationVotes = {};
   let announcements = [];
   try {
-    const [eRes, rRes, cRes, iRes, avRes, allAvRes] = await Promise.all([
+    const [eRes, rRes, cRes, iRes, avRes] = await Promise.all([
       apiFetch(`/api/collections/events/records/${eventId}?expand=organizers`),
       apiFetch(`/api/collections/event_rsvps/records?filter=${encodeURIComponent(`(event="${eventId}" && user="${userId}")`)}` + `&perPage=1`),
       apiFetch(`/api/collections/event_rsvps/records?filter=${encodeURIComponent(`(event="${eventId}")`)}` + `&perPage=200`),
       apiFetch(`/api/collections/event_invites/records?filter=${encodeURIComponent(`(event="${eventId}")`)}` + `&expand=user&perPage=200`),
-      apiFetch(`/api/collections/event_availability/records?filter=${encodeURIComponent(`(event="${eventId}" && user="${userId}")`)}&perPage=1`),
-      apiFetch(`/api/collections/event_availability/records?filter=${encodeURIComponent(`(event="${eventId}")`)}&perPage=200`)
+      apiFetch(`/api/collections/event_availability/records?filter=${encodeURIComponent(`(event="${eventId}" && user="${userId}")`)}&perPage=1`)
     ]);
     if (eRes.ok) event = await eRes.json();
     if (rRes.ok) { const d = await rRes.json(); myRsvp = d.items && d.items[0]; }
@@ -3820,7 +3819,21 @@ async function renderEventDetail(eventId){
       }
     }
     if (avRes.ok) { const d = await avRes.json(); myAvailability = d.items && d.items[0]; }
-    if (allAvRes.ok) { const d = await allAvRes.json(); allAvailability = d.items || []; }
+
+    // Paginate through every page rather than assuming perPage=200 is enough — a
+    // well-attended event can plausibly draw more than 200 availability submissions,
+    // and the response count is now surfaced directly in the collapsed-summary UI, so
+    // under-fetching would silently under-report it.
+    let avPage = 1;
+    let avTotalPages = 1;
+    do {
+      const allAvRes = await apiFetch(`/api/collections/event_availability/records?filter=${encodeURIComponent(`(event="${eventId}")`)}&perPage=200&page=${avPage}`);
+      if (!allAvRes.ok) break;
+      const d = await allAvRes.json();
+      avTotalPages = d.totalPages || 1;
+      allAvailability = allAvailability.concat(d.items || []);
+      avPage++;
+    } while (avPage <= avTotalPages);
 
     // Paginate through every page rather than assuming one is enough — the backend hook
     // filters pending rows out of the response for non-organizers AFTER the DB page is
