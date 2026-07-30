@@ -4140,7 +4140,10 @@ async function renderEventDetail(eventId){
   }
   
   if (event.date_poll_status === 'open') {
-    _availabilityPendingSlots = new Set((myAvailability && myAvailability.slots) || []);
+    if (_availabilityForEventId !== eventId) {
+      _availabilityPendingSlots = new Set((myAvailability && myAvailability.slots) || []);
+      _availabilityForEventId = eventId;
+    }
   }
   
   const scheduleToggle = document.getElementById('ann-schedule-toggle');
@@ -4166,6 +4169,7 @@ async function finalizePollSlot(eventId, slotIso){
 
 // ── Drag-paint availability selection ─────────────────────────────────────────
 let _availabilityPendingSlots = new Set();
+let _availabilityForEventId = null;
 let _availabilityIsDragging = false;
 let _availabilityLastSlot = null;
 let _availabilityDragMode = null;
@@ -4235,13 +4239,14 @@ function _availabilityApplySlot(slotIsoStr){
 }
 
 async function submitAvailability(eventId){
+  const snapshot = _availabilityPendingSlots;
   try {
     const chkRes = await apiFetch(`/api/collections/event_availability/records?filter=${encodeURIComponent(`(event="${eventId}" && user="${userId}")`)}&perPage=1`);
     const existing = chkRes.ok ? ((await chkRes.json()).items || [])[0] : null;
-    if (_availabilityPendingSlots.size === 0 && !existing) {
+    const slotsArray = Array.from(snapshot);
+    if (slotsArray.length === 0 && !existing) {
       return toast('No changes to save.', 'info');
     }
-    const slotsArray = Array.from(_availabilityPendingSlots);
     let res;
     if (existing) {
       res = await apiFetch(`/api/collections/event_availability/records/${existing.id}`, {
@@ -4252,9 +4257,18 @@ async function submitAvailability(eventId){
         body: JSON.stringify({ event: eventId, user: userId, slots: slotsArray }) });
     }
     if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not save availability'); }
-    _availabilityPendingSlots.clear();
-    toast('Availability saved.', 'success');
-    await renderEventDetail(eventId);
+    if (_availabilityForEventId === eventId) {
+      // Deliberately NOT clearing _availabilityPendingSlots here — the user could have
+      // painted more cells in the gap between the existing-record check above and this
+      // point (e.g. while the actual PATCH/POST was in flight), and those paints aren't
+      // in `slotsArray`/on the server yet. The per-render reset only rebuilds this set
+      // when switching to a DIFFERENT event, so since we're still on this same event,
+      // simply leaving it alone preserves whatever the user currently has painted —
+      // nothing gets silently discarded, and the just-submitted slots remain correctly
+      // represented in both this set and on the server with no conflict.
+      toast('Availability saved.', 'success');
+      await renderEventDetail(eventId);
+    }
   } catch (e) { toast(e.message, 'error'); }
 }
 
