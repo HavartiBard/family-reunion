@@ -3820,20 +3820,26 @@ async function renderEventDetail(eventId){
     }
     if (avRes.ok) { const d = await avRes.json(); myAvailability = d.items && d.items[0]; }
 
-    // Paginate through every page rather than assuming perPage=200 is enough — a
-    // well-attended event can plausibly draw more than 200 availability submissions,
-    // and the response count is now surfaced directly in the collapsed-summary UI, so
-    // under-fetching would silently under-report it.
-    let avPage = 1;
-    let avTotalPages = 1;
-    do {
-      const allAvRes = await apiFetch(`/api/collections/event_availability/records?filter=${encodeURIComponent(`(event="${eventId}")`)}&perPage=200&page=${avPage}`);
-      if (!allAvRes.ok) break;
-      const d = await allAvRes.json();
-      avTotalPages = d.totalPages || 1;
-      allAvailability = allAvailability.concat(d.items || []);
-      avPage++;
-    } while (avPage <= avTotalPages);
+    // allAvailability is only rendered while the poll is still open (the heatmap grid
+    // and the "N responses so far" summary both live inside the date_poll_status==='open'
+    // branch below) — skip fetching it entirely once closed, so a finalized high-attendance
+    // event doesn't pay for an unbounded number of pagination round trips on every visit.
+    if (event && event.date_poll_status === 'open') {
+      // Paginate through every page rather than assuming perPage=200 is enough — a
+      // well-attended event can plausibly draw more than 200 availability submissions,
+      // and the response count is now surfaced directly in the collapsed-summary UI, so
+      // under-fetching would silently under-report it.
+      let avPage = 1;
+      let avTotalPages = 1;
+      do {
+        const allAvRes = await apiFetch(`/api/collections/event_availability/records?filter=${encodeURIComponent(`(event="${eventId}")`)}&perPage=200&page=${avPage}`);
+        if (!allAvRes.ok) break;
+        const d = await allAvRes.json();
+        avTotalPages = d.totalPages || 1;
+        allAvailability = allAvailability.concat(d.items || []);
+        avPage++;
+      } while (avPage <= avTotalPages);
+    }
 
     // Paginate through every page rather than assuming one is enough — the backend hook
     // filters pending rows out of the response for non-organizers AFTER the DB page is
