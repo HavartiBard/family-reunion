@@ -760,6 +760,7 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
 .settings-layout{display:grid;grid-template-columns:200px 1fr;gap:1.5rem;align-items:start}
 @media (max-width:767px){.settings-layout{grid-template-columns:1fr}}
 /* ── Event detail two-column layout ──────────────────────────────────────── */
+.edc-wrap{max-width:960px;margin:0 auto}
 .event-detail-columns{display:grid;grid-template-columns:65fr 35fr;gap:1.25rem;align-items:start}
 /* Collapses well above the generic 767px content breakpoint: at 767-1023px the
    #sidebar (248px) is still visible (it only hides below 767px), which leaves too
