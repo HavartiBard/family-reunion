@@ -4235,10 +4235,12 @@ function _availabilityApplySlot(slotIsoStr){
 }
 
 async function submitAvailability(eventId){
-  if (_availabilityPendingSlots.size === 0) return toast('No changes to save.', 'info');
   try {
     const chkRes = await apiFetch(`/api/collections/event_availability/records?filter=${encodeURIComponent(`(event="${eventId}" && user="${userId}")`)}&perPage=1`);
     const existing = chkRes.ok ? ((await chkRes.json()).items || [])[0] : null;
+    if (_availabilityPendingSlots.size === 0 && !existing) {
+      return toast('No changes to save.', 'info');
+    }
     const slotsArray = Array.from(_availabilityPendingSlots);
     let res;
     if (existing) {
