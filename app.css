@@ -759,6 +759,13 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
 /* ── Settings ────────────────────────────────────────────────────────────── */
 .settings-layout{display:grid;grid-template-columns:200px 1fr;gap:1.5rem;align-items:start}
 @media (max-width:767px){.settings-layout{grid-template-columns:1fr}}
+/* ── Event detail two-column layout ──────────────────────────────────────── */
+.event-detail-columns{display:grid;grid-template-columns:65fr 35fr;gap:1.25rem;align-items:start}
+/* Collapses well above the generic 767px content breakpoint: at 767-1023px the
+   #sidebar (248px) is still visible (it only hides below 767px), which leaves too
+   little room for a usable 35% sidebar column — e.g. at 768px the sidebar column
+   works out to under 100px. */
+@media (max-width:1023px){.event-detail-columns{grid-template-columns:1fr}}
 .settings-nav{display:flex;flex-direction:column;gap:.15rem;position:sticky;top:1rem}
 .sn-item{background:none;border:none;text-align:left;padding:.5rem .75rem;border-radius:8px;
   cursor:pointer;font-family:var(--font-ui);font-size:.88rem;color:var(--text-secondary);width:100%}
