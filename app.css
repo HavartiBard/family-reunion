@@ -411,7 +411,7 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
   background:var(--bg-subtle);white-space:nowrap}
 .avail-cell{width:48px;height:36px;border:1px solid var(--border-input);
   border-left:none;border-top:none;border-radius:0;background:var(--bg-subtle);
-  cursor:pointer;transition:all .12s}
+  cursor:pointer;user-select:none;-webkit-user-select:none;transition:all .12s}
 .avail-cell:hover{background:var(--accent-gold);border-color:var(--accent-gold)}
 .avail-cell.overlap-1{background:rgba(200,149,42,.18)}
 .avail-cell.overlap-2{background:rgba(200,149,42,.35)}
