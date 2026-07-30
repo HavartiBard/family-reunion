@@ -4449,9 +4449,12 @@ function renderEventEditPage(eventId){
       </div>
       <div class="form-group">
         <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
-          <input type="checkbox" id="evf-location-poll-mode" />
+          <input type="checkbox" id="evf-location-poll-mode" onchange="_eventFormToggleLocationPollMode()" />
           <span>Open a location poll</span>
         </label>
+      </div>
+      <div id="evf-location-poll-note" class="label-note" style="display:none;margin-top:.35rem">
+        Location suggestions will appear after the event is saved.
       </div>
       <div id="evf-poll-settings" style="display:none;margin-bottom:.75rem">
         <div class="row-2">
@@ -4560,7 +4563,10 @@ function renderEventEditPage(eventId){
         const psm = el('evf-poll-slot-minutes');   if (psm) psm.value = withFallback(e.date_poll_slot_minutes, '30');
       }
       const lpm = el('evf-location-poll-mode');
-      if (lpm) lpm.checked = e.location_poll_status === 'open';
+      if (lpm) {
+        lpm.checked = e.location_poll_status === 'open';
+        _eventFormToggleLocationPollMode();
+      }
       await _eventFormLoadExistingInvites(eventId);
     });
   }
@@ -4587,6 +4593,12 @@ function _eventFormTogglePollMode(){
   if (pollSettings) pollSettings.style.display = pollMode ? 'block' : 'none';
   if (dateRow) dateRow.style.display = pollMode ? 'none' : '';
   if (dateRowNote) dateRowNote.style.display = pollMode ? 'block' : 'none';
+}
+
+function _eventFormToggleLocationPollMode(){
+  const locationPollMode = el('evf-location-poll-mode')?.checked || false;
+  const note = el('evf-location-poll-note');
+  if (note) note.style.display = locationPollMode ? 'block' : 'none';
 }
 
 async function saveEvent(eventId){

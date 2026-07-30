@@ -852,3 +852,17 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
 .dsc-checkbox:checked ~ .dsc-email-row{max-height:3rem;opacity:1;visibility:visible;
   transition:max-height .28s ease,opacity .22s ease .04s,visibility 0s linear 0s}
 .dsc-email-row input{width:100%;padding:.4rem .6rem;border:1px solid var(--border-input);border-radius:.3rem;font-size:.88rem}
+
+/* ── Native checkbox sizing/styling (Polls tab) ─────────────────────────── */
+/* :not(.dsc-checkbox) matters here, not just style: input[type="checkbox"] is an
+   element+attribute selector (specificity 0-1-1), which outranks .dsc-checkbox's
+   plain class selector (0-1-0) regardless of source order — without this exclusion,
+   this rule would override .dsc-checkbox's width:1px/height:1px accessible-hide
+   sizing and un-hide the depth-suggest chips' underlying checkboxes. */
+input[type="checkbox"]:not(.dsc-checkbox){
+  appearance:auto;-webkit-appearance:auto;
+  width:20px;height:20px;
+  padding:0;border:none;border-radius:0;background:none;
+  accent-color:var(--accent-gold);
+  cursor:pointer;
+}
