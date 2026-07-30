@@ -4657,6 +4657,9 @@ async function saveEvent(eventId){
     // value has to be sent to actually clear it.
     fd.append('tree', '');
   }
+  if (_eventFormShouldClearInviteOnly && !primaryTree) {
+    return formErr('evf-error', 'Select a tree before converting this event to tree-based access — otherwise it would become visible to every approved user.');
+  }
   // extra_trees has no UI control anymore (removed — the picker only ever showed
   // every tree in the system with no scoping, which wasn't useful in practice) —
   // deliberately never appended during normal saves, so PATCH leaves any existing
