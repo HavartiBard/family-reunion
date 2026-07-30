@@ -4780,6 +4780,7 @@ async function saveEvent(eventId){
     fd.append('start_date', new Date(start).toISOString());
     const end = val('evf-end'); if (end) fd.append('end_date', new Date(end).toISOString());
     fd.append('date_poll_status', 'none');
+    fd.append('date_poll_slot_minutes', '30');
   }
   const loc = val('evf-loc'); if (loc) fd.append('location', loc);
   const desc = val('evf-desc'); if (desc) fd.append('description', desc);
