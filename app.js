@@ -3934,7 +3934,7 @@ async function renderEventDetail(eventId){
             else cellClass += ' overlap-' + overlapCount;
           }
           if (isSelected) cellClass += ' active';
-          const finalizeBtn = isOrganizer ? `<button class="avail-finalize" data-slot="${esc(slotIsoStr)}" onmousedown="event.stopPropagation()" onclick="event.stopPropagation(); finalizePollSlot('${eventId}', '${slotIsoStr}')">Pick</button>` : '';
+          const finalizeBtn = isOrganizer ? `<button class="avail-finalize" data-slot="${esc(slotIsoStr)}" onmousedown="event.stopPropagation()" ontouchstart="event.stopPropagation()" onclick="event.stopPropagation(); finalizePollSlot('${eventId}', '${slotIsoStr}')">Pick</button>` : '';
           rowsHtml += `<td class="${cellClass}" data-slot="${esc(slotIsoStr)}" onmousedown="event.stopPropagation(); _availabilityCellDown(this, '${slotIsoStr}')" onmouseenter="_availabilityCellEnter(this, '${slotIsoStr}')" ontouchstart="event.stopPropagation(); _availabilityCellTouchStart(event, this, '${slotIsoStr}')" ontouchmove="_availabilityCellTouchMove(event)">${finalizeBtn}</td>`;
         }
         rowsHtml += '</tr>';
@@ -4137,6 +4137,10 @@ async function renderEventDetail(eventId){
     for (const s of locationSuggestions) {
       loadComments(s.id, 'event_location_suggestion', `loc-cmt-list-${s.id}`);
     }
+  }
+  
+  if (event.date_poll_status === 'open') {
+    _availabilityPendingSlots = new Set((myAvailability && myAvailability.slots) || []);
   }
   
   const scheduleToggle = document.getElementById('ann-schedule-toggle');
