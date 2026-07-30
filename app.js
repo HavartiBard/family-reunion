@@ -3244,6 +3244,7 @@ let _eventFormAllTrees = [];
 let _eventFormPendingInvites = [];
 let _eventFormRemovedInviteIds = [];
 let _eventFormShouldClearExtraTrees = false;
+let _eventFormDayModeWasChecked = false;
 let _eventFormShouldClearInviteOnly = false;
 
 async function _eventFormLoadTrees(){
@@ -3735,8 +3736,17 @@ async function renderEventsList(){
   } catch { /* ignore */ }
 
   const now = new Date();
-  const upcoming = events.filter(e => e.start_date && new Date(e.start_date) >= now);
-  const past     = events.filter(e => e.start_date && new Date(e.start_date) <  now);
+  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const isUpcoming = (e) => {
+    if (!e.start_date) return false;
+    const d = new Date(e.start_date);
+    if (e.date_poll_slot_minutes === 1440) {
+      return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) >= todayUtc;
+    }
+    return d >= now;
+  };
+  const upcoming = events.filter(isUpcoming);
+  const past     = events.filter(e => e.start_date && !isUpcoming(e));
 
   function eventCard(e){
     const thumb = fileUrl('events', e, 'cover_photo');
@@ -4712,10 +4722,19 @@ function _eventFormTogglePollMode(){
       } else {
         slotInput.disabled = false;
         if (!slotInput.value || slotInput.value === '1440') slotInput.value = '30';
-        if (dayStartInput) { dayStartInput.disabled = false; if (dayStartInput.value === '0') dayStartInput.value = '9'; }
-        if (dayEndInput) { dayEndInput.disabled = false; if (dayEndInput.value === '24') dayEndInput.value = '21'; }
+        if (dayStartInput) dayStartInput.disabled = false;
+        if (dayEndInput) dayEndInput.disabled = false;
+        // Only clobber the window fields back to 9/21 when we're actually leaving
+        // all-day mode (they were force-set to 0/24 above on the way in) — a
+        // legitimate manually-entered 0-24 window with the "All day" box unchecked
+        // must survive an unrelated re-sync call untouched.
+        if (_eventFormDayModeWasChecked) {
+          if (dayStartInput) dayStartInput.value = '9';
+          if (dayEndInput) dayEndInput.value = '21';
+        }
       }
     }
+    _eventFormDayModeWasChecked = dayMode;
   }
 }
 
