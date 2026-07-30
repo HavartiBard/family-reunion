@@ -3787,13 +3787,12 @@ async function renderEventDetail(eventId){
   let locationSuggestions = [], locationVoteCounts = {}, myLocationVotes = {};
   let announcements = [];
   try {
-    const [eRes, rRes, cRes, iRes, avRes, allAvRes] = await Promise.all([
+    const [eRes, rRes, cRes, iRes, avRes] = await Promise.all([
       apiFetch(`/api/collections/events/records/${eventId}?expand=organizers`),
       apiFetch(`/api/collections/event_rsvps/records?filter=${encodeURIComponent(`(event="${eventId}" && user="${userId}")`)}` + `&perPage=1`),
       apiFetch(`/api/collections/event_rsvps/records?filter=${encodeURIComponent(`(event="${eventId}")`)}` + `&perPage=200`),
       apiFetch(`/api/collections/event_invites/records?filter=${encodeURIComponent(`(event="${eventId}")`)}` + `&expand=user&perPage=200`),
-      apiFetch(`/api/collections/event_availability/records?filter=${encodeURIComponent(`(event="${eventId}" && user="${userId}")`)}&perPage=1`),
-      apiFetch(`/api/collections/event_availability/records?filter=${encodeURIComponent(`(event="${eventId}")`)}&perPage=200`)
+      apiFetch(`/api/collections/event_availability/records?filter=${encodeURIComponent(`(event="${eventId}" && user="${userId}")`)}&perPage=1`)
     ]);
     if (eRes.ok) event = await eRes.json();
     if (rRes.ok) { const d = await rRes.json(); myRsvp = d.items && d.items[0]; }
@@ -3820,7 +3819,27 @@ async function renderEventDetail(eventId){
       }
     }
     if (avRes.ok) { const d = await avRes.json(); myAvailability = d.items && d.items[0]; }
-    if (allAvRes.ok) { const d = await allAvRes.json(); allAvailability = d.items || []; }
+
+    // allAvailability is only rendered while the poll is still open (the heatmap grid
+    // and the "N responses so far" summary both live inside the date_poll_status==='open'
+    // branch below) — skip fetching it entirely once closed, so a finalized high-attendance
+    // event doesn't pay for an unbounded number of pagination round trips on every visit.
+    if (event && event.date_poll_status === 'open') {
+      // Paginate through every page rather than assuming perPage=200 is enough — a
+      // well-attended event can plausibly draw more than 200 availability submissions,
+      // and the response count is now surfaced directly in the collapsed-summary UI, so
+      // under-fetching would silently under-report it.
+      let avPage = 1;
+      let avTotalPages = 1;
+      do {
+        const allAvRes = await apiFetch(`/api/collections/event_availability/records?filter=${encodeURIComponent(`(event="${eventId}")`)}&perPage=200&page=${avPage}`);
+        if (!allAvRes.ok) break;
+        const d = await allAvRes.json();
+        avTotalPages = d.totalPages || 1;
+        allAvailability = allAvailability.concat(d.items || []);
+        avPage++;
+      } while (avPage <= avTotalPages);
+    }
 
     // Paginate through every page rather than assuming one is enough — the backend hook
     // filters pending rows out of the response for non-organizers AFTER the DB page is
@@ -3899,198 +3918,8 @@ async function renderEventDetail(eventId){
       ${isOrganizer ? `<button class="btn btn-outline btn-sm" onclick="navigate('events',{event:'${event.id}',edit:'1'})">Edit event</button>` : ''}
     </div>
     ${event.description ? `<div class="card" style="margin-top:1.25rem"><p style="line-height:1.6">${esc(event.description)}</p></div>` : ''}
-    ${event.date_poll_status === 'open' ? (() => {
-      const days = [];
-      const start = new Date(event.date_poll_range_start + 'T00:00:00Z');
-      const end = new Date(event.date_poll_range_end + 'T00:00:00Z');
-      for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
-        days.push(new Date(d.getTime()).toISOString().slice(0, 10));
-      }
-      const dayHeaders = days.map(day => {
-        const d = new Date(day + 'T00:00:00Z');
-        return `<th class="avail-day-header">${esc(d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric', timeZone:'UTC' }))}</th>`;
-      }).join('');
-      
-      const slotCounts = {};
-      for (const entry of allAvailability) {
-        const slots = entry.slots || [];
-        for (const slotIso of slots) {
-          slotCounts[slotIso] = (slotCounts[slotIso] || 0) + 1;
-        }
-      }
-      
-      let rowsHtml = '';
-      const isWholeDayMode = event.date_poll_slot_minutes === 1440;
-      if (isWholeDayMode) {
-        rowsHtml += `<tr class="avail-time-row"><td class="avail-time-label">All day</td>`;
-        for (const day of days) {
-          const slotIsoStr = new Date(day + 'T00:00:00Z').toISOString();
-          const isSelected = myAvailability && myAvailability.slots && myAvailability.slots.includes(slotIsoStr);
-          const overlapCount = slotCounts[slotIsoStr] || 0;
-          let cellClass = 'avail-cell';
-          if (overlapCount > 0) {
-            if (overlapCount >= 3) cellClass += ' overlap-3plus';
-            else cellClass += ' overlap-' + overlapCount;
-          }
-          if (isSelected) cellClass += ' active';
-          const finalizeBtn = isOrganizer ? `<button class="avail-finalize" data-slot="${esc(slotIsoStr)}" onmousedown="event.stopPropagation()" ontouchstart="event.stopPropagation()" onclick="event.stopPropagation(); finalizePollSlot('${eventId}', '${slotIsoStr}')">Pick</button>` : '';
-          rowsHtml += `<td class="${cellClass}" data-slot="${esc(slotIsoStr)}" onmousedown="event.stopPropagation(); _availabilityCellDown(this, '${slotIsoStr}')" onmouseenter="_availabilityCellEnter(this, '${slotIsoStr}')" ontouchstart="event.stopPropagation(); _availabilityCellTouchStart(event, this, '${slotIsoStr}')" ontouchmove="_availabilityCellTouchMove(event)">${finalizeBtn}</td>`;
-        }
-        rowsHtml += '</tr>';
-      } else {
-        for (let h = event.date_poll_day_start_hour; h < event.date_poll_day_end_hour; h += event.date_poll_slot_minutes / 60) {
-          const hourInt = Math.floor(h);
-          const minute = Math.round((h - hourInt) * 60);
-          const timeLabel = new Date(`2000-01-01T${String(hourInt).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00Z`)
-            .toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit', timeZone:'UTC' });
-          rowsHtml += `<tr class="avail-time-row"><td class="avail-time-label">${esc(timeLabel)}</td>`;
-          for (const day of days) {
-            const slotIso = new Date(day + 'T00:00:00Z');
-            slotIso.setUTCHours(hourInt, minute, 0, 0);
-            const slotIsoStr = slotIso.toISOString();
-            const isSelected = myAvailability && myAvailability.slots && myAvailability.slots.includes(slotIsoStr);
-            const overlapCount = slotCounts[slotIsoStr] || 0;
-            let cellClass = 'avail-cell';
-            if (overlapCount > 0) {
-              if (overlapCount >= 3) cellClass += ' overlap-3plus';
-              else cellClass += ' overlap-' + overlapCount;
-            }
-            if (isSelected) cellClass += ' active';
-            const finalizeBtn = isOrganizer ? `<button class="avail-finalize" data-slot="${esc(slotIsoStr)}" onmousedown="event.stopPropagation()" ontouchstart="event.stopPropagation()" onclick="event.stopPropagation(); finalizePollSlot('${eventId}', '${slotIsoStr}')">Pick</button>` : '';
-            rowsHtml += `<td class="${cellClass}" data-slot="${esc(slotIsoStr)}" onmousedown="event.stopPropagation(); _availabilityCellDown(this, '${slotIsoStr}')" onmouseenter="_availabilityCellEnter(this, '${slotIsoStr}')" ontouchstart="event.stopPropagation(); _availabilityCellTouchStart(event, this, '${slotIsoStr}')" ontouchmove="_availabilityCellTouchMove(event)">${finalizeBtn}</td>`;
-          }
-          rowsHtml += '</tr>';
-        }
-      }
-      const finalizeSection = isOrganizer ? `
-        <div style="margin-bottom:.75rem">
-          <button class="btn btn-outline btn-sm" onclick="document.querySelectorAll('.avail-finalize').forEach(b => b.classList.toggle('visible'))">Finalize a time</button>
-          <span style="font-size:.78rem;color:var(--text-muted);margin-left:.5rem">Click "Pick" on any cell to finalize the event</span>
-        </div>` : '';
-      const submitBtn = `<div style="margin-top:1rem"><button class="btn btn-primary btn-sm" onclick="submitAvailability('${eventId}')">Submit availability</button></div>`;
-      return `<div class="card" style="margin-top:1.25rem">
-        ${finalizeSection}
-        <div class="section-label" style="margin-bottom:1rem">Available slots</div>
-        <div style="overflow-x:auto">
-          <table class="avail-grid">
-            <thead><tr><th class="avail-time-header"></th>${dayHeaders}</tr></thead>
-            <tbody>${rowsHtml}</tbody>
-          </table>
-        </div>
-        ${submitBtn}
-      </div>`;
-    })() : ''}
-    ${event.location_poll_status === 'open' ? (() => {
-      // A suggestion's `url` is arbitrary approved-user-submitted text, not a validated
-      // link — esc() alone doesn't escape quotes (unsafe in an href attribute, same class
-      // of bug as the guest-RSVP name fix elsewhere in this codebase) and, separately, an
-      // unrestricted scheme would let a `javascript:` URL execute on click. Only render as
-      // a real clickable link when it parses as http(s); otherwise show the (still-escaped)
-      // text without turning it into an anchor.
-      const safeHttpUrl = (raw) => {
-        try {
-          const parsed = new URL(raw, location.href);
-          return (parsed.protocol === 'http:' || parsed.protocol === 'https:') ? parsed.href : null;
-        } catch { return null; }
-      };
-      const suggestionRows = locationSuggestions.map(s => {
-        const voteCount = locationVoteCounts[s.id] || 0;
-        const myVoteId = myLocationVotes[s.id];
-        const hasVoted = !!myVoteId;
-        const safeUrl = s.url ? safeHttpUrl(s.url) : null;
-        return `<div class="card" style="margin-top:.75rem;padding:1rem">
-          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem">
-            <div style="flex:1">
-              <div style="font-weight:600">${esc(s.name)}</div>
-              ${s.address ? `<div style="font-size:.85rem;color:var(--text-muted);margin-top:.15rem">${esc(s.address)}</div>` : ''}
-              ${s.url ? (safeUrl
-                ? `<div style="margin-top:.25rem"><a href="${escAttr(safeUrl)}" target="_blank" rel="noopener" class="link" style="font-size:.85rem">${esc(s.url)}</a></div>`
-                : `<div style="margin-top:.25rem;font-size:.85rem">${esc(s.url)}</div>`) : ''}
-              ${s.notes ? `<div style="font-size:.85rem;margin-top:.35rem">${esc(s.notes)}</div>` : ''}
-              ${s.capacity ? `<div style="font-size:.78rem;color:var(--text-muted);margin-top:.35rem">Capacity: ${esc(String(s.capacity))}</div>` : ''}
-            </div>
-            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.4rem">
-              <button class="btn btn-sm ${hasVoted ? 'btn-gold' : 'btn-outline'}" onclick="toggleLocationVote('${eventId}','${s.id}',${hasVoted ? `'${myVoteId}'` : 'null'})">
-                ▲ ${voteCount}
-              </button>
-              ${isOrganizer ? `<button class="btn btn-outline btn-sm" onclick="finalizeLocationSuggestion('${eventId}','${s.id}')">Finalize</button>` : ''}
-            </div>
-          </div>
-          <div class="album-comments" style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid var(--border-default)">
-            <div id="loc-cmt-list-${s.id}"><div class="spinner"></div></div>
-            <div class="comment-form">
-              <textarea id="loc-cmt-input-${s.id}" class="comment-input" rows="2" placeholder="Add a comment…"></textarea>
-              <button class="btn btn-primary btn-sm comment-submit"
-                onclick="submitComment('${s.id}','event_location_suggestion','loc-cmt-list-${s.id}','loc-cmt-input-${s.id}')">Post</button>
-            </div>
-          </div>
-        </div>`;
-      }).join('');
-      return `<div class="card" style="margin-top:1.25rem">
-        <div class="section-label" style="margin-bottom:1rem">Suggested locations</div>
-        ${suggestionRows || '<p style="font-size:.82rem;color:var(--text-muted);margin:0">No locations suggested yet.</p>'}
-        <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border-default)">
-          <div class="section-label" style="margin-bottom:.75rem">Suggest a location</div>
-          <div class="form-group"><label>Name</label><input id="els-name" placeholder="e.g. Grandma's backyard" /></div>
-          <div class="row-2">
-            <div class="form-group"><label>Address</label><input id="els-address" /></div>
-            <div class="form-group"><label>Link</label><input id="els-url" placeholder="https://…" /></div>
-          </div>
-          <div class="row-2">
-            <div class="form-group"><label>Notes</label><input id="els-notes" /></div>
-            <div class="form-group"><label>Capacity</label><input id="els-capacity" type="number" min="1" /></div>
-          </div>
-          <button class="btn btn-outline btn-sm" onclick="submitLocationSuggestion('${eventId}')">Suggest a location</button>
-        </div>
-      </div>`;
-    })() : ''}
     <div class="event-detail-columns" style="margin-top:1.25rem">
-      <div class="edc-primary">
-        <div class="card">
-          <div class="section-label" style="margin-bottom:1rem">Will you be there?</div>
-          <div class="ev-rsvp-row">
-            ${rsvpOpt('going', "I'm going")}${rsvpOpt('maybe', 'Maybe')}${rsvpOpt('no', "Can't make it")}
-          </div>
-        </div>
-        ${isOrganizer ? (() => {
-          if (invites.length === 0) {
-            return `<div class="card" style="margin-top:1.25rem">
-              <div class="section-label" style="margin-bottom:1rem">Invited</div>
-              <p style="font-size:.82rem;color:var(--text-muted);margin:0">No one has been invited yet.</p>
-            </div>`;
-          }
-          const statusBadge = (s) => {
-            if (s === 'pending') return '<span class="pill" style="background:var(--bg-hover);color:var(--text-muted)">Invited</span>';
-            if (s === 'going') return '<span class="pill" style="background:var(--accent-green);color:var(--text-sidebar-active)">Going</span>';
-            if (s === 'maybe') return '<span class="pill" style="background:var(--accent-gold);color:var(--accent-fg)">Maybe</span>';
-            if (s === 'no') return '<span class="pill" style="background:var(--danger-bg);color:var(--danger)">No</span>';
-            return `<span class="pill" style="background:var(--bg-hover);color:var(--text-muted)">${esc(s)}</span>`;
-          };
-          const rows = invites.map(inv => {
-            const inviteType = inv.invite_type || 'user';
-            const expandedUser = inv.expand && inv.expand.user;
-            const name = inviteType === 'user'
-              ? (expandedUser ? esc(expandedUser.name || expandedUser.email || 'Invited user') : 'Invited user')
-              : esc(inv.guest_name || inv.email || 'Guest');
-            // For user-type invites, the invitee's real RSVP lives in event_rsvps (set via
-            // setEventRsvp on the event screen) — event_invites.status for a "user" invite only
-            // ever reflects invite acknowledgment, never gets updated when they actually RSVP.
-            // Fall back to inv.status (effectively always "pending") if they haven't RSVP'd yet.
-            const displayStatus = inviteType === 'user'
-              ? (rsvpsByUser[inv.user] || inv.status || 'pending')
-              : (inv.status || 'pending');
-            return `<div style="display:flex;align-items:center;justify-content:space-between;padding:.6rem;background:var(--bg-hover);border-radius:.3rem;margin:.25rem 0">
-              <span style="font-size:.95rem">${name}</span>
-              ${statusBadge(displayStatus)}
-            </div>`;
-          }).join('');
-          return `<div class="card" style="margin-top:1.25rem">
-            <div class="section-label" style="margin-bottom:1rem">Invited</div>
-            ${rows}
-          </div>`;
-        })() : ''}
-      </div>
-      <div class="edc-sidebar">
+      <div class="edc-left">
         <div class="card">
           <div class="section-label" style="margin-bottom:1rem">Announcements</div>
           ${(() => {
@@ -4159,6 +3988,207 @@ async function renderEventDetail(eventId){
               <div class="form-group"><label>Send at</label><input type="datetime-local" id="ann-send-at" value="${defaultSchedule}" /></div>
             </div>
             <button class="btn btn-outline btn-sm" onclick="submitEventAnnouncement('${eventId}')">Send announcement</button>
+          </div>`;
+        })() : ''}
+        ${event.date_poll_status === 'open' ? (() => {
+          const days = [];
+          const start = new Date(event.date_poll_range_start + 'T00:00:00Z');
+          const end = new Date(event.date_poll_range_end + 'T00:00:00Z');
+          for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+            days.push(new Date(d.getTime()).toISOString().slice(0, 10));
+          }
+          const dayHeaders = days.map(day => {
+            const d = new Date(day + 'T00:00:00Z');
+            return `<th class="avail-day-header">${esc(d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric', timeZone:'UTC' }))}</th>`;
+          }).join('');
+
+          const slotCounts = {};
+          for (const entry of allAvailability) {
+            const slots = entry.slots || [];
+            for (const slotIso of slots) {
+              slotCounts[slotIso] = (slotCounts[slotIso] || 0) + 1;
+            }
+          }
+
+          let rowsHtml = '';
+          const isWholeDayMode = event.date_poll_slot_minutes === 1440;
+          if (isWholeDayMode) {
+            rowsHtml += `<tr class="avail-time-row"><td class="avail-time-label">All day</td>`;
+            for (const day of days) {
+              const slotIsoStr = new Date(day + 'T00:00:00Z').toISOString();
+              const isSelected = myAvailability && myAvailability.slots && myAvailability.slots.includes(slotIsoStr);
+              const overlapCount = slotCounts[slotIsoStr] || 0;
+              let cellClass = 'avail-cell';
+              if (overlapCount > 0) {
+                if (overlapCount >= 3) cellClass += ' overlap-3plus';
+                else cellClass += ' overlap-' + overlapCount;
+              }
+              if (isSelected) cellClass += ' active';
+              const finalizeBtn = isOrganizer ? `<button class="avail-finalize" data-slot="${esc(slotIsoStr)}" onmousedown="event.stopPropagation()" ontouchstart="event.stopPropagation()" onclick="event.stopPropagation(); finalizePollSlot('${eventId}', '${slotIsoStr}')">Pick</button>` : '';
+              rowsHtml += `<td class="${cellClass}" data-slot="${esc(slotIsoStr)}" onmousedown="event.stopPropagation(); _availabilityCellDown(this, '${slotIsoStr}')" onmouseenter="_availabilityCellEnter(this, '${slotIsoStr}')" ontouchstart="event.stopPropagation(); _availabilityCellTouchStart(event, this, '${slotIsoStr}')" ontouchmove="_availabilityCellTouchMove(event)">${finalizeBtn}</td>`;
+            }
+            rowsHtml += '</tr>';
+          } else {
+            for (let h = event.date_poll_day_start_hour; h < event.date_poll_day_end_hour; h += event.date_poll_slot_minutes / 60) {
+              const hourInt = Math.floor(h);
+              const minute = Math.round((h - hourInt) * 60);
+              const timeLabel = new Date(`2000-01-01T${String(hourInt).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00Z`)
+                .toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit', timeZone:'UTC' });
+              rowsHtml += `<tr class="avail-time-row"><td class="avail-time-label">${esc(timeLabel)}</td>`;
+              for (const day of days) {
+                const slotIso = new Date(day + 'T00:00:00Z');
+                slotIso.setUTCHours(hourInt, minute, 0, 0);
+                const slotIsoStr = slotIso.toISOString();
+                const isSelected = myAvailability && myAvailability.slots && myAvailability.slots.includes(slotIsoStr);
+                const overlapCount = slotCounts[slotIsoStr] || 0;
+                let cellClass = 'avail-cell';
+                if (overlapCount > 0) {
+                  if (overlapCount >= 3) cellClass += ' overlap-3plus';
+                  else cellClass += ' overlap-' + overlapCount;
+                }
+                if (isSelected) cellClass += ' active';
+                const finalizeBtn = isOrganizer ? `<button class="avail-finalize" data-slot="${esc(slotIsoStr)}" onmousedown="event.stopPropagation()" ontouchstart="event.stopPropagation()" onclick="event.stopPropagation(); finalizePollSlot('${eventId}', '${slotIsoStr}')">Pick</button>` : '';
+                rowsHtml += `<td class="${cellClass}" data-slot="${esc(slotIsoStr)}" onmousedown="event.stopPropagation(); _availabilityCellDown(this, '${slotIsoStr}')" onmouseenter="_availabilityCellEnter(this, '${slotIsoStr}')" ontouchstart="event.stopPropagation(); _availabilityCellTouchStart(event, this, '${slotIsoStr}')" ontouchmove="_availabilityCellTouchMove(event)">${finalizeBtn}</td>`;
+              }
+              rowsHtml += '</tr>';
+            }
+          }
+          const finalizeSection = isOrganizer ? `
+            <div style="margin-bottom:.75rem">
+              <button class="btn btn-outline btn-sm" onclick="document.querySelectorAll('.avail-finalize').forEach(b => b.classList.toggle('visible'))">Finalize a time</button>
+              <span style="font-size:.78rem;color:var(--text-muted);margin-left:.5rem">Click "Pick" on any cell to finalize the event</span>
+            </div>` : '';
+          const submitBtn = `<div style="margin-top:1rem"><button class="btn btn-primary btn-sm" onclick="submitAvailability('${eventId}')">Submit availability</button></div>`;
+          // Organizers always see the full grid (they need it to compare everyone's
+          // overlap and finalize a slot) — only a non-organizer who has already
+          // submitted gets the collapsed-by-default summary view.
+          const hasAnswered = !isOrganizer && !!myAvailability;
+          const responseCount = allAvailability.length;
+          return `<div class="card" style="margin-top:1.25rem">
+            <div class="section-label" style="margin-bottom:1rem">Available slots</div>
+            <div id="avail-summary-${eventId}" style="${hasAnswered ? '' : 'display:none'}">
+              <p style="font-size:.88rem;color:var(--text-muted);margin:0 0 .75rem 0">You've submitted your availability — ${responseCount} response${responseCount === 1 ? '' : 's'} so far.</p>
+              <button class="btn btn-outline btn-sm" onclick="document.getElementById('avail-summary-${eventId}').style.display='none';document.getElementById('avail-details-${eventId}').style.display='block'">Edit availability</button>
+            </div>
+            <div id="avail-details-${eventId}" style="${hasAnswered ? 'display:none' : ''}">
+              ${finalizeSection}
+              <div style="overflow-x:auto">
+                <table class="avail-grid">
+                  <thead><tr><th class="avail-time-header"></th>${dayHeaders}</tr></thead>
+                  <tbody>${rowsHtml}</tbody>
+                </table>
+              </div>
+              ${submitBtn}
+            </div>
+          </div>`;
+        })() : ''}
+        ${event.location_poll_status === 'open' ? (() => {
+          // A suggestion's `url` is arbitrary approved-user-submitted text, not a validated
+          // link — esc() alone doesn't escape quotes (unsafe in an href attribute, same class
+          // of bug as the guest-RSVP name fix elsewhere in this codebase) and, separately, an
+          // unrestricted scheme would let a `javascript:` URL execute on click. Only render as
+          // a real clickable link when it parses as http(s); otherwise show the (still-escaped)
+          // text without turning it into an anchor.
+          const safeHttpUrl = (raw) => {
+            try {
+              const parsed = new URL(raw, location.href);
+              return (parsed.protocol === 'http:' || parsed.protocol === 'https:') ? parsed.href : null;
+            } catch { return null; }
+          };
+          const suggestionRows = locationSuggestions.map(s => {
+            const voteCount = locationVoteCounts[s.id] || 0;
+            const myVoteId = myLocationVotes[s.id];
+            const hasVoted = !!myVoteId;
+            const safeUrl = s.url ? safeHttpUrl(s.url) : null;
+            return `<div class="card" style="margin-top:.75rem;padding:1rem">
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem">
+                <div style="flex:1">
+                  <div style="font-weight:600">${esc(s.name)}</div>
+                  ${s.address ? `<div style="font-size:.85rem;color:var(--text-muted);margin-top:.15rem">${esc(s.address)}</div>` : ''}
+                  ${s.url ? (safeUrl
+                    ? `<div style="margin-top:.25rem"><a href="${escAttr(safeUrl)}" target="_blank" rel="noopener" class="link" style="font-size:.85rem">${esc(s.url)}</a></div>`
+                    : `<div style="margin-top:.25rem;font-size:.85rem">${esc(s.url)}</div>`) : ''}
+                  ${s.notes ? `<div style="font-size:.85rem;margin-top:.35rem">${esc(s.notes)}</div>` : ''}
+                  ${s.capacity ? `<div style="font-size:.78rem;color:var(--text-muted);margin-top:.35rem">Capacity: ${esc(String(s.capacity))}</div>` : ''}
+                </div>
+                <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.4rem">
+                  <button class="btn btn-sm ${hasVoted ? 'btn-gold' : 'btn-outline'}" onclick="toggleLocationVote('${eventId}','${s.id}',${hasVoted ? `'${myVoteId}'` : 'null'})">
+                    ▲ ${voteCount}
+                  </button>
+                  ${isOrganizer ? `<button class="btn btn-outline btn-sm" onclick="finalizeLocationSuggestion('${eventId}','${s.id}')">Finalize</button>` : ''}
+                </div>
+              </div>
+              <div class="album-comments" style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid var(--border-default)">
+                <div id="loc-cmt-list-${s.id}"><div class="spinner"></div></div>
+                <div class="comment-form">
+                  <textarea id="loc-cmt-input-${s.id}" class="comment-input" rows="2" placeholder="Add a comment…"></textarea>
+                  <button class="btn btn-primary btn-sm comment-submit"
+                    onclick="submitComment('${s.id}','event_location_suggestion','loc-cmt-list-${s.id}','loc-cmt-input-${s.id}')">Post</button>
+                </div>
+              </div>
+            </div>`;
+          }).join('');
+          return `<div class="card" style="margin-top:1.25rem">
+            <div class="section-label" style="margin-bottom:1rem">Suggested locations</div>
+            ${suggestionRows || '<p style="font-size:.82rem;color:var(--text-muted);margin:0">No locations suggested yet.</p>'}
+            <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border-default)">
+              <div class="section-label" style="margin-bottom:.75rem">Suggest a location</div>
+              <div class="form-group"><label>Name</label><input id="els-name" placeholder="e.g. Grandma's backyard" /></div>
+              <div class="row-2">
+                <div class="form-group"><label>Address</label><input id="els-address" /></div>
+                <div class="form-group"><label>Link</label><input id="els-url" placeholder="https://…" /></div>
+              </div>
+              <div class="row-2">
+                <div class="form-group"><label>Notes</label><input id="els-notes" /></div>
+                <div class="form-group"><label>Capacity</label><input id="els-capacity" type="number" min="1" /></div>
+              </div>
+              <button class="btn btn-outline btn-sm" onclick="submitLocationSuggestion('${eventId}')">Suggest a location</button>
+            </div>
+          </div>`;
+        })() : ''}
+      </div>
+      <div class="edc-right">
+        <div class="card">
+          <div class="section-label" style="margin-bottom:1rem">Will you be there?</div>
+          <div class="ev-rsvp-row">
+            ${rsvpOpt('going', "I'm going")}${rsvpOpt('maybe', 'Maybe')}${rsvpOpt('no', "Can't make it")}
+          </div>
+        </div>
+        ${isOrganizer ? (() => {
+          if (invites.length === 0) {
+            return `<div class="card" style="margin-top:1.25rem">
+              <div class="section-label" style="margin-bottom:1rem">Invited</div>
+              <p style="font-size:.82rem;color:var(--text-muted);margin:0">No one has been invited yet.</p>
+            </div>`;
+          }
+          const statusBadge = (s) => {
+            if (s === 'pending') return '<span class="pill" style="background:var(--bg-hover);color:var(--text-muted)">Invited</span>';
+            if (s === 'going') return '<span class="pill" style="background:var(--accent-green);color:var(--text-sidebar-active)">Going</span>';
+            if (s === 'maybe') return '<span class="pill" style="background:var(--accent-gold);color:var(--accent-fg)">Maybe</span>';
+            if (s === 'no') return '<span class="pill" style="background:var(--danger-bg);color:var(--danger)">No</span>';
+            return `<span class="pill" style="background:var(--bg-hover);color:var(--text-muted)">${esc(s)}</span>`;
+          };
+          const rows = invites.map(inv => {
+            const inviteType = inv.invite_type || 'user';
+            const expandedUser = inv.expand && inv.expand.user;
+            const name = inviteType === 'user'
+              ? (expandedUser ? esc(expandedUser.name || expandedUser.email || 'Invited user') : 'Invited user')
+              : esc(inv.guest_name || inv.email || 'Guest');
+            // For user-type invites, the invitee's real RSVP lives in event_rsvps (set via
+            // setEventRsvp on the event screen) — event_invites.status for a "user" invite only
+            // ever reflects invite acknowledgment, never gets updated when they actually RSVP.
+            // Fall back to inv.status (effectively always "pending") if they haven't RSVP'd yet.
+            const displayStatus = inviteType === 'user'
+              ? (rsvpsByUser[inv.user] || inv.status || 'pending')
+              : (inv.status || 'pending');
+            return `<div style="display:flex;align-items:center;justify-content:space-between;padding:.6rem;background:var(--bg-hover);border-radius:.3rem;margin:.25rem 0">
+              <span style="font-size:.95rem">${name}</span>
+              ${statusBadge(displayStatus)}
+            </div>`;
+          }).join('');
+          return `<div class="card" style="margin-top:1.25rem">
+            <div class="section-label" style="margin-bottom:1rem">Invited</div>
+            ${rows}
           </div>`;
         })() : ''}
       </div>
