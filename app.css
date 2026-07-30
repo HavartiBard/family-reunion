@@ -847,7 +847,8 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
 .dsc-checkbox:disabled + .dsc-chip{opacity:.6;cursor:not-allowed}
 .dsc-checkbox:disabled + .dsc-chip:hover{transform:none;box-shadow:none;background:var(--accent-gold)}
 .dsc-checkbox:focus-visible + .dsc-chip{outline:none;border-color:var(--border-focus);box-shadow:0 0 0 3px var(--focus-shadow)}
-.dsc-email-row{display:flex;flex:1;min-width:220px;max-height:0;opacity:0;overflow:hidden;
-  transition:max-height .28s ease,opacity .22s ease .04s}
-.dsc-checkbox:checked ~ .dsc-email-row{max-height:3rem;opacity:1}
+.dsc-email-row{display:flex;flex:1;min-width:220px;max-height:0;opacity:0;overflow:hidden;visibility:hidden;
+  transition:max-height .28s ease,opacity .22s ease .04s,visibility 0s linear .28s}
+.dsc-checkbox:checked ~ .dsc-email-row{max-height:3rem;opacity:1;visibility:visible;
+  transition:max-height .28s ease,opacity .22s ease .04s,visibility 0s linear 0s}
 .dsc-email-row input{width:100%;padding:.4rem .6rem;border:1px solid var(--border-input);border-radius:.3rem;font-size:.88rem}
