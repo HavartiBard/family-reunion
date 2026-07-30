@@ -3244,6 +3244,7 @@ let _eventFormAllTrees = [];
 let _eventFormPendingInvites = [];
 let _eventFormRemovedInviteIds = [];
 let _eventFormShouldClearExtraTrees = false;
+let _eventFormShouldClearInviteOnly = false;
 
 async function _eventFormLoadTrees(){
   const primary = el('evf-tree-primary');
@@ -3335,6 +3336,12 @@ function _eventFormClearExtraTrees(){
   if (display) display.innerHTML = '<p style="font-size:.82rem;color:var(--text-muted);margin:.25rem 0">None preserved.</p>';
   if (area) area.style.display = 'none';
   _eventFormShouldClearExtraTrees = true;
+}
+
+function _eventFormClearInviteOnly(){
+  const warning = el('evf-invite-only-warning');
+  if (warning) warning.style.display = 'none';
+  _eventFormShouldClearInviteOnly = true;
 }
 
 // These two are still used by the EXISTING _eventFormRunUserSearch below — an earlier
@@ -4343,6 +4350,7 @@ function renderEventEditPage(eventId){
   _eventFormTrees = [];
   _eventFormAllTrees = [];
   _eventFormShouldClearExtraTrees = false;
+  _eventFormShouldClearInviteOnly = false;
   _eventFormUsersCacheTreeId = null;
   _eventFormDepthSuggestAreaVisible = false;
   _eventFormDepthRootTouched = false;
@@ -4387,6 +4395,12 @@ function renderEventEditPage(eventId){
         <label>Additional trees (read-only, preserved from previous save)</label>
         <div id="evf-extra-trees-display" style="margin-top:.25rem"></div>
         <button class="btn btn-outline btn-sm" onclick="_eventFormClearExtraTrees()" style="margin-top:.5rem">Clear preserved trees</button>
+      </div>
+      <div class="form-group" id="evf-invite-only-warning" style="display:none">
+        <div class="alert alert-info" style="margin:0 0 .5rem 0;padding:.6rem">
+          <strong>Legacy invite-only event:</strong> This event was created before the tree-based access control change. The "Anyone in these trees (or linked to them by marriage) can see this event" message above does not apply — this event remains invite-only and is only visible to explicitly invited people.
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="_eventFormClearInviteOnly()">Convert to tree-based access</button>
       </div>
       <div class="form-group">
         <label>Invite people</label>
@@ -4530,6 +4544,10 @@ function renderEventEditPage(eventId){
         }
         etArea.style.display = extraTrees.length > 0 ? 'block' : 'none';
       }
+      const ioWarning = el('evf-invite-only-warning');
+      if (ioWarning) {
+        ioWarning.style.display = e.invite_only ? 'block' : 'none';
+      }
       const pm = el('evf-poll-mode');
       if (pm && e.date_poll_status === 'open') {
         pm.checked = true;
@@ -4652,6 +4670,12 @@ async function saveEvent(eventId){
     // PocketBase's id validation rather than clearing the field.
     fd.append('extra_trees', '');
   }
+  if (_eventFormShouldClearInviteOnly) {
+    // Literal "false" string, matching this codebase's established boolean-field
+    // convention for multipart FormData (the field's original, pre-removal code
+    // sent String(inviteOnly) — i.e. "true"/"false", never an empty string).
+    fd.append('invite_only', 'false');
+  }
   // invite_only has no UI control anymore (removed per product decision — the
   // "Invite only" toggle was deemed unnecessary now that the tree picker is
   // properly scoped) — deliberately never appended, same "leave untouched on
@@ -4678,6 +4702,7 @@ async function saveEvent(eventId){
     if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Save failed'); }
     const saved = await res.json();
     if (_eventFormShouldClearExtraTrees) _eventFormShouldClearExtraTrees = false;
+    if (_eventFormShouldClearInviteOnly) _eventFormShouldClearInviteOnly = false;
     let saveError = null;
 
     // The event itself is now persisted regardless of what happens below. If this was a
