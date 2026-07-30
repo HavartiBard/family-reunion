@@ -4490,6 +4490,17 @@ function renderEventEditPage(eventId){
     });
   }
 
+  if (!isEdit) {
+    const defaultStart = el('evf-start');
+    if (defaultStart && !defaultStart.value) {
+      const d = new Date();
+      d.setDate(d.getDate() + 1);
+      d.setHours(18, 0, 0, 0);
+      const pad = (n) => String(n).padStart(2, '0');
+      defaultStart.value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+  }
+
   const treesLoaded = _eventFormLoadTrees();
 
   if (isEdit) {
@@ -4639,7 +4650,7 @@ async function saveEvent(eventId){
       return formErr('evf-error', 'Slot size must be between 5 and 180 minutes.');
     }
   } else {
-    if (!start) return formErr('evf-error', 'Start date is required.');
+    if (!start) return formErr('evf-error', 'Start date and time are both required — if you see a date but no time picked in that field, add a time too.');
   }
   const fd = new FormData();
   fd.append('name', name);
