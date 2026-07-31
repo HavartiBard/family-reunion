@@ -2975,7 +2975,6 @@ async function focusPerson(id){
   treeFocusId = id; personCache.delete(id);
   if (el('tree-vp')) await tpSetFocus(id);
 }
-async function openTree(personId){ await tpLoad(personId); }
 async function myPersonId(){
   const res = await apiFetch(`/api/collections/persons/records?perPage=1&filter=` +
     encodeURIComponent(`(linked_user="${userId}")`));
@@ -3179,26 +3178,6 @@ async function createAndLink(focusId, rel){
   } catch (e) { formErr('rel-error', e.message); }
 }
 // duplicates + merge (uses merge.js computeMergeWrites)
-function normName(s){ return (s || '').toLowerCase().replace(/[^a-z]/g, ''); }
-async function openDuplicates(){
-  openModal('<h2 class="card-title">Possible duplicates</h2><div class="spinner"></div>');
-  const res = await apiFetch('/api/collections/persons/records?perPage=500&sort=family_name');
-  const items = res.ok ? (await res.json()).items : [];
-  const groups = {};
-  for (const p of items) {
-    const key = normName(p.display_name) + '|' + (_parseYearFromDate(p.birth_date) || '');
-    (groups[key] = groups[key] || []).push(p);
-  }
-  const dupes = Object.values(groups).filter(g => g.length > 1);
-  const body = dupes.length ? dupes.map(g => `
-    <div class="card" style="margin-bottom:.6rem;padding:1rem"><div class="rc-name">${esc(g[0].display_name)}
-      ${g[0].birth_date ? '· ' + (_parseYearFromDate(g[0].birth_date) || '') : ''}</div>
-      <div class="rc-sub">${g.length} records</div>
-      <button class="btn btn-outline btn-sm" style="margin-top:.5rem" onclick='openMerge(${JSON.stringify(g.map(p => p.id))})'>Merge these</button>
-    </div>`).join('') : '<p style="color:var(--text-muted)">No duplicates found 🎉</p>';
-  openModal(`<h2 class="card-title">Possible duplicates</h2>${body}
-    <div style="margin-top:.6rem"><button class="btn btn-outline" onclick="closeModal()">Close</button></div>`);
-}
 async function openMerge(ids){
   const people = await Promise.all(ids.map(getPerson));
   openModal(`<h2 class="card-title">Merge duplicates</h2>
@@ -4013,20 +3992,23 @@ async function renderEventDetail(eventId){
 
           let rowsHtml = '';
           const isWholeDayMode = event.date_poll_slot_minutes === 1440;
+          const buildAvailCell = (slotIsoStr) => {
+            const isSelected = myAvailability && myAvailability.slots && myAvailability.slots.includes(slotIsoStr);
+            const overlapCount = slotCounts[slotIsoStr] || 0;
+            let cellClass = 'avail-cell';
+            if (overlapCount > 0) {
+              if (overlapCount >= 3) cellClass += ' overlap-3plus';
+              else cellClass += ' overlap-' + overlapCount;
+            }
+            if (isSelected) cellClass += ' active';
+            const finalizeBtn = isOrganizer ? `<button class="avail-finalize" data-slot="${esc(slotIsoStr)}" onmousedown="event.stopPropagation()" ontouchstart="event.stopPropagation()" onclick="event.stopPropagation(); finalizePollSlot('${eventId}', '${slotIsoStr}')">Pick</button>` : '';
+            return `<td class="${cellClass}" data-slot="${esc(slotIsoStr)}" onmousedown="event.stopPropagation(); _availabilityCellDown(this, '${slotIsoStr}')" onmouseenter="_availabilityCellEnter(this, '${slotIsoStr}')" ontouchstart="event.stopPropagation(); _availabilityCellTouchStart(event, this, '${slotIsoStr}')" ontouchmove="_availabilityCellTouchMove(event)">${finalizeBtn}</td>`;
+          };
           if (isWholeDayMode) {
             rowsHtml += `<tr class="avail-time-row"><td class="avail-time-label">All day</td>`;
             for (const day of days) {
               const slotIsoStr = new Date(day + 'T00:00:00Z').toISOString();
-              const isSelected = myAvailability && myAvailability.slots && myAvailability.slots.includes(slotIsoStr);
-              const overlapCount = slotCounts[slotIsoStr] || 0;
-              let cellClass = 'avail-cell';
-              if (overlapCount > 0) {
-                if (overlapCount >= 3) cellClass += ' overlap-3plus';
-                else cellClass += ' overlap-' + overlapCount;
-              }
-              if (isSelected) cellClass += ' active';
-              const finalizeBtn = isOrganizer ? `<button class="avail-finalize" data-slot="${esc(slotIsoStr)}" onmousedown="event.stopPropagation()" ontouchstart="event.stopPropagation()" onclick="event.stopPropagation(); finalizePollSlot('${eventId}', '${slotIsoStr}')">Pick</button>` : '';
-              rowsHtml += `<td class="${cellClass}" data-slot="${esc(slotIsoStr)}" onmousedown="event.stopPropagation(); _availabilityCellDown(this, '${slotIsoStr}')" onmouseenter="_availabilityCellEnter(this, '${slotIsoStr}')" ontouchstart="event.stopPropagation(); _availabilityCellTouchStart(event, this, '${slotIsoStr}')" ontouchmove="_availabilityCellTouchMove(event)">${finalizeBtn}</td>`;
+              rowsHtml += buildAvailCell(slotIsoStr);
             }
             rowsHtml += '</tr>';
           } else {
@@ -4039,17 +4021,7 @@ async function renderEventDetail(eventId){
               for (const day of days) {
                 const slotIso = new Date(day + 'T00:00:00Z');
                 slotIso.setUTCHours(hourInt, minute, 0, 0);
-                const slotIsoStr = slotIso.toISOString();
-                const isSelected = myAvailability && myAvailability.slots && myAvailability.slots.includes(slotIsoStr);
-                const overlapCount = slotCounts[slotIsoStr] || 0;
-                let cellClass = 'avail-cell';
-                if (overlapCount > 0) {
-                  if (overlapCount >= 3) cellClass += ' overlap-3plus';
-                  else cellClass += ' overlap-' + overlapCount;
-                }
-                if (isSelected) cellClass += ' active';
-                const finalizeBtn = isOrganizer ? `<button class="avail-finalize" data-slot="${esc(slotIsoStr)}" onmousedown="event.stopPropagation()" ontouchstart="event.stopPropagation()" onclick="event.stopPropagation(); finalizePollSlot('${eventId}', '${slotIsoStr}')">Pick</button>` : '';
-                rowsHtml += `<td class="${cellClass}" data-slot="${esc(slotIsoStr)}" onmousedown="event.stopPropagation(); _availabilityCellDown(this, '${slotIsoStr}')" onmouseenter="_availabilityCellEnter(this, '${slotIsoStr}')" ontouchstart="event.stopPropagation(); _availabilityCellTouchStart(event, this, '${slotIsoStr}')" ontouchmove="_availabilityCellTouchMove(event)">${finalizeBtn}</td>`;
+                rowsHtml += buildAvailCell(slotIso.toISOString());
               }
               rowsHtml += '</tr>';
             }
@@ -6681,6 +6653,21 @@ async function changePassword(){
 }
 
 // ── Admin panel ──────────────────────────────────────────────────────────────
+function _renderClaimsTableRows(claims){
+  return claims.map(c => {
+    const p = (c.expand && c.expand.person) || {};
+    const u = (c.expand && c.expand.user)   || {};
+    return `<tr>
+      <td>${esc(u.name || u.email || '—')}</td>
+      <td>${esc(p.display_name || '—')}${p.birth_date ? ' · ' + (_parseYearFromDate(p.birth_date) || '') : ''}</td>
+      <td>${c.created ? new Date(c.created).toLocaleDateString() : '—'}</td>
+      <td>
+        <button class="btn btn-primary btn-sm" onclick="adminApproveClaim('${c.id}','${p.id}','${u.id}')">Approve</button>
+        <button class="btn btn-danger btn-sm" style="margin-left:.3rem" onclick="adminDenyClaim('${c.id}','${u.id}')">Deny</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
 SCREENS.admin = async function(){
   if (!(currentUser && currentUser.family_admin)) { navigate('home'); return; }
   mountMain('<div class="screen-pad" style="max-width:1100px"><div class="spinner"></div></div>');
@@ -6756,19 +6743,7 @@ SCREENS.admin = async function(){
     <div class="admin-table-wrap">
       <table class="admin-table">
         <thead><tr><th>Claimant</th><th>Person in tree</th><th>Submitted</th><th>Actions</th></tr></thead>
-        <tbody>${claims.map(c => {
-          const p = (c.expand && c.expand.person) || {};
-          const u = (c.expand && c.expand.user)   || {};
-          return `<tr>
-            <td>${esc(u.name || u.email || '—')}</td>
-            <td>${esc(p.display_name || '—')}${p.birth_date ? ' · ' + (_parseYearFromDate(p.birth_date) || '') : ''}</td>
-            <td>${c.created ? new Date(c.created).toLocaleDateString() : '—'}</td>
-            <td>
-              <button class="btn btn-primary btn-sm" onclick="adminApproveClaim('${c.id}','${p.id}','${u.id}')">Approve</button>
-              <button class="btn btn-danger btn-sm" style="margin-left:.3rem" onclick="adminDenyClaim('${c.id}','${u.id}')">Deny</button>
-            </td>
-          </tr>`;
-        }).join('')}</tbody>
+        <tbody>${_renderClaimsTableRows(claims)}</tbody>
       </table>
     </div>` : ''}
 
@@ -6962,19 +6937,7 @@ SCREENS.branchadmin = async function(){
     ? `<div class="admin-section">Pending tree claims</div>
        <div class="admin-table-wrap"><table class="admin-table">
          <thead><tr><th>Claimant</th><th>Person in tree</th><th>Submitted</th><th>Actions</th></tr></thead>
-         <tbody>${claims.map(c => {
-           const p = (c.expand && c.expand.person) || {};
-           const u = (c.expand && c.expand.user)   || {};
-           return `<tr>
-             <td>${esc(u.name || u.email || '—')}</td>
-             <td>${esc(p.display_name || '—')}${p.birth_date ? ' · ' + (_parseYearFromDate(p.birth_date) || '') : ''}</td>
-             <td>${c.created ? new Date(c.created).toLocaleDateString() : '—'}</td>
-             <td>
-               <button class="btn btn-primary btn-sm" onclick="adminApproveClaim('${c.id}','${p.id}','${u.id}')">Approve</button>
-               <button class="btn btn-danger btn-sm" style="margin-left:.3rem" onclick="adminDenyClaim('${c.id}','${u.id}')">Deny</button>
-             </td>
-           </tr>`;
-         }).join('')}</tbody>
+         <tbody>${_renderClaimsTableRows(claims)}</tbody>
        </table></div>`
     : '<div class="empty-state" style="padding:2rem 0"><p>No pending claims for your branch.</p></div>';
 
