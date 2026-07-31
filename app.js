@@ -3760,7 +3760,7 @@ async function renderEventsList(){
 }
 
 async function renderEventDetail(eventId){
-  mountMain('<div class="screen-pad" style="max-width:none"><div class="spinner"></div></div>');
+  mountMain('<div class="screen-pad" style="max-width:75%"><div class="spinner"></div></div>');
   let event = null, myRsvp = null, goingCount = 0, maybeCount = 0;
   let invites = [], myAvailability = null, allAvailability = [], rsvpsByUser = {};
   let locationSuggestions = [], locationVoteCounts = {}, myLocationVotes = {};
@@ -3878,7 +3878,7 @@ async function renderEventDetail(eventId){
   const curStatus = myRsvp ? myRsvp.status : '';
   const rsvpOpt = (key, label) => `<button class="ev-rsvp-opt${curStatus === key ? ' active' : ''}" onclick="setEventRsvp('${eventId}','${key}')">${label}</button>`;
 
-  mountMain(`<div class="screen-pad" style="max-width:none">
+  mountMain(`<div class="screen-pad" style="max-width:75%">
     <div class="breadcrumb"><span class="link" onclick="navigate('events')">Events</span> › ${esc(event.name)}</div>
     <div class="event-detail-hero" style="margin-top:.75rem">
       ${thumb ? `<img src="${esc(thumb)}" alt="">` : `<div class="event-detail-hero-placeholder">${icon}</div>`}
@@ -3897,7 +3897,6 @@ async function renderEventDetail(eventId){
       ${isOrganizer ? `<button class="btn btn-outline btn-sm" onclick="navigate('events',{event:'${event.id}',edit:'1'})">Edit event</button>` : ''}
     </div>
     ${event.description ? `<div class="card" style="margin-top:1.25rem"><p style="line-height:1.6">${esc(event.description)}</p></div>` : ''}
-    <div class="edc-wrap">
     <div class="event-detail-columns" style="margin-top:1.25rem">
       <div class="edc-left">
         <div class="card">
@@ -4165,7 +4164,6 @@ async function renderEventDetail(eventId){
           </div>`;
         })() : ''}
       </div>
-    </div>
     </div>
   </div>`);
 
