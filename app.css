@@ -760,9 +760,13 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
 .settings-layout{display:grid;grid-template-columns:200px 1fr;gap:1.5rem;align-items:start}
 @media (max-width:767px){.settings-layout{grid-template-columns:1fr}}
 /* ── Event detail two-column layout ──────────────────────────────────────── */
-/* No separate wrapper needed — .screen-pad itself is capped at 75% width for this
-   page (see renderEventDetail's mountMain calls), so the columns share that same
-   width and stay centered directly under the hero/header above them. */
+/* .screen-pad itself is capped at 75% width for this page, so the columns share
+   that same width and stay centered directly under the hero/header above them.
+   Reset to full width at the same breakpoint .event-detail-columns collapses at —
+   75% of an already-narrow #main (sidebar still visible, columns already stacked
+   to one) leaves cards too cramped for the collapse to actually help. */
+.ed-page{max-width:75%}
+@media (max-width:1023px){.ed-page{max-width:none}}
 .event-detail-columns{display:grid;grid-template-columns:50fr 25fr;gap:1.25rem;align-items:start}
 /* Grid items default to min-width:auto, which floors their width at their content's
    min-content size (e.g. a long unbroken URL in a location suggestion) — without this,
