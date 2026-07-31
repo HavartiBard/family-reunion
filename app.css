@@ -766,7 +766,7 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
    75% of an already-narrow #main (sidebar still visible, columns already stacked
    to one) leaves cards too cramped for the collapse to actually help. */
 .ed-page{max-width:75%}
-@media (max-width:1023px){.ed-page{max-width:none}}
+@media (max-width:1750px){.ed-page{max-width:none}}
 .event-detail-columns{display:grid;grid-template-columns:50fr 25fr;gap:1.25rem;align-items:start}
 /* Grid items default to min-width:auto, which floors their width at their content's
    min-content size (e.g. a long unbroken URL in a location suggestion) — without this,
@@ -774,11 +774,14 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
    .screen-pad's 75% cap. #main has overflow-x:hidden (no scrollbar), so an overflow here
    silently clips the right column entirely rather than scrolling. */
 .edc-left,.edc-right{min-width:0}
-/* Collapses well above the generic 767px content breakpoint: at 767-1023px the
-   #sidebar (248px) is still visible (it only hides below 767px), which leaves too
-   little room for a usable right-column width — e.g. at 768px the sidebar column
-   works out to under 100px. */
-@media (max-width:1023px){.event-detail-columns{grid-template-columns:1fr}}
+/* This breakpoint is much wider than a typical two-column collapse threshold because
+   the 25fr right column is 25% of an already-75%-capped page, not 25% of the full
+   viewport — at the previous 1023px cutoff (calibrated back when the columns spanned
+   a flat 960px block, not a percentage of a percentage), the right column's RSVP
+   buttons had ~29px each to work with. 1750px keeps each button around ~89px, the
+   rough width that worked in the pre-75%-cap design. Recompute this whenever either
+   .ed-page's max-width or the 50fr/25fr split changes — it does not scale itself. */
+@media (max-width:1750px){.event-detail-columns{grid-template-columns:1fr}}
 .settings-nav{display:flex;flex-direction:column;gap:.15rem;position:sticky;top:1rem}
 .sn-item{background:none;border:none;text-align:left;padding:.5rem .75rem;border-radius:8px;
   cursor:pointer;font-family:var(--font-ui);font-size:.88rem;color:var(--text-secondary);width:100%}
