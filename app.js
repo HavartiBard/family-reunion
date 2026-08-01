@@ -6732,7 +6732,54 @@ async function _adminRenderActiveTab(){
   if (_adminActiveTab === 'service') return _renderAdminServiceAccounts();
 }
 
-async function _renderAdminPending(){ const m = el('admin-tab-content'); if (m) m.innerHTML = '<p>TODO Task 2</p>'; }
+async function _renderAdminPending(){
+  const mount = el('admin-tab-content');
+  if (!mount) return;
+  let pending = [], claims = [];
+  try {
+    const [pRes, cRes] = await Promise.all([
+      apiFetch('/api/collections/users/records?filter=(approved=false)&perPage=100&sort=created'),
+      apiFetch('/api/collections/person_claims/records?filter=(status="pending")&perPage=100&expand=person,user&sort=created')
+    ]);
+    if (pRes.ok) pending = (await pRes.json()).items || [];
+    if (cRes.ok) claims = (await cRes.json()).items || [];
+  } catch { /* ignore */ }
+
+  const pendingRows = pending.length
+    ? pending.map(u => {
+        const displayName = u.name || '—';
+        const displayEmail = u.email || u.username || '(email hidden)';
+        return `<tr>
+          <td>${esc(displayName)}</td>
+          <td>${esc(displayEmail)}</td>
+          <td>${u.phone ? esc(u.phone) : '—'}</td>
+          <td>${u.created ? new Date(u.created).toLocaleDateString() : '—'}</td>
+          <td>
+            <button class="btn btn-primary btn-sm" onclick="adminApprove('${u.id}')">Approve</button>
+            <button class="btn btn-danger btn-sm" style="margin-left:.3rem" onclick="adminDeny('${u.id}')">Deny</button>
+          </td>
+        </tr>`;
+      }).join('')
+    : '<tr><td colspan="5" style="color:var(--text-muted);text-align:center;padding:1rem">No pending requests.</td></tr>';
+
+  mount.innerHTML = `
+    <div class="admin-section" style="margin-top:0">Pending approvals</div>
+    <div class="admin-table-wrap">
+      <table class="admin-table">
+        <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Signed up</th><th>Actions</th></tr></thead>
+        <tbody>${pendingRows}</tbody>
+      </table>
+    </div>
+    ${claims.length ? `<div class="admin-section">Tree claims (${claims.length} pending)</div>
+    <div class="admin-table-wrap">
+      <table class="admin-table">
+        <thead><tr><th>Claimant</th><th>Person in tree</th><th>Submitted</th><th>Actions</th></tr></thead>
+        <tbody>${_renderClaimsTableRows(claims)}</tbody>
+      </table>
+    </div>` : ''}
+  `;
+}
+
 async function _renderAdminMembers(){ const m = el('admin-tab-content'); if (m) m.innerHTML = '<p>TODO Task 3</p>'; }
 async function _renderAdminBranches(){ const m = el('admin-tab-content'); if (m) m.innerHTML = '<p>TODO Task 4</p>'; }
 async function _renderAdminServiceAccounts(){ const m = el('admin-tab-content'); if (m) m.innerHTML = '<p>TODO Task 5</p>'; }
