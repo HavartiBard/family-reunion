@@ -6780,9 +6780,97 @@ async function _renderAdminPending(){
   `;
 }
 
-async function _renderAdminMembers(){ const m = el('admin-tab-content'); if (m) m.innerHTML = '<p>TODO Task 3</p>'; }
+let _adminMembersState = { page: 1, search: '', role: 'all', status: 'all' };
+let _adminMembersSearchTimer = null;
+
+function _adminMembersBuildFilter(){
+  const clauses = ['email !~ "svc-"'];
+  if (_adminMembersState.status === 'approved') clauses.push('approved=true');
+  else if (_adminMembersState.status === 'pending') clauses.push('approved=false');
+  if (_adminMembersState.role === 'admin') clauses.push('family_admin=true');
+  else if (_adminMembersState.role === 'regular') clauses.push('family_admin=false');
+  const q = _adminMembersState.search.trim();
+  if (q) clauses.push(`(name~"${q}" || email~"${q}")`);
+  return `(${clauses.join(' && ')})`;
+}
+
+async function _renderAdminMembers(){
+  const mount = el('admin-tab-content');
+  if (!mount) return;
+  let members = [], totalPages = 1;
+  try {
+    const filter = encodeURIComponent(_adminMembersBuildFilter());
+    const res = await apiFetch(`/api/collections/users/records?filter=${filter}&perPage=25&page=${_adminMembersState.page}&sort=name`);
+    if (res.ok) { const d = await res.json(); members = d.items || []; totalPages = d.totalPages || 1; }
+  } catch { /* ignore */ }
+
+  const memberRows = members.length ? members.map(u => `<tr>
+    <td>${esc(u.name || '—')}</td>
+    <td>${esc(u.email || '—')}</td>
+    <td>${u.created ? new Date(u.created).toLocaleDateString() : '—'}</td>
+    <td>${u.family_admin ? '<span class="pill">Admin</span>' : ''}</td>
+    <td>${u.id !== userId
+      ? `<button class="btn btn-outline btn-sm" onclick="adminToggleAdmin('${u.id}',${!u.family_admin})">${u.family_admin ? 'Remove admin' : 'Make admin'}</button>`
+      : '<span style="color:var(--text-muted);font-size:.82rem">You</span>'}</td>
+  </tr>`).join('') : '<tr><td colspan="5" style="color:var(--text-muted);text-align:center;padding:1rem">No members match.</td></tr>';
+
+  mount.innerHTML = `
+    <div class="admin-filter-bar">
+      <input id="admin-members-search" placeholder="Search name or email…" value="${esc(_adminMembersState.search)}" oninput="_adminMembersSearch()" />
+      <select id="admin-members-role" onchange="_adminMembersSetFilter('role', this.value)">
+        <option value="all" ${_adminMembersState.role==='all'?'selected':''}>All roles</option>
+        <option value="admin" ${_adminMembersState.role==='admin'?'selected':''}>Admin</option>
+        <option value="regular" ${_adminMembersState.role==='regular'?'selected':''}>Regular</option>
+      </select>
+      <select id="admin-members-status" onchange="_adminMembersSetFilter('status', this.value)">
+        <option value="all" ${_adminMembersState.status==='all'?'selected':''}>All statuses</option>
+        <option value="approved" ${_adminMembersState.status==='approved'?'selected':''}>Approved</option>
+        <option value="pending" ${_adminMembersState.status==='pending'?'selected':''}>Pending</option>
+      </select>
+    </div>
+    <div class="admin-table-wrap">
+      <table class="admin-table">
+        <thead><tr><th>Name</th><th>Email</th><th>Joined</th><th>Role</th><th></th></tr></thead>
+        <tbody>${memberRows}</tbody>
+      </table>
+    </div>
+    ${_adminPaginationHtml(_adminMembersState.page, totalPages, '_adminMembersGoToPage')}`;
+}
+
+function _adminMembersSearch(){
+  clearTimeout(_adminMembersSearchTimer);
+  _adminMembersSearchTimer = setTimeout(() => {
+    const inp = el('admin-members-search');
+    _adminMembersState.search = inp ? inp.value : '';
+    _adminMembersState.page = 1;
+    _renderAdminMembers();
+  }, 200);
+}
+
+function _adminMembersSetFilter(kind, value){
+  _adminMembersState[kind] = value;
+  _adminMembersState.page = 1;
+  _renderAdminMembers();
+}
+
+function _adminMembersGoToPage(p){
+  _adminMembersState.page = p;
+  _renderAdminMembers();
+}
+
 async function _renderAdminBranches(){ const m = el('admin-tab-content'); if (m) m.innerHTML = '<p>TODO Task 4</p>'; }
 async function _renderAdminServiceAccounts(){ const m = el('admin-tab-content'); if (m) m.innerHTML = '<p>TODO Task 5</p>'; }
+
+function _adminPaginationHtml(currentPage, totalPages, goToPageFnName){
+  if (totalPages <= 1) return '';
+  const prevDisabled = currentPage <= 1 ? 'disabled' : '';
+  const nextDisabled = currentPage >= totalPages ? 'disabled' : '';
+  return `<div class="admin-pagination">
+    <button class="btn btn-outline btn-sm" ${prevDisabled} onclick="${goToPageFnName}(${currentPage - 1})">Prev</button>
+    <span class="admin-pagination-label">Page ${currentPage} of ${totalPages}</span>
+    <button class="btn btn-outline btn-sm" ${nextDisabled} onclick="${goToPageFnName}(${currentPage + 1})">Next</button>
+  </div>`;
+}
 
 async function adminApprove(id){
   try {
