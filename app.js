@@ -6933,7 +6933,32 @@ function _adminBranchesGoToPage(p){
   _renderAdminBranches();
 }
 
-async function _renderAdminServiceAccounts(){ const m = el('admin-tab-content'); if (m) m.innerHTML = '<p>TODO Task 5</p>'; }
+async function _renderAdminServiceAccounts(){
+  const mount = el('admin-tab-content');
+  if (!mount) return;
+  let accounts = [];
+  try {
+    const res = await apiFetch(`/api/collections/users/records?filter=${encodeURIComponent('(email ~ "svc-")')}&perPage=20&sort=name&expand=home_tree`);
+    if (res.ok) accounts = (await res.json()).items || [];
+  } catch { /* ignore */ }
+
+  const rows = accounts.length ? accounts.map(u => `<tr>
+    <td>${esc(u.name || '—')}</td>
+    <td>${esc(u.email || '—')}</td>
+    <td>${esc((u.expand && u.expand.home_tree && u.expand.home_tree.name) || '—')}</td>
+  </tr>`).join('') : '<tr><td colspan="3" style="color:var(--text-muted);text-align:center;padding:1rem">No service accounts found.</td></tr>';
+
+  mount.innerHTML = `
+    <p style="font-size:.82rem;color:var(--text-secondary);margin-bottom:1rem">
+      Managed by <code>tools/*</code> scripts, not through this panel.
+    </p>
+    <div class="admin-table-wrap">
+      <table class="admin-table">
+        <thead><tr><th>Name</th><th>Email</th><th>Pinned tree</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
 
 function _adminPaginationHtml(currentPage, totalPages, goToPageFnName){
   if (totalPages <= 1) return '';
@@ -6954,7 +6979,7 @@ async function adminApprove(id){
     toast('Member approved.', 'success');
     await refreshPending();
     renderSidebar();
-    SCREENS.admin();
+    _adminRenderActiveTab();
   } catch (e) { toast(e.message, 'error'); }
 }
 
@@ -6966,7 +6991,7 @@ async function adminDeny(id){
     toast('Account removed.', 'success');
     await refreshPending();
     renderSidebar();
-    SCREENS.admin();
+    _adminRenderActiveTab();
   } catch (e) { toast(e.message, 'error'); }
 }
 
@@ -6977,7 +7002,7 @@ async function adminToggleAdmin(id, makeAdmin){
       body: JSON.stringify(makeAdmin ? { family_admin: true, approved: true } : { family_admin: false }) });
     if (!res.ok) throw new Error('Could not update');
     toast(makeAdmin ? 'Made admin.' : 'Admin removed.', 'success');
-    SCREENS.admin();
+    _adminRenderActiveTab();
   } catch (e) { toast(e.message, 'error'); }
 }
 
@@ -7032,7 +7057,7 @@ async function saveBranchAdmin(treeId){
     if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not assign'); }
     closeModal();
     toast('Branch admin assigned.', 'success');
-    SCREENS.admin();
+    _adminRenderActiveTab();
   } catch (e) { formErr('ba-error', e.message); }
 }
 
@@ -7041,7 +7066,7 @@ async function removeBranchAdmin(recordId){
     const res = await apiFetch(`/api/collections/branch_admins/records/${recordId}`, { method:'DELETE' });
     if (!res.ok) throw new Error('Could not remove');
     toast('Branch admin removed.', 'success');
-    SCREENS.admin();
+    _adminRenderActiveTab();
   } catch (e) { toast(e.message, 'error'); }
 }
 
@@ -7061,7 +7086,7 @@ async function adminApproveClaim(claimId, personId, claimUserId){
     });
     toast('Claim approved.', 'success');
     await loadBranchAdminState(); renderSidebar();
-    const caller = (currentUser && currentUser.family_admin) ? SCREENS.admin : SCREENS.branchadmin;
+    const caller = (currentUser && currentUser.family_admin) ? _adminRenderActiveTab : SCREENS.branchadmin;
     caller();
   } catch (e) { toast(e.message, 'error'); }
 }
@@ -7078,7 +7103,7 @@ async function adminDenyClaim(claimId, claimUserId){
     });
     toast('Claim denied.', 'success');
     await loadBranchAdminState(); renderSidebar();
-    const caller = (currentUser && currentUser.family_admin) ? SCREENS.admin : SCREENS.branchadmin;
+    const caller = (currentUser && currentUser.family_admin) ? _adminRenderActiveTab : SCREENS.branchadmin;
     caller();
   } catch (e) { toast(e.message, 'error'); }
 }
