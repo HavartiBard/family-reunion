@@ -816,6 +816,14 @@ input::placeholder,textarea::placeholder{color:var(--text-muted)}
 .admin-table td{padding:.55rem .75rem;border-bottom:1px solid var(--border-default);vertical-align:middle}
 .admin-table tr:last-child td{border-bottom:none}
 .admin-table-wrap{background:var(--bg-card);border:1px solid var(--border-default);border-radius:12px;overflow:hidden}
+.admin-tabs{display:flex;gap:.25rem;margin:1.5rem 0 0;border-bottom:2px solid var(--border-default);padding:0 .25rem}
+.admin-tab{padding:.6rem 1.1rem;border-radius:8px 8px 0 0;font-size:.9rem;font-weight:500;
+  color:var(--text-muted);cursor:pointer;border:1px solid transparent;border-bottom:none}
+.admin-tab:hover{color:var(--text-primary)}
+.admin-tab.active{background:var(--bg-card);color:var(--accent-gold);
+  border-color:var(--border-default)}
+#admin-tab-content{background:var(--bg-card);border:1px solid var(--border-default);
+  border-top:none;border-radius:0 0 12px 12px;padding:1rem 1.25rem;min-height:120px}
 
 /* ── Tree claim step (post-registration) ─────────────────────────────── */
 .claim-step{min-height:100vh;display:flex;align-items:center;justify-content:center;

@@ -6666,115 +6666,76 @@ function _renderClaimsTableRows(claims){
     </tr>`;
   }).join('');
 }
+let _adminActiveTab = 'pending';
+
 SCREENS.admin = async function(){
   if (!(currentUser && currentUser.family_admin)) { navigate('home'); return; }
   mountMain('<div class="screen-pad" style="max-width:1100px"><div class="spinner"></div></div>');
 
-  let pending = [], members = [], albumCount = 0, newsCount = 0, claims = [],
-      branchAdminRecords = [], trees = [];
-  try {
-    const [pRes, mRes, aRes, nRes, cRes, baRes, tRes] = await Promise.all([
-      apiFetch('/api/collections/users/records?filter=(approved=false)&perPage=100&sort=created'),
-      apiFetch('/api/collections/users/records?filter=(approved=true)&perPage=200&sort=name'),
-      apiFetch('/api/collections/albums/records?perPage=1'),
-      apiFetch('/api/collections/news/records?perPage=1'),
-      apiFetch('/api/collections/person_claims/records?filter=(status="pending")&perPage=100&expand=person,user&sort=created'),
-      apiFetch('/api/collections/branch_admins/records?perPage=200&expand=user'),
-      apiFetch('/api/collections/trees/records?perPage=200&sort=name')
-    ]);
-    if (pRes.ok) pending = (await pRes.json()).items || [];
-    if (mRes.ok) { const d = await mRes.json(); members = d.items || []; }
-    if (aRes.ok) albumCount = (await aRes.json()).totalItems || 0;
-    if (nRes.ok) newsCount  = (await nRes.json()).totalItems || 0;
-    if (cRes.ok) claims = (await cRes.json()).items || [];
-    if (baRes.ok) branchAdminRecords = (await baRes.json()).items || [];
-    if (tRes.ok) trees = (await tRes.json()).items || [];
-  } catch { /* ignore */ }
-
-  const stat = (v, l) => `<div class="stat-card"><div class="stat-val">${v}</div><div class="stat-label">${l}</div></div>`;
-
-  const pendingRows = pending.length
-    ? pending.map(u => {
-        const displayName = u.name || '—';
-        const displayEmail = u.email || u.username || '(email hidden)';
-        return `<tr>
-          <td>${esc(displayName)}</td>
-          <td>${esc(displayEmail)}</td>
-          <td>${u.phone ? esc(u.phone) : '—'}</td>
-          <td>${u.created ? new Date(u.created).toLocaleDateString() : '—'}</td>
-          <td>
-            <button class="btn btn-primary btn-sm" onclick="adminApprove('${u.id}')">Approve</button>
-            <button class="btn btn-danger btn-sm" style="margin-left:.3rem" onclick="adminDeny('${u.id}')">Deny</button>
-          </td>
-        </tr>`;
-      }).join('')
-    : '<tr><td colspan="5" style="color:var(--text-muted);text-align:center;padding:1rem">No pending requests.</td></tr>';
-
-  const memberRows = members.map(u => `<tr>
-    <td>${esc(u.name || '—')}</td>
-    <td>${esc(u.email || '—')}</td>
-    <td>${u.created ? new Date(u.created).toLocaleDateString() : '—'}</td>
-    <td>${u.family_admin ? '<span class="pill">Admin</span>' : ''}</td>
-    <td>${u.id !== userId
-      ? `<button class="btn btn-outline btn-sm" onclick="adminToggleAdmin('${u.id}',${!u.family_admin})">${u.family_admin ? 'Remove admin' : 'Make admin'}</button>`
-      : '<span style="color:var(--text-muted);font-size:.82rem">You</span>'}</td>
-  </tr>`).join('');
+  const statsHtml = await _adminRenderStats();
 
   mountMain(`<div class="screen-pad" style="max-width:1100px">
     <h1 class="card-title" style="margin-bottom:1.25rem">Admin Panel</h1>
-    <div class="admin-stats">
-      ${stat(members.length, 'Approved members')}
-      ${stat(pending.length, 'Pending approvals')}
-      ${stat(albumCount, 'Albums')}
-      ${stat(newsCount, 'News posts')}
+    ${statsHtml}
+    <div class="admin-tabs" id="admin-tabs">
+      <div class="admin-tab${_adminActiveTab==='pending'?' active':''}" onclick="_adminSwitchTab('pending')">Pending Approvals</div>
+      <div class="admin-tab${_adminActiveTab==='members'?' active':''}" onclick="_adminSwitchTab('members')">Members</div>
+      <div class="admin-tab${_adminActiveTab==='branches'?' active':''}" onclick="_adminSwitchTab('branches')">Branches</div>
+      <div class="admin-tab${_adminActiveTab==='service'?' active':''}" onclick="_adminSwitchTab('service')">Service Accounts</div>
     </div>
-
-    ${pending.length ? `<div class="admin-section">Pending approvals</div>
-    <div class="admin-table-wrap">
-      <table class="admin-table">
-        <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Signed up</th><th>Actions</th></tr></thead>
-        <tbody>${pendingRows}</tbody>
-      </table>
-    </div>` : ''}
-
-    ${claims.length ? `<div class="admin-section">Tree claims (${claims.length} pending)</div>
-    <div class="admin-table-wrap">
-      <table class="admin-table">
-        <thead><tr><th>Claimant</th><th>Person in tree</th><th>Submitted</th><th>Actions</th></tr></thead>
-        <tbody>${_renderClaimsTableRows(claims)}</tbody>
-      </table>
-    </div>` : ''}
-
-    <div class="admin-section">All members</div>
-    <div class="admin-table-wrap">
-      <table class="admin-table">
-        <thead><tr><th>Name</th><th>Email</th><th>Joined</th><th>Role</th><th></th></tr></thead>
-        <tbody>${memberRows}</tbody>
-      </table>
-    </div>
-
-    <div class="admin-section">Branches</div>
-    <div class="admin-table-wrap">
-      <table class="admin-table">
-        <thead><tr><th>Tree</th><th>Branch admin</th><th></th></tr></thead>
-        <tbody>${trees.map(tree => {
-          const rec = branchAdminRecords.find(r => (r.tree || []).includes(tree.id));
-          const u = rec && rec.expand && rec.expand.user;
-          return `<tr>
-            <td>${esc(tree.name)}</td>
-            <td>${u ? esc(u.name || u.email) : '<span style="color:var(--text-muted)">Unassigned</span>'}</td>
-            <td>${rec
-              ? `<button class="btn btn-danger btn-sm" onclick="removeBranchAdmin('${rec.id}')">Remove</button>`
-              : `<button class="btn btn-outline btn-sm" onclick="openAssignBranchAdmin('${tree.id}','${esc(tree.name)}')">Assign</button>`
-            }</td>
-          </tr>`;
-        }).join('')}
-        ${trees.length === 0 ? '<tr><td colspan="3" style="color:var(--text-muted);text-align:center;padding:1rem">No family trees yet.</td></tr>' : ''}
-        </tbody>
-      </table>
-    </div>
+    <div id="admin-tab-content"><div class="spinner"></div></div>
   </div>`);
+
+  await _adminRenderActiveTab();
 };
+
+async function _adminRenderStats(){
+  let memberCount = 0, pendingCount = 0, albumCount = 0, newsCount = 0;
+  try {
+    const [mRes, pRes, aRes, nRes] = await Promise.all([
+      apiFetch('/api/collections/users/records?filter=(approved=true)&perPage=1'),
+      apiFetch('/api/collections/users/records?filter=(approved=false)&perPage=1'),
+      apiFetch('/api/collections/albums/records?perPage=1'),
+      apiFetch('/api/collections/news/records?perPage=1')
+    ]);
+    if (mRes.ok) memberCount = (await mRes.json()).totalItems || 0;
+    if (pRes.ok) pendingCount = (await pRes.json()).totalItems || 0;
+    if (aRes.ok) albumCount = (await aRes.json()).totalItems || 0;
+    if (nRes.ok) newsCount = (await nRes.json()).totalItems || 0;
+  } catch { /* ignore */ }
+  const stat = (v, l) => `<div class="stat-card"><div class="stat-val">${v}</div><div class="stat-label">${l}</div></div>`;
+  return `<div class="admin-stats">
+    ${stat(memberCount, 'Approved members')}
+    ${stat(pendingCount, 'Pending approvals')}
+    ${stat(albumCount, 'Albums')}
+    ${stat(newsCount, 'News posts')}
+  </div>`;
+}
+
+function _adminSwitchTab(tabName){
+  _adminActiveTab = tabName;
+  if (tabName === 'members') _adminMembersState = { page: 1, search: '', role: 'all', status: 'all' };
+  if (tabName === 'branches') _adminBranchesState = { page: 1, search: '' };
+  document.querySelectorAll('#admin-tabs .admin-tab').forEach(t => t.classList.remove('active'));
+  const active = document.querySelector(`#admin-tabs .admin-tab[onclick*="'${tabName}'"]`);
+  if (active) active.classList.add('active');
+  _adminRenderActiveTab();
+}
+
+async function _adminRenderActiveTab(){
+  const mount = el('admin-tab-content');
+  if (!mount) return;
+  mount.innerHTML = '<div class="spinner"></div>';
+  if (_adminActiveTab === 'pending') return _renderAdminPending();
+  if (_adminActiveTab === 'members') return _renderAdminMembers();
+  if (_adminActiveTab === 'branches') return _renderAdminBranches();
+  if (_adminActiveTab === 'service') return _renderAdminServiceAccounts();
+}
+
+async function _renderAdminPending(){ const m = el('admin-tab-content'); if (m) m.innerHTML = '<p>TODO Task 2</p>'; }
+async function _renderAdminMembers(){ const m = el('admin-tab-content'); if (m) m.innerHTML = '<p>TODO Task 3</p>'; }
+async function _renderAdminBranches(){ const m = el('admin-tab-content'); if (m) m.innerHTML = '<p>TODO Task 4</p>'; }
+async function _renderAdminServiceAccounts(){ const m = el('admin-tab-content'); if (m) m.innerHTML = '<p>TODO Task 5</p>'; }
 
 async function adminApprove(id){
   try {
