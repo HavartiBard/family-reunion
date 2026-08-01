@@ -6858,7 +6858,81 @@ function _adminMembersGoToPage(p){
   _renderAdminMembers();
 }
 
-async function _renderAdminBranches(){ const m = el('admin-tab-content'); if (m) m.innerHTML = '<p>TODO Task 4</p>'; }
+let _adminBranchesState = { page: 1, search: '' };
+let _adminBranchesSearchTimer = null;
+
+async function _renderAdminBranches(){
+  const mount = el('admin-tab-content');
+  if (!mount) return;
+  let trees = [], totalPages = 1, branchAdminRecords = [], memberCounts = {};
+  try {
+    const q = _adminBranchesState.search.trim();
+    const filter = q ? `&filter=${encodeURIComponent(`(name~"${q}")`)}` : '';
+    const tRes = await apiFetch(`/api/collections/trees/records?perPage=15&page=${_adminBranchesState.page}${filter}&sort=name`);
+    if (tRes.ok) { const d = await tRes.json(); trees = d.items || []; totalPages = d.totalPages || 1; }
+
+    if (trees.length) {
+      const treeIds = trees.map(t => t.id);
+      const baFilter = encodeURIComponent(`(${treeIds.map(id => `tree ?~ "${id}"`).join(' || ')})`);
+      const baRes = await apiFetch(`/api/collections/branch_admins/records?filter=${baFilter}&perPage=200&expand=user`);
+      if (baRes.ok) branchAdminRecords = (await baRes.json()).items || [];
+
+      const countResults = await Promise.all(treeIds.map(id =>
+        apiFetch(`/api/collections/persons/records?filter=${encodeURIComponent(`(tree="${id}")`)}&perPage=1`)
+          .then(r => r.ok ? r.json() : { totalItems: 0 })
+          .then(d => ({ id, count: d.totalItems || 0 }))
+          .catch(() => ({ id, count: 0 }))
+      ));
+      countResults.forEach(r => { memberCounts[r.id] = r.count; });
+    }
+  } catch { /* ignore */ }
+
+  const rows = trees.length ? trees.map(tree => {
+    const rec = branchAdminRecords.find(r => (r.tree || []).includes(tree.id));
+    const u = rec && rec.expand && rec.expand.user;
+    const linkedNames = (tree.linked_trees || []).length
+      ? trees.filter(t2 => (tree.linked_trees || []).includes(t2.id)).map(t2 => esc(t2.name)).join(', ') || '—'
+      : '—';
+    return `<tr>
+      <td>${esc(tree.name)}</td>
+      <td>${memberCounts[tree.id] || 0}</td>
+      <td>${linkedNames}</td>
+      <td>${u ? esc(u.name || u.email) : '<span style="color:var(--text-muted)">Unassigned</span>'}</td>
+      <td>${rec
+        ? `<button class="btn btn-danger btn-sm" onclick="removeBranchAdmin('${rec.id}')">Remove</button>`
+        : `<button class="btn btn-outline btn-sm" onclick="openAssignBranchAdmin('${tree.id}','${esc(tree.name)}')">Assign</button>`
+      }</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="5" style="color:var(--text-muted);text-align:center;padding:1rem">No family trees match.</td></tr>';
+
+  mount.innerHTML = `
+    <div class="admin-filter-bar">
+      <input id="admin-branches-search" placeholder="Search branch name…" value="${esc(_adminBranchesState.search)}" oninput="_adminBranchesSearch()" />
+    </div>
+    <div class="admin-table-wrap">
+      <table class="admin-table">
+        <thead><tr><th>Tree</th><th>Members</th><th>Linked trees</th><th>Branch admin</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    ${_adminPaginationHtml(_adminBranchesState.page, totalPages, '_adminBranchesGoToPage')}`;
+}
+
+function _adminBranchesSearch(){
+  clearTimeout(_adminBranchesSearchTimer);
+  _adminBranchesSearchTimer = setTimeout(() => {
+    const inp = el('admin-branches-search');
+    _adminBranchesState.search = inp ? inp.value : '';
+    _adminBranchesState.page = 1;
+    _renderAdminBranches();
+  }, 200);
+}
+
+function _adminBranchesGoToPage(p){
+  _adminBranchesState.page = p;
+  _renderAdminBranches();
+}
+
 async function _renderAdminServiceAccounts(){ const m = el('admin-tab-content'); if (m) m.innerHTML = '<p>TODO Task 5</p>'; }
 
 function _adminPaginationHtml(currentPage, totalPages, goToPageFnName){
