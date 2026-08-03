@@ -6667,6 +6667,7 @@ function _renderClaimsTableRows(claims){
   }).join('');
 }
 let _adminActiveTab = 'pending';
+let _adminRenderToken = 0;
 
 SCREENS.admin = async function(){
   if (!(currentUser && currentUser.family_admin)) { navigate('home'); return; }
@@ -6744,6 +6745,7 @@ async function _adminRenderActiveTab(){
 async function _renderAdminPending(){
   const mount = el('admin-tab-content');
   if (!mount) return;
+  const myToken = ++_adminRenderToken;
   let pending = [], claims = [];
   try {
     const [pRes, cRes] = await Promise.all([
@@ -6771,6 +6773,7 @@ async function _renderAdminPending(){
       }).join('')
     : '<tr><td colspan="5" style="color:var(--text-muted);text-align:center;padding:1rem">No pending requests.</td></tr>';
 
+  if (myToken !== _adminRenderToken) return;
   mount.innerHTML = `
     <div class="admin-section" style="margin-top:0">Pending approvals</div>
     <div class="admin-table-wrap">
@@ -6806,6 +6809,7 @@ function _adminMembersBuildFilter(){
 async function _renderAdminMembers(){
   const mount = el('admin-tab-content');
   if (!mount) return;
+  const myToken = ++_adminRenderToken;
   let members = [], totalPages = 1;
   try {
     const filter = encodeURIComponent(_adminMembersBuildFilter());
@@ -6823,6 +6827,7 @@ async function _renderAdminMembers(){
       : '<span style="color:var(--text-muted);font-size:.82rem">You</span>'}</td>
   </tr>`).join('') : '<tr><td colspan="5" style="color:var(--text-muted);text-align:center;padding:1rem">No members match.</td></tr>';
 
+  if (myToken !== _adminRenderToken) return;
   mount.innerHTML = `
     <div class="admin-filter-bar">
       <input id="admin-members-search" placeholder="Search name or email…" value="${esc(_adminMembersState.search)}" oninput="_adminMembersSearch()" />
@@ -6873,6 +6878,7 @@ let _adminBranchesSearchTimer = null;
 async function _renderAdminBranches(){
   const mount = el('admin-tab-content');
   if (!mount) return;
+  const myToken = ++_adminRenderToken;
   let trees = [], totalPages = 1, branchAdminRecords = [], memberCounts = {};
   try {
     const q = _adminBranchesState.search.trim();
@@ -6914,6 +6920,7 @@ async function _renderAdminBranches(){
     </tr>`;
   }).join('') : '<tr><td colspan="5" style="color:var(--text-muted);text-align:center;padding:1rem">No family trees match.</td></tr>';
 
+  if (myToken !== _adminRenderToken) return;
   mount.innerHTML = `
     <div class="admin-filter-bar">
       <input id="admin-branches-search" placeholder="Search branch name…" value="${esc(_adminBranchesState.search)}" oninput="_adminBranchesSearch()" />
@@ -6945,6 +6952,7 @@ function _adminBranchesGoToPage(p){
 async function _renderAdminServiceAccounts(){
   const mount = el('admin-tab-content');
   if (!mount) return;
+  const myToken = ++_adminRenderToken;
   let accounts = [];
   try {
     const res = await apiFetch(`/api/collections/users/records?filter=${encodeURIComponent('(email ~ "svc-")')}&perPage=20&sort=name&expand=home_tree`);
@@ -6957,6 +6965,7 @@ async function _renderAdminServiceAccounts(){
     <td>${esc((u.expand && u.expand.home_tree && u.expand.home_tree.name) || '—')}</td>
   </tr>`).join('') : '<tr><td colspan="3" style="color:var(--text-muted);text-align:center;padding:1rem">No service accounts found.</td></tr>';
 
+  if (myToken !== _adminRenderToken) return;
   mount.innerHTML = `
     <p style="font-size:.82rem;color:var(--text-secondary);margin-bottom:1rem">
       Managed by <code>tools/*</code> scripts, not through this panel.
