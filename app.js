@@ -6666,32 +6666,95 @@ function _renderClaimsTableRows(claims){
     </tr>`;
   }).join('');
 }
+let _adminActiveTab = 'pending';
+let _adminRenderToken = 0;
+
 SCREENS.admin = async function(){
   if (!(currentUser && currentUser.family_admin)) { navigate('home'); return; }
   mountMain('<div class="screen-pad" style="max-width:1100px"><div class="spinner"></div></div>');
 
-  let pending = [], members = [], albumCount = 0, newsCount = 0, claims = [],
-      branchAdminRecords = [], trees = [];
+  const statsHtml = await _adminRenderStats();
+
+  mountMain(`<div class="screen-pad" style="max-width:1100px">
+    <h1 class="card-title" style="margin-bottom:1.25rem">Admin Panel</h1>
+    <div id="admin-stats-mount">${statsHtml}</div>
+    <div class="admin-tabs" id="admin-tabs">
+      <div class="admin-tab${_adminActiveTab==='pending'?' active':''}" onclick="_adminSwitchTab('pending')">Pending Approvals</div>
+      <div class="admin-tab${_adminActiveTab==='members'?' active':''}" onclick="_adminSwitchTab('members')">Members</div>
+      <div class="admin-tab${_adminActiveTab==='branches'?' active':''}" onclick="_adminSwitchTab('branches')">Branches</div>
+      <div class="admin-tab${_adminActiveTab==='service'?' active':''}" onclick="_adminSwitchTab('service')">Service Accounts</div>
+    </div>
+    <div id="admin-tab-content"><div class="spinner"></div></div>
+  </div>`);
+
+  await _adminRenderActiveTab();
+};
+
+async function _adminRenderStats(){
+  let memberCount = 0, pendingCount = 0, albumCount = 0, newsCount = 0;
   try {
-    const [pRes, mRes, aRes, nRes, cRes, baRes, tRes] = await Promise.all([
-      apiFetch('/api/collections/users/records?filter=(approved=false)&perPage=100&sort=created'),
-      apiFetch('/api/collections/users/records?filter=(approved=true)&perPage=200&sort=name'),
+    const [mRes, pRes, aRes, nRes] = await Promise.all([
+      apiFetch('/api/collections/users/records?filter=(approved=true)&perPage=1'),
+      apiFetch('/api/collections/users/records?filter=(approved=false)&perPage=1'),
       apiFetch('/api/collections/albums/records?perPage=1'),
-      apiFetch('/api/collections/news/records?perPage=1'),
-      apiFetch('/api/collections/person_claims/records?filter=(status="pending")&perPage=100&expand=person,user&sort=created'),
-      apiFetch('/api/collections/branch_admins/records?perPage=200&expand=user'),
-      apiFetch('/api/collections/trees/records?perPage=200&sort=name')
+      apiFetch('/api/collections/news/records?perPage=1')
+    ]);
+    if (mRes.ok) memberCount = (await mRes.json()).totalItems || 0;
+    if (pRes.ok) pendingCount = (await pRes.json()).totalItems || 0;
+    if (aRes.ok) albumCount = (await aRes.json()).totalItems || 0;
+    if (nRes.ok) newsCount = (await nRes.json()).totalItems || 0;
+  } catch { /* ignore */ }
+  const stat = (v, l) => `<div class="stat-card"><div class="stat-val">${v}</div><div class="stat-label">${l}</div></div>`;
+  return `<div class="admin-stats">
+    ${stat(memberCount, 'Approved members')}
+    ${stat(pendingCount, 'Pending approvals')}
+    ${stat(albumCount, 'Albums')}
+    ${stat(newsCount, 'News posts')}
+  </div>`;
+}
+
+async function _adminRefreshStats(){
+  const mount = el('admin-stats-mount');
+  if (!mount) return;
+  mount.innerHTML = await _adminRenderStats();
+}
+
+function _adminSwitchTab(tabName){
+  _adminActiveTab = tabName;
+  if (tabName === 'members') _adminMembersState = { page: 1, search: '', role: 'all', status: 'all' };
+  if (tabName === 'branches') _adminBranchesState = { page: 1, search: '' };
+  document.querySelectorAll('#admin-tabs .admin-tab').forEach(t => t.classList.remove('active'));
+  const active = document.querySelector(`#admin-tabs .admin-tab[onclick*="'${tabName}'"]`);
+  if (active) active.classList.add('active');
+  _adminRenderActiveTab();
+}
+
+async function _adminRenderActiveTab(){
+  const mount = el('admin-tab-content');
+  if (!mount) return;
+  mount.innerHTML = '<div class="spinner"></div>';
+  const statsPromise = _adminRefreshStats();
+  let tabPromise;
+  if (_adminActiveTab === 'pending') tabPromise = _renderAdminPending();
+  else if (_adminActiveTab === 'members') tabPromise = _renderAdminMembers();
+  else if (_adminActiveTab === 'branches') tabPromise = _renderAdminBranches();
+  else if (_adminActiveTab === 'service') tabPromise = _renderAdminServiceAccounts();
+  await Promise.all([statsPromise, tabPromise]);
+}
+
+async function _renderAdminPending(){
+  const mount = el('admin-tab-content');
+  if (!mount) return;
+  const myToken = ++_adminRenderToken;
+  let pending = [], claims = [];
+  try {
+    const [pRes, cRes] = await Promise.all([
+      apiFetch('/api/collections/users/records?filter=(approved=false)&perPage=100&sort=created'),
+      apiFetch('/api/collections/person_claims/records?filter=(status="pending")&perPage=100&expand=person,user&sort=created')
     ]);
     if (pRes.ok) pending = (await pRes.json()).items || [];
-    if (mRes.ok) { const d = await mRes.json(); members = d.items || []; }
-    if (aRes.ok) albumCount = (await aRes.json()).totalItems || 0;
-    if (nRes.ok) newsCount  = (await nRes.json()).totalItems || 0;
     if (cRes.ok) claims = (await cRes.json()).items || [];
-    if (baRes.ok) branchAdminRecords = (await baRes.json()).items || [];
-    if (tRes.ok) trees = (await tRes.json()).items || [];
   } catch { /* ignore */ }
-
-  const stat = (v, l) => `<div class="stat-card"><div class="stat-val">${v}</div><div class="stat-label">${l}</div></div>`;
 
   const pendingRows = pending.length
     ? pending.map(u => {
@@ -6710,33 +6773,15 @@ SCREENS.admin = async function(){
       }).join('')
     : '<tr><td colspan="5" style="color:var(--text-muted);text-align:center;padding:1rem">No pending requests.</td></tr>';
 
-  const memberRows = members.map(u => `<tr>
-    <td>${esc(u.name || '—')}</td>
-    <td>${esc(u.email || '—')}</td>
-    <td>${u.created ? new Date(u.created).toLocaleDateString() : '—'}</td>
-    <td>${u.family_admin ? '<span class="pill">Admin</span>' : ''}</td>
-    <td>${u.id !== userId
-      ? `<button class="btn btn-outline btn-sm" onclick="adminToggleAdmin('${u.id}',${!u.family_admin})">${u.family_admin ? 'Remove admin' : 'Make admin'}</button>`
-      : '<span style="color:var(--text-muted);font-size:.82rem">You</span>'}</td>
-  </tr>`).join('');
-
-  mountMain(`<div class="screen-pad" style="max-width:1100px">
-    <h1 class="card-title" style="margin-bottom:1.25rem">Admin Panel</h1>
-    <div class="admin-stats">
-      ${stat(members.length, 'Approved members')}
-      ${stat(pending.length, 'Pending approvals')}
-      ${stat(albumCount, 'Albums')}
-      ${stat(newsCount, 'News posts')}
-    </div>
-
-    ${pending.length ? `<div class="admin-section">Pending approvals</div>
+  if (myToken !== _adminRenderToken) return;
+  mount.innerHTML = `
+    <div class="admin-section" style="margin-top:0">Pending approvals</div>
     <div class="admin-table-wrap">
       <table class="admin-table">
         <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Signed up</th><th>Actions</th></tr></thead>
         <tbody>${pendingRows}</tbody>
       </table>
-    </div>` : ''}
-
+    </div>
     ${claims.length ? `<div class="admin-section">Tree claims (${claims.length} pending)</div>
     <div class="admin-table-wrap">
       <table class="admin-table">
@@ -6744,37 +6789,205 @@ SCREENS.admin = async function(){
         <tbody>${_renderClaimsTableRows(claims)}</tbody>
       </table>
     </div>` : ''}
+  `;
+}
 
-    <div class="admin-section">All members</div>
+let _adminMembersState = { page: 1, search: '', role: 'all', status: 'all' };
+let _adminMembersSearchTimer = null;
+
+function _adminMembersBuildFilter(){
+  const clauses = ['email !~ "svc-"'];
+  if (_adminMembersState.status === 'approved') clauses.push('approved=true');
+  else if (_adminMembersState.status === 'pending') clauses.push('approved=false');
+  if (_adminMembersState.role === 'admin') clauses.push('family_admin=true');
+  else if (_adminMembersState.role === 'regular') clauses.push('family_admin=false');
+  const q = _adminMembersState.search.trim();
+  if (q) clauses.push(`(name~"${q}" || email~"${q}")`);
+  return `(${clauses.join(' && ')})`;
+}
+
+async function _renderAdminMembers(){
+  const mount = el('admin-tab-content');
+  if (!mount) return;
+  const myToken = ++_adminRenderToken;
+  let members = [], totalPages = 1;
+  try {
+    const filter = encodeURIComponent(_adminMembersBuildFilter());
+    const res = await apiFetch(`/api/collections/users/records?filter=${filter}&perPage=25&page=${_adminMembersState.page}&sort=name`);
+    if (res.ok) { const d = await res.json(); members = d.items || []; totalPages = d.totalPages || 1; }
+  } catch { /* ignore */ }
+
+  const memberRows = members.length ? members.map(u => `<tr>
+    <td>${esc(u.name || '—')}</td>
+    <td>${esc(u.email || '—')}</td>
+    <td>${u.created ? new Date(u.created).toLocaleDateString() : '—'}</td>
+    <td>${u.family_admin ? '<span class="pill">Admin</span>' : ''}</td>
+    <td>${u.id !== userId
+      ? `<button class="btn btn-outline btn-sm" onclick="adminToggleAdmin('${u.id}',${!u.family_admin})">${u.family_admin ? 'Remove admin' : 'Make admin'}</button>`
+      : '<span style="color:var(--text-muted);font-size:.82rem">You</span>'}</td>
+  </tr>`).join('') : '<tr><td colspan="5" style="color:var(--text-muted);text-align:center;padding:1rem">No members match.</td></tr>';
+
+  if (myToken !== _adminRenderToken) return;
+  mount.innerHTML = `
+    <div class="admin-filter-bar">
+      <input id="admin-members-search" placeholder="Search name or email…" value="${esc(_adminMembersState.search)}" oninput="_adminMembersSearch()" />
+      <select id="admin-members-role" onchange="_adminMembersSetFilter('role', this.value)">
+        <option value="all" ${_adminMembersState.role==='all'?'selected':''}>All roles</option>
+        <option value="admin" ${_adminMembersState.role==='admin'?'selected':''}>Admin</option>
+        <option value="regular" ${_adminMembersState.role==='regular'?'selected':''}>Regular</option>
+      </select>
+      <select id="admin-members-status" onchange="_adminMembersSetFilter('status', this.value)">
+        <option value="all" ${_adminMembersState.status==='all'?'selected':''}>All statuses</option>
+        <option value="approved" ${_adminMembersState.status==='approved'?'selected':''}>Approved</option>
+        <option value="pending" ${_adminMembersState.status==='pending'?'selected':''}>Pending</option>
+      </select>
+    </div>
     <div class="admin-table-wrap">
       <table class="admin-table">
         <thead><tr><th>Name</th><th>Email</th><th>Joined</th><th>Role</th><th></th></tr></thead>
         <tbody>${memberRows}</tbody>
       </table>
     </div>
+    ${_adminPaginationHtml(_adminMembersState.page, totalPages, '_adminMembersGoToPage')}`;
+}
 
-    <div class="admin-section">Branches</div>
+function _adminMembersSearch(){
+  clearTimeout(_adminMembersSearchTimer);
+  _adminMembersSearchTimer = setTimeout(() => {
+    const inp = el('admin-members-search');
+    _adminMembersState.search = inp ? inp.value : '';
+    _adminMembersState.page = 1;
+    _renderAdminMembers();
+  }, 200);
+}
+
+function _adminMembersSetFilter(kind, value){
+  _adminMembersState[kind] = value;
+  _adminMembersState.page = 1;
+  _renderAdminMembers();
+}
+
+function _adminMembersGoToPage(p){
+  _adminMembersState.page = p;
+  _renderAdminMembers();
+}
+
+let _adminBranchesState = { page: 1, search: '' };
+let _adminBranchesSearchTimer = null;
+
+async function _renderAdminBranches(){
+  const mount = el('admin-tab-content');
+  if (!mount) return;
+  const myToken = ++_adminRenderToken;
+  let trees = [], totalPages = 1, branchAdminRecords = [], memberCounts = {};
+  try {
+    const q = _adminBranchesState.search.trim();
+    const filter = q ? `&filter=${encodeURIComponent(`(name~"${q}")`)}` : '';
+    const tRes = await apiFetch(`/api/collections/trees/records?perPage=15&page=${_adminBranchesState.page}${filter}&sort=name`);
+    if (tRes.ok) { const d = await tRes.json(); trees = d.items || []; totalPages = d.totalPages || 1; }
+
+    if (trees.length) {
+      const treeIds = trees.map(t => t.id);
+      const baFilter = encodeURIComponent(`(${treeIds.map(id => `tree ?~ "${id}"`).join(' || ')})`);
+      const baRes = await apiFetch(`/api/collections/branch_admins/records?filter=${baFilter}&perPage=200&expand=user`);
+      if (baRes.ok) branchAdminRecords = (await baRes.json()).items || [];
+
+      const countResults = await Promise.all(treeIds.map(id =>
+        apiFetch(`/api/collections/persons/records?filter=${encodeURIComponent(`(tree="${id}")`)}&perPage=1`)
+          .then(r => r.ok ? r.json() : { totalItems: 0 })
+          .then(d => ({ id, count: d.totalItems || 0 }))
+          .catch(() => ({ id, count: 0 }))
+      ));
+      countResults.forEach(r => { memberCounts[r.id] = r.count; });
+    }
+  } catch { /* ignore */ }
+
+  const rows = trees.length ? trees.map(tree => {
+    const rec = branchAdminRecords.find(r => (r.tree || []).includes(tree.id));
+    const u = rec && rec.expand && rec.expand.user;
+    const linkedNames = (tree.linked_trees || []).length
+      ? trees.filter(t2 => (tree.linked_trees || []).includes(t2.id)).map(t2 => esc(t2.name)).join(', ') || '—'
+      : '—';
+    return `<tr>
+      <td>${esc(tree.name)}</td>
+      <td>${memberCounts[tree.id] || 0}</td>
+      <td>${linkedNames}</td>
+      <td>${u ? esc(u.name || u.email) : '<span style="color:var(--text-muted)">Unassigned</span>'}</td>
+      <td>${rec
+        ? `<button class="btn btn-danger btn-sm" onclick="removeBranchAdmin('${rec.id}')">Remove</button>`
+        : `<button class="btn btn-outline btn-sm" onclick="openAssignBranchAdmin('${tree.id}','${esc(tree.name)}')">Assign</button>`
+      }</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="5" style="color:var(--text-muted);text-align:center;padding:1rem">No family trees match.</td></tr>';
+
+  if (myToken !== _adminRenderToken) return;
+  mount.innerHTML = `
+    <div class="admin-filter-bar">
+      <input id="admin-branches-search" placeholder="Search branch name…" value="${esc(_adminBranchesState.search)}" oninput="_adminBranchesSearch()" />
+    </div>
     <div class="admin-table-wrap">
       <table class="admin-table">
-        <thead><tr><th>Tree</th><th>Branch admin</th><th></th></tr></thead>
-        <tbody>${trees.map(tree => {
-          const rec = branchAdminRecords.find(r => (r.tree || []).includes(tree.id));
-          const u = rec && rec.expand && rec.expand.user;
-          return `<tr>
-            <td>${esc(tree.name)}</td>
-            <td>${u ? esc(u.name || u.email) : '<span style="color:var(--text-muted)">Unassigned</span>'}</td>
-            <td>${rec
-              ? `<button class="btn btn-danger btn-sm" onclick="removeBranchAdmin('${rec.id}')">Remove</button>`
-              : `<button class="btn btn-outline btn-sm" onclick="openAssignBranchAdmin('${tree.id}','${esc(tree.name)}')">Assign</button>`
-            }</td>
-          </tr>`;
-        }).join('')}
-        ${trees.length === 0 ? '<tr><td colspan="3" style="color:var(--text-muted);text-align:center;padding:1rem">No family trees yet.</td></tr>' : ''}
-        </tbody>
+        <thead><tr><th>Tree</th><th>Members</th><th>Linked trees</th><th>Branch admin</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
       </table>
     </div>
-  </div>`);
-};
+    ${_adminPaginationHtml(_adminBranchesState.page, totalPages, '_adminBranchesGoToPage')}`;
+}
+
+function _adminBranchesSearch(){
+  clearTimeout(_adminBranchesSearchTimer);
+  _adminBranchesSearchTimer = setTimeout(() => {
+    const inp = el('admin-branches-search');
+    _adminBranchesState.search = inp ? inp.value : '';
+    _adminBranchesState.page = 1;
+    _renderAdminBranches();
+  }, 200);
+}
+
+function _adminBranchesGoToPage(p){
+  _adminBranchesState.page = p;
+  _renderAdminBranches();
+}
+
+async function _renderAdminServiceAccounts(){
+  const mount = el('admin-tab-content');
+  if (!mount) return;
+  const myToken = ++_adminRenderToken;
+  let accounts = [];
+  try {
+    const res = await apiFetch(`/api/collections/users/records?filter=${encodeURIComponent('(email ~ "svc-")')}&perPage=20&sort=name&expand=home_tree`);
+    if (res.ok) accounts = (await res.json()).items || [];
+  } catch { /* ignore */ }
+
+  const rows = accounts.length ? accounts.map(u => `<tr>
+    <td>${esc(u.name || '—')}</td>
+    <td>${esc(u.email || '—')}</td>
+    <td>${esc((u.expand && u.expand.home_tree && u.expand.home_tree.name) || '—')}</td>
+  </tr>`).join('') : '<tr><td colspan="3" style="color:var(--text-muted);text-align:center;padding:1rem">No service accounts found.</td></tr>';
+
+  if (myToken !== _adminRenderToken) return;
+  mount.innerHTML = `
+    <p style="font-size:.82rem;color:var(--text-secondary);margin-bottom:1rem">
+      Managed by <code>tools/*</code> scripts, not through this panel.
+    </p>
+    <div class="admin-table-wrap">
+      <table class="admin-table">
+        <thead><tr><th>Name</th><th>Email</th><th>Pinned tree</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+function _adminPaginationHtml(currentPage, totalPages, goToPageFnName){
+  if (totalPages <= 1) return '';
+  const prevDisabled = currentPage <= 1 ? 'disabled' : '';
+  const nextDisabled = currentPage >= totalPages ? 'disabled' : '';
+  return `<div class="admin-pagination">
+    <button class="btn btn-outline btn-sm" ${prevDisabled} onclick="${goToPageFnName}(${currentPage - 1})">Prev</button>
+    <span class="admin-pagination-label">Page ${currentPage} of ${totalPages}</span>
+    <button class="btn btn-outline btn-sm" ${nextDisabled} onclick="${goToPageFnName}(${currentPage + 1})">Next</button>
+  </div>`;
+}
 
 async function adminApprove(id){
   try {
@@ -6784,7 +6997,7 @@ async function adminApprove(id){
     toast('Member approved.', 'success');
     await refreshPending();
     renderSidebar();
-    SCREENS.admin();
+    _adminRenderActiveTab();
   } catch (e) { toast(e.message, 'error'); }
 }
 
@@ -6796,7 +7009,7 @@ async function adminDeny(id){
     toast('Account removed.', 'success');
     await refreshPending();
     renderSidebar();
-    SCREENS.admin();
+    _adminRenderActiveTab();
   } catch (e) { toast(e.message, 'error'); }
 }
 
@@ -6807,7 +7020,7 @@ async function adminToggleAdmin(id, makeAdmin){
       body: JSON.stringify(makeAdmin ? { family_admin: true, approved: true } : { family_admin: false }) });
     if (!res.ok) throw new Error('Could not update');
     toast(makeAdmin ? 'Made admin.' : 'Admin removed.', 'success');
-    SCREENS.admin();
+    _adminRenderActiveTab();
   } catch (e) { toast(e.message, 'error'); }
 }
 
@@ -6862,7 +7075,7 @@ async function saveBranchAdmin(treeId){
     if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Could not assign'); }
     closeModal();
     toast('Branch admin assigned.', 'success');
-    SCREENS.admin();
+    _adminRenderActiveTab();
   } catch (e) { formErr('ba-error', e.message); }
 }
 
@@ -6871,7 +7084,7 @@ async function removeBranchAdmin(recordId){
     const res = await apiFetch(`/api/collections/branch_admins/records/${recordId}`, { method:'DELETE' });
     if (!res.ok) throw new Error('Could not remove');
     toast('Branch admin removed.', 'success');
-    SCREENS.admin();
+    _adminRenderActiveTab();
   } catch (e) { toast(e.message, 'error'); }
 }
 
@@ -6891,7 +7104,7 @@ async function adminApproveClaim(claimId, personId, claimUserId){
     });
     toast('Claim approved.', 'success');
     await loadBranchAdminState(); renderSidebar();
-    const caller = (currentUser && currentUser.family_admin) ? SCREENS.admin : SCREENS.branchadmin;
+    const caller = (currentUser && currentUser.family_admin) ? _adminRenderActiveTab : SCREENS.branchadmin;
     caller();
   } catch (e) { toast(e.message, 'error'); }
 }
@@ -6908,7 +7121,7 @@ async function adminDenyClaim(claimId, claimUserId){
     });
     toast('Claim denied.', 'success');
     await loadBranchAdminState(); renderSidebar();
-    const caller = (currentUser && currentUser.family_admin) ? SCREENS.admin : SCREENS.branchadmin;
+    const caller = (currentUser && currentUser.family_admin) ? _adminRenderActiveTab : SCREENS.branchadmin;
     caller();
   } catch (e) { toast(e.message, 'error'); }
 }
