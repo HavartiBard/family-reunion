@@ -6676,7 +6676,7 @@ SCREENS.admin = async function(){
 
   mountMain(`<div class="screen-pad" style="max-width:1100px">
     <h1 class="card-title" style="margin-bottom:1.25rem">Admin Panel</h1>
-    ${statsHtml}
+    <div id="admin-stats-mount">${statsHtml}</div>
     <div class="admin-tabs" id="admin-tabs">
       <div class="admin-tab${_adminActiveTab==='pending'?' active':''}" onclick="_adminSwitchTab('pending')">Pending Approvals</div>
       <div class="admin-tab${_adminActiveTab==='members'?' active':''}" onclick="_adminSwitchTab('members')">Members</div>
@@ -6712,6 +6712,12 @@ async function _adminRenderStats(){
   </div>`;
 }
 
+async function _adminRefreshStats(){
+  const mount = el('admin-stats-mount');
+  if (!mount) return;
+  mount.innerHTML = await _adminRenderStats();
+}
+
 function _adminSwitchTab(tabName){
   _adminActiveTab = tabName;
   if (tabName === 'members') _adminMembersState = { page: 1, search: '', role: 'all', status: 'all' };
@@ -6726,10 +6732,13 @@ async function _adminRenderActiveTab(){
   const mount = el('admin-tab-content');
   if (!mount) return;
   mount.innerHTML = '<div class="spinner"></div>';
-  if (_adminActiveTab === 'pending') return _renderAdminPending();
-  if (_adminActiveTab === 'members') return _renderAdminMembers();
-  if (_adminActiveTab === 'branches') return _renderAdminBranches();
-  if (_adminActiveTab === 'service') return _renderAdminServiceAccounts();
+  const statsPromise = _adminRefreshStats();
+  let tabPromise;
+  if (_adminActiveTab === 'pending') tabPromise = _renderAdminPending();
+  else if (_adminActiveTab === 'members') tabPromise = _renderAdminMembers();
+  else if (_adminActiveTab === 'branches') tabPromise = _renderAdminBranches();
+  else if (_adminActiveTab === 'service') tabPromise = _renderAdminServiceAccounts();
+  await Promise.all([statsPromise, tabPromise]);
 }
 
 async function _renderAdminPending(){
